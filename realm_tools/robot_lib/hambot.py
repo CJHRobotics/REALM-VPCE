@@ -1,6 +1,7 @@
 from realm_tools.simulation_lib.environment import Maze
-from controller import Supervisor
+from controller import Supervisor, Display
 from matplotlib import patches
+from PIL import Image
 import math
 import operator
 
@@ -284,8 +285,14 @@ class HamBot(Supervisor):
         return distance_to_goal
 
     # Plots Place cells and shows them on the Display
-    def update_robot_display(self,name='default'):
+    def update_robot_display(self, name='default'):
+        display_width = self.robot_display.getWidth()
+        display_height = self.robot_display.getHeight()
+        img = Image.open('data/DataCache/' + name + '.png').convert('RGB')
+        img = img.resize((display_width, display_height))
+        data = img.tobytes()
         while self.experiment_supervisor.step(self.timestep) != -1:
-            ir = self.robot_display.imageLoad('data/DataCache/'+name+'.png')
-            self.robot_display.imagePaste(ir, 0, 0, True)
+            ir = self.robot_display.imageNew(data, Display.RGB, display_width, display_height)
+            self.robot_display.imagePaste(ir, 0, 0, False)
+            self.robot_display.imageDelete(ir)
             break
