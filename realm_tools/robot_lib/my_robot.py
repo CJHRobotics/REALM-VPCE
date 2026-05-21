@@ -1,6 +1,5 @@
 from realm_tools.robot_lib.hambot import HamBot
 
-
 class MyRobot(HamBot):
 
     def __init__(self):

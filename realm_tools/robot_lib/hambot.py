@@ -2,18 +2,19 @@ from realm_tools.simulation_lib.environment import Maze
 from controller import Supervisor
 from matplotlib import patches
 import math
+import operator
 
 class HamBot(Supervisor):
 
-    # Initiilize an instance of Webots Harrison's RosBot
+    # Initiilize an instance of HamBot
     def __init__(self):
 
         # Inherent from Webots Robot Class: https://cyberbotics.com/doc/reference/robot
         self.experiment_supervisor = Supervisor()
 
         # Add a display to plot the place cells as they are generated
-        self.pc_display = self.experiment_supervisor.getDevice('Place Cell Display')
-        self.pc_display.setOpacity(1.0)
+        self.robot_display = self.experiment_supervisor.getDevice('Robot Display')
+        self.robot_display.setOpacity(1.0)
 
         # Sets Supervisor Root Nodes
         self.root_node = self.experiment_supervisor.getRoot()
@@ -71,6 +72,7 @@ class HamBot(Supervisor):
         self.gps.enable(self.timestep)
 
         self.sensor_calibration()
+        self.update_robot_display()
 
     # Preforms one timestep to update all sensors should be used when initializing robot and after teleport
     def sensor_calibration(self,stop_num =1):
@@ -84,14 +86,14 @@ class HamBot(Supervisor):
         while self.experiment_supervisor.step(self.timestep) != -1:
             current_x, current_y, current_z = self.robot_translation_field.getSFVec3f()
             break
-        return current_x, current_y, self.get_bearing()
+        return current_x, current_y, self.get_compass_reading()
 
     # Reads the robot's IMU compass and return bearing in degrees
     #   North   -> 90
     #   East    -> 0 or 360
     #   South   -> 270
     #   West    -> 180
-    def get_bearing(self):
+    def get_compass_reading(self):
         compass_reading = self.imu.getRollPitchYaw()
         bearing = math.degrees(compass_reading[-1])
         if bearing < 0.0:
@@ -107,13 +109,16 @@ class HamBot(Supervisor):
     def get_encoder_readings(self):
         return [readings.getValue() for readings in self.all_encoders]
 
+    def sat(self, velocity):
+        return max(-self.max_motor_velocity, min(self.max_motor_velocity, velocity))
+
     # Sets Front Left Motor Velocity (rad/sec)
-    def set_left_motor_velocity(self, velocity, suppress=False):
-        self.left_motor.setVelocity(self.velocity_saturation(velocity, suppress=suppress))
+    def set_left_motor_velocity(self, velocity):
+        self.left_motor.setVelocity(self.sat(velocity))
 
     # Sets Front Right Motor Velocity (rad/sec)
-    def set_right_motor_velocity(self, velocity, suppress=False):
-        self.right_motor.setVelocity(self.velocity_saturation(velocity, suppress=suppress))
+    def set_right_motor_velocity(self, velocity):
+        self.right_motor.setVelocity(self.sat(velocity))
 
     # Sets all motors speed to 0
     def stop(self):
@@ -133,7 +138,7 @@ class HamBot(Supervisor):
     # Sets all motors speed to velocity
     def go_forward(self, velocity=1):
         for motor in self.all_motors:
-            motor.setVelocity(self.velocity_saturation(velocity))
+            motor.setVelocity(self.sat(velocity))
 
     # Gets Current Front Left Motor Encoder Reading (meters)
     def get_left_motor_encoder_reading(self):
@@ -147,23 +152,64 @@ class HamBot(Supervisor):
     def get_lidar_range_image(self):
         return self.lidar.getRangeImage()
 
+    def rotate(self, degrees = 90,  Kp=1, Ki=0, Kd=0, margin_error = 0.01):
+        I = 0.0
+        prev_error = 0.0
+        dt = 0.032
 
+        # degrees > 0 -> ccw
+        # degrees < 0 -> cw
+
+        setpoint = (self.get_compass_reading() + degrees) % 360
+
+        while self.experiment_supervisor.step(self.timestep) != -1:
+            current_heading =  self.get_compass_reading()
+            error = (setpoint - current_heading+180)%360 -180 # (-180,180)
+            P = Kp * error
+
+            I = Ki * (I + error * dt)
+
+            D = Kd * ((error - prev_error) / dt)
+
+            out_signal = abs(self.sat(P + I + D))
+            if -margin_error <= error <= margin_error:
+                self.stop()
+                break
+            elif error < 0:
+                self.set_right_motor_velocity(-out_signal)
+                self.set_left_motor_velocity(out_signal)
+            elif error > 0:
+                self.set_right_motor_velocity(out_signal)
+                self.set_left_motor_velocity(-out_signal)
+
+            prev_error = error
+    def calculate_wheel_distance_traveled(self, starting_encoder_position):
+        current_encoder_readings = self.get_encoder_readings()
+        differences = list(map(operator.sub, current_encoder_readings, starting_encoder_position))
+        average_differences = sum(differences) / len(differences)
+        average_distance = average_differences * self.wheel_radius
+        return average_distance
+    def move_forward(self, distance, Kp=20, margin_error=0.01):
+        starting_encoder_position = self.get_encoder_readings()
+        while self.experiment_supervisor.step(self.timestep) != -1:
+            error = distance - self.calculate_wheel_distance_traveled(starting_encoder_position)
+            if error <= margin_error:
+                self.stop()
+                break
+            self.go_forward(velocity=self.sat(Kp * error))
 
 
     # Supervisor Functions: allows robot to control the simulation
     # DO NOT MODIFY: unless you are attempting to manipulate the webots world simulations!!!
 
     # Takes in a xml maze file and creates the walls, starting locations, and goal locations
-    def load_environment(self, maze_file):
-        self.maze = Maze(maze_file, display_width=self.pc_display.getWidth(),
-                         display_height=self.pc_display.getHeight())
-        self.pc_figure, self.pc_figure_ax = self.maze.get_maze_figure()
-        self.pc_figure.savefig('data/DataCache/temp.png')
-
-        while self.experiment_supervisor.step(self.timestep) != -1:
-            ir = self.pc_display.imageLoad('data/DataCache/temp.png')
-            self.pc_display.imagePaste(ir, 0, 0, True)
-            break
+    def load_environment(self, maze_file,display =False):
+        self.maze = Maze(maze_file, display_width=self.robot_display.getWidth(),
+                         display_height=self.robot_display.getHeight())
+        if display:
+            self.maze_figure, self.maze_figure_ax = self.maze.get_maze_figure()
+            self.maze_figure.savefig('data/DataCache/maze.png')
+            self.update_robot_display(name='maze')
 
         self.obstical_nodes = []
         self.boundry_wall_nodes = []
@@ -237,18 +283,9 @@ class HamBot(Supervisor):
         distance_to_goal = math.sqrt((current_x - goal_x) ** 2 + (current_y - goal_y) ** 2)
         return distance_to_goal
 
-    def show_loaded_pc_network(self, pc_network):
-        for pc in pc_network.pc_list:
-            self.update_pc_display(pc)
-
     # Plots Place cells and shows them on the Display
-    def update_pc_display(self, place_cell):
-        new_pc = patches.Circle((place_cell.center_x, place_cell.center_y), radius=place_cell.radius, fill=False)
-        self.pc_figure_ax.add_patch(new_pc)
-        self.pc_figure_ax.set_ylim(-4.25, 4.25)
-        self.pc_figure_ax.set_xlim(-4.25, 4.25)
-        self.pc_figure.savefig('data/DataCache/temp.png')
+    def update_robot_display(self,name='default'):
         while self.experiment_supervisor.step(self.timestep) != -1:
-            ir = self.pc_display.imageLoad('data/DataCache/temp.png')
-            self.pc_display.imagePaste(ir, 0, 0, True)
+            ir = self.robot_display.imageLoad('data/DataCache/'+name+'.png')
+            self.robot_display.imagePaste(ir, 0, 0, True)
             break

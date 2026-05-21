@@ -352,7 +352,7 @@ PROTO HamBot [
       }
 
       Display {
-        name "Place Cell Display"
+        name "Robot Display"
         width 800
         height 800
       }
