@@ -227,3 +227,4 @@ __marimo__/
 .env
 .vscode/
 realm_tools/robot_lib/chance_robot.py
+*_venv/
