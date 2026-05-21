@@ -119,21 +119,21 @@ def parse_all_positions(xml_positions):
 
 def parse_maze(file):
     root = ET.parse(file).getroot()
-    experiment_start_positions = parse_all_positions(root.find('experimentStartPositions'))
-    habituation_start_positions = parse_all_positions(root.find('habituationStartPositions'))
+    training_start_positions = parse_all_positions(root.find('TrainStartPositions'))
+    testing_start_positions = parse_all_positions(root.find('TestStartPositions'))
     walls = parse_all_obsticles(root)
     goals = parse_all_goals(root)
     cylinder_landmarks = parse_all_cylinder_landmarks(root)
     tag_landmarks = parse_all_tag_landmarks(root)
 
-    return walls, goals, experiment_start_positions, habituation_start_positions, cylinder_landmarks, tag_landmarks
+    return walls, goals, training_start_positions, testing_start_positions, cylinder_landmarks, tag_landmarks
 
 
 def parse_maze_for_wavefront(file):
     root = ET.parse(file).getroot()
-    experiment_start_positions = parse_all_positions(root.find('experimentStartPositions'))
-    habituation_start_positions = parse_all_positions(root.find('habituationStartPositions'))
-    starting_positions = pd.concat([experiment_start_positions, habituation_start_positions])
+    training_start_positions = parse_all_positions(root.find('TrainStartPositions'))
+    testing_start_positions = parse_all_positions(root.find('TestStartPositions'))
+    starting_positions = pd.concat([training_start_positions, testing_start_positions])
     walls = parse_all_obsticles(root)
     goals = parse_all_goals(root)
     cylinder_landmarks = parse_all_cylinder_landmarks(root)

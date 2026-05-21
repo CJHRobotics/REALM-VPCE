@@ -33,10 +33,10 @@ def make_maze_plot_with_pc(display_width, display_height, maze_file="simulation/
 
     axs.add_collection(pycol.LineCollection(maze.walls, linewidths=2))
 
-    for point in maze.experiment_starting_location:
+    for point in maze.training_starting_location:
         new_crc = patches.Circle((point.x, point.y), radius=.05, color='green')
         axs.add_patch(new_crc)
-    for point in maze.habituation_start_location:
+    for point in maze.testing_start_location:
         new_crc = patches.Circle((point.x, point.y), radius=.05, color='blue')
         axs.add_patch(new_crc)
     for point in maze.goal_locations:
@@ -56,15 +56,15 @@ class Maze:
         self.length = 0
         self.width = 0
         self.boundary_walls = []
-        self.experiment_starting_location = []
-        self.habituation_start_location = []
+        self.training_starting_location = []
+        self.testing_start_location = []
         self.goal_locations = []
         self.obstacles = []
         self.walls = []
         self.cylinder_landmarks = []
         self.tag_landmarks = []
 
-        walls, goals, experiment_start_positions, habituation_start_positions, cylinder_landmarks, tag_landmarks = parse_maze(maze_file)
+        walls, goals, train_start_positions, test_start_positions, cylinder_landmarks, tag_landmarks = parse_maze(maze_file)
         for index, row in walls.iterrows():
             if index <= 3:
                 self.boundary_walls.append(BoundaryWall(row['x1'], row['y1'], row['x2'], row['y2'], width=row['width'], id=index))
@@ -72,11 +72,11 @@ class Maze:
                 self.obstacles.append(Obstacle(row['x1'], row['y1'], row['x2'], row['y2'], width=row['width'], id=index - 4))
             self.walls.append([(row['x1'], row['y1']), (row['x2'], row['y2'])])
 
-        for index, row in experiment_start_positions.iterrows():
-            self.experiment_starting_location.append(StartingPosition(row['x'], row['y'], row['theta']))
+        for index, row in train_start_positions.iterrows():
+            self.training_starting_location.append(StartingPosition(row['x'], row['y'], row['theta']))
 
-        for index, row in habituation_start_positions.iterrows():
-            self.habituation_start_location.append(StartingPosition(row['x'], row['y'], row['theta']))
+        for index, row in test_start_positions.iterrows():
+            self.testing_start_location.append(StartingPosition(row['x'], row['y'], row['theta']))
 
         for index, row in goals.iterrows():
             self.goal_locations.append(Goal(row['x'], row['y'], row['id']))
@@ -95,11 +95,10 @@ class Maze:
 
         self.make_maze_plot(display_width, display_height)
 
-        self.random_experiment_starting_position_generator = RandomStartPositionGenerator(
-            self.experiment_starting_location)
-        self.random_habituation_starting_position_generator = RandomStartPositionGenerator(
-            self.habituation_start_location)
-        self.random_testing_starting_position_generator = RandomStartPositionGenerator(self.habituation_start_location)
+        self.random_training_start_position_generator = RandomStartPositionGenerator(
+            self.training_starting_location)
+        self.random_testing_starting_position_generator = RandomStartPositionGenerator(
+            self.testing_start_location)
 
     def make_maze_plot(self, display_width, display_height):
 
@@ -107,10 +106,10 @@ class Maze:
 
         self.maze_figure_ax.add_collection(pycol.LineCollection(self.walls, linewidths=2))
 
-        for point in self.experiment_starting_location:
+        for point in self.training_starting_location:
             new_crc = patches.Circle((point.x, point.y), radius=.05, color='green')
             self.maze_figure_ax.add_patch(new_crc)
-        for point in self.habituation_start_location:
+        for point in self.testing_start_location:
             new_crc = patches.Circle((point.x, point.y), radius=.05, color='blue')
             self.maze_figure_ax.add_patch(new_crc)
         for point in self.goal_locations:
@@ -124,16 +123,12 @@ class Maze:
     def close_maze_figure(self):
         plt.close(self.maze_figure)
 
-    # Returns random starting positions
-    def get_random_experiment_starting_position(self):
-        return self.random_experiment_starting_position_generator.get_random_start_position()
+    # Returns random training starting positions
+    def get_random_training_starting_position(self):
+        return self.random_training_start_position_generator.get_random_start_position()
 
-    # Returns random starting positions
-    def get_random_experiment_testing_starting_position(self):
+    def get_random_testing_starting_position(self):
         return self.random_testing_starting_position_generator.get_random_start_position()
-
-    def get_random_habituation_starting_position(self):
-        return self.random_habituation_starting_position_generator.get_random_start_position()
 
     # Creates a matplotlib plot of the maze
     def get_maze_figure(self):

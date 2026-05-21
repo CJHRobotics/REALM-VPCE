@@ -244,31 +244,23 @@ class HamBot(Supervisor):
         self.robot_rotation_field.setSFRotation([0, 0, 1, theta])
         self.sensor_calibration()
 
-    def move_to_training_start(self):
-        starting_position = self.maze.experiment_starting_location[0]
-        self.teleport_robot(starting_position.x, starting_position.y, theta=starting_position.theta)
-
-    # Moves the robot to a random starting position
-    def move_to_testing_start(self, index=-1):
-        if index == -1:
-            starting_position = self.maze.get_random_experiment_testing_starting_position()
+    def move_to_start(self, mode='testing', index=0):
+        if mode == 'training':
+            locations = self.maze.training_starting_location
+            get_random = self.maze.get_random_training_starting_position
         else:
-            starting_position = self.maze.experiment_starting_location[index]
-        self.teleport_robot(starting_position.x, starting_position.y, theta=starting_position.theta)
-        return self.get_robot_pose()
+            if mode != 'testing':
+                print(f"Warning: Invalid mode '{mode}', defaulting to 'testing'.")
+            locations = self.maze.testing_start_location
+            get_random = self.maze.get_random_testing_starting_position
 
-    # Moves the robot to a random starting position
-    def move_to_random_experiment_start(self):
-        starting_position = self.maze.get_random_experiment_starting_position()
-        self.teleport_robot(starting_position.x, starting_position.y, theta=starting_position.theta)
-        return self.get_robot_pose()
-
-    # Moves the robot to a random starting position
-    def move_to_habituation_start(self, index=-1):
-        if index == -1:
-            starting_position = self.maze.get_random_habituation_starting_position()
+        if index == -1 or not (0 <= index < len(locations)):
+            if index != -1:
+                print(f"Warning: Index {index} out of range for {mode} starts (0-{len(locations) - 1}), using random.")
+            starting_position = get_random()
         else:
-            starting_position = self.maze.habituation_start_location[index]
+            starting_position = locations[index]
+
         self.teleport_robot(starting_position.x, starting_position.y, theta=starting_position.theta)
         return self.get_robot_pose()
 
