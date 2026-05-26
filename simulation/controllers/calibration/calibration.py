@@ -7,7 +7,7 @@ VELOCITY = 15.0
 TURN_VELOCITY = 3.0
 
 robot = HamBot()
-robot.load_environment('simulation/worlds/mazes/Samples/Calibration.xml')
+robot.load_environment('simulation/worlds/mazes/samples/calibration.xml')
 
 keyboard = robot.experiment_supervisor.getKeyboard()
 keyboard.enable(robot.timestep)
