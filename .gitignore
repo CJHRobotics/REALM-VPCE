@@ -227,7 +227,6 @@ data/DataCache/*
 .DS_Store
 .env
 .vscode/
-realm_tools/robot_lib/chance_robot.py
 *_venv/
 *.wbproj
 .claude

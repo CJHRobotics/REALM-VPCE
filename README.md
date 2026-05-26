@@ -1,13 +1,62 @@
-# REALM
+# REALM-VPCE
 
-**REALM** (Robotic Environment for Autonomous Learning and Mapping) is a template repository for building Webots-based robot simulation experiments centered around reinforcement learning research. The goal is to provide a clean, minimal starting point that can be forked and extended for new papers and experiments without having to rebuild the simulation infrastructure from scratch.
+**REALM** (Robotic Environment for Autonomous Learning and Mapping) extended 
+with the **Visual Place Cell Encoding (VPCE)** model — a biologically inspired 
+framework for generating spatially structured, place-cell-like activation 
+patterns from robot-acquired visual input using unsupervised feature clustering 
+and radial basis function encoding.
 
-The repo provides:
-- A pre-configured HamBot robot with sensors (camera, LiDAR, IMU, GPS, encoders) ready to use in Webots
-- A Gymnasium-compatible environment skeleton for RL training with Stable-Baselines3 or PyTorch
-- Maze/environment loading and management tools
-- Two isolated Python environments — one for simulation/training, one for data analysis
-- A calibration controller for manually driving the robot with keyboard controls
+This repository is a fork of [REALM](https://github.com/CJHRobotics/REALM) 
+developed at the USF BioRobotics Lab. It extends the base simulation 
+infrastructure with the VPCE model and serves as the active codebase for 
+ongoing revisions targeting publication in a peer-reviewed journal.
+
+---
+
+## What is VPCE?
+
+VPCE models hippocampal place-cell-like representations without relying on 
+odometry, path integration, ground-truth coordinates, or task feedback. The 
+model processes point-of-view images collected during robot exploration, 
+extracts high-dimensional visual features, and clusters them in feature space 
+to define a population of visual place cells. Each place cell is characterized 
+by the center and spread of a cluster; activation is computed via a radial 
+basis function over the distance between a new observation and the stored 
+cluster centroids.
+
+### Pipeline
+
+1. **Feature Extraction** — Each image is passed through a pretrained ResNet50 
+   combined with handcrafted descriptors (HOG, color histograms, spatial 
+   histograms) to produce a multimodal feature vector.
+2. **Ensemble Formation** — Feature vectors are clustered using k-means or GMM. 
+   Each cluster centroid defines a visual place cell and its receptive field 
+   in feature space.
+3. **Activation Encoding** — New observations are encoded as a graded 
+   activation pattern across the ensemble using RBF scoring against stored 
+   centroids.
+
+### Key Properties Evaluated
+
+- Spatial proximity encoding
+- Boundary and wall separation (statistically validated)
+- Local remapping under structural change
+- Population sparseness and spatial information content
+- Multi-field place cell emergence under GMM clustering (preliminary)
+
+---
+
+## Repository Status
+
+This repository tracks active revisions to the VPCE model following peer 
+review. Current development priorities include:
+
+- Reframing the biological motivation around primate spatial view cells
+- Explicit repositioning of the RBF assumption as a modeling design choice
+- Addition of statistical significance tests across all evaluation metrics
+- Conversion of tabular results to distributional figures
+- Investigation of sparsity mechanisms (thresholding, k-winners-take-all)
+- Integration of VPCE as a state representation module for RL agents
 
 ---
 
@@ -15,33 +64,31 @@ The repo provides:
 
 ### 1. Python 3.11
 
-REALM requires Python 3.11 specifically.
-
 **macOS:**
-```shell
+```bash
 brew install python@3.11
 ```
 
 **Linux:**
-```shell
+```bash
 sudo apt-get install python3.11
 ```
 
-**Windows:**
-Install Python 3.11 from the [Microsoft Store](https://apps.microsoft.com/store/detail/python-311/9NRWMJP3717K) to avoid PATH issues.
+**Windows:** Install Python 3.11 from the 
+[Microsoft Store](https://apps.microsoft.com/store/detail/python-311/9NRWMJP3717K) 
+to avoid PATH issues.
 
 ### 2. Webots R2025a
 
 Download and install from the [Cyberbotics website](https://cyberbotics.com/#download).
 
-> **Linux users:** Do not install Webots via Snap. Use the `.deb` package or tarball instead.
+> **Linux users:** Do not install Webots via Snap. Use the `.deb` package or 
+> tarball instead.
 
 ### 3. Git
 
-**Windows:** [git-scm.com](https://git-scm.com/download/win)
-
-**Linux:** `sudo apt-get install git`
-
+**Windows:** [git-scm.com](https://git-scm.com/download/win)  
+**Linux:** `sudo apt-get install git`  
 **macOS:** `brew install git`
 
 ---
@@ -50,14 +97,14 @@ Download and install from the [Cyberbotics website](https://cyberbotics.com/#dow
 
 ### 1. Clone the repository
 
-```shell
+```bash
 git clone <your-repo-url>
-cd REALM
+cd REALM-VPCE
 ```
 
 ### 2. Run the install script
 
-```shell
+```bash
 # Core environment only (Webots + RL training)
 python setup/realm_install.py
 
@@ -73,7 +120,7 @@ This will:
 - Generate `runtime.ini` files in all Webots controller directories
 
 To remove the environments:
-```shell
+```bash
 python setup/realm_install.py --uninstall
 python setup/realm_install.py --uninstall --data_analysis
 ```
@@ -81,29 +128,30 @@ python setup/realm_install.py --uninstall --data_analysis
 ### 3. Activate the environment
 
 **macOS/Linux:**
-```shell
+```bash
 source realm_core_venv/bin/activate
 ```
 
 **Windows:**
-```shell
+```bash
 realm_core_venv\Scripts\activate
 ```
 
 For analysis work:
-```shell
+```bash
 source realm_analysis_venv/bin/activate   # macOS/Linux
 realm_analysis_venv\Scripts\activate      # Windows
 ```
 
-> If you add a new controller under `simulation/controllers/`, re-run `python setup/add_runtime_ini.py` to generate its `runtime.ini`.
+> If you add a new controller under `simulation/controllers/`, re-run 
+> `python setup/add_runtime_ini.py` to generate its `runtime.ini`.
 
 ---
 
 ## Project Structure
 
 ```
-REALM/
+REALM-VPCE/
 ├── setup/
 │   ├── realm_install.py          # Install / uninstall script
 │   ├── add_runtime_ini.py        # Generates Webots runtime.ini files
@@ -120,7 +168,7 @@ REALM/
 │   │   ├── maze_parser.py        # XML maze file parser
 │   │   └── webots_torch_environment.py  # Gymnasium environment skeleton
 │   └── image_lib/
-│       ├── feature_extractor.py  # CNN feature extraction
+│       ├── feature_extractor.py  # CNN feature extraction (ResNet50 + HOG)
 │       └── image_feature_lib.py  # Image processing utilities
 │
 ├── simulation/
@@ -140,26 +188,33 @@ REALM/
 
 ## Extending for Your Project
 
-The intended workflow when forking this repo for a new paper:
+The intended workflow when forking this repo for a new experiment:
 
-1. **Robot logic** — subclass `HamBot` in `my_robot.py` and add your experiment-specific methods (action sets, observation processing, etc.)
-2. **Environment** — fill in the `WebotsEnv` skeleton in `webots_torch_environment.py` with your observation space, reward function, and episode logic
-3. **Controllers** — add new Webots controllers under `simulation/controllers/` then re-run `add_runtime_ini.py`
-4. **Personal files** — your personal robot subclass (e.g. `yourname_robot.py`) can be gitignored so the template stays clean for others
+1. **Robot logic** — subclass `HamBot` in `my_robot.py` and add 
+   experiment-specific methods (action sets, observation processing, etc.)
+2. **Environment** — fill in the `WebotsEnv` skeleton in 
+   `webots_torch_environment.py` with your observation space, reward 
+   function, and episode logic
+3. **Controllers** — add new Webots controllers under 
+   `simulation/controllers/` then re-run `add_runtime_ini.py`
+4. **Personal files** — your personal robot subclass (e.g. 
+   `yourname_robot.py`) can be gitignored so the template stays clean 
+   for others
 
 ---
 
 ## Calibration Controller
 
-A keyboard-driven controller is provided for manually testing robot behaviour in Webots:
+A keyboard-driven controller is provided for manually testing robot 
+behaviour in Webots:
 
-| Key | Action |
-|---|---|
-| Arrow Up | Forward |
-| Arrow Down | Backward |
-| Arrow Left | Turn left |
-| Arrow Right | Turn right |
-| Any other key | Stop |
+| Key           | Action      |
+|---------------|-------------|
+| Arrow Up      | Forward     |
+| Arrow Down    | Backward    |
+| Arrow Left    | Turn left   |
+| Arrow Right   | Turn right  |
+| Any other key | Stop        |
 
 Open `simulation/worlds/calibration.wbt` in Webots to use it.
 
@@ -173,3 +228,11 @@ Open `simulation/worlds/calibration.wbt` in Webots to use it.
 - [Webots Controller Guide](https://cyberbotics.com/doc/guide/controller-programming)
 - [Gymnasium API Reference](https://gymnasium.farama.org/api/env/)
 - [Stable-Baselines3 Docs](https://stable-baselines3.readthedocs.io/)
+
+---
+
+## Funding
+
+This work was supported in part by NSF IIS Robust Intelligence grant 
+#1703225 — *Experimental and Robotics Investigations of Multiscale Spatial 
+Memory Consolidation in Complex Environments*, University of South Florida.
