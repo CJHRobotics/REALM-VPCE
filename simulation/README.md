@@ -1,62 +1,259 @@
-# Webot Robot Controllers
-FAIRIS uses python scripts that will be utilized by Webots to control the simulated robot. You can find more 
-details in [Webots Documentation](https://cyberbotics.com/doc/guide/controller-programming?tab-language=python). 
-FAIRIS provides a template and libraries that stream lines the development of robot controller, however you 
-will still need to create new controllers. Below are the steps you will need to follow inorder to create a new Robot 
-Controller.
+# Webots Simulation Overview
 
-### Requirements
-This guide assumes that you have already preformed the [FAIRIS Setup](../../README.md) instructions.
+This document explains the core Webots concepts used in REALM. Each section covers a key component of the simulator, what it does, and links to the official Webots documentation for deeper reference.
 
-## How to create a new Webots Robot Controller
-1. Launch WebotsR2023b and open the world file located in ```FAIRIS/Simulation/worlds/StartingWorld.wbt```
-2. Within the Webots GUI select: ```File -> New -> New Robot Controller...```
+For a full reference, see the [Webots Reference Manual](https://cyberbotics.com/doc/guide/building-webots).
 
-![img.png](../../docs/figs/newcontr1.png)
+---
 
-3. This will launch a new controller creation wizard select ```Continue```
+## What is Webots?
 
-![img.png](../../docs/figs/contrwiz.png)
+[Webots](https://cyberbotics.com/doc/guide/introduction-to-webots) is an open-source robot simulator developed by Cyberbotics. It provides a full physics engine, a 3D environment, and a rich library of sensor and actuator models. Robots are defined using PROTO files (a VRML-based format) and controlled via Python, C, C++, Java, or MATLAB.
 
-4. You will need to select ```Python``` as the language for your new controller program
+REALM uses Webots R2025a with Python controllers.
 
-![img.png](../../docs/figs/wizlang.png)
+---
 
-5. Next you will provide a name for the new controller
+## World Files
 
-![img.png](../../docs/figs/contrname.png)
+A Webots **world** (`.wbt`) is the scene file that defines everything in the simulation — the robot, environment geometry, lighting, physics settings, and which controller runs on each robot.
 
-6. You will need to confirm the creation of a new directory and Python file. Note that you may be asked to allow 
-   Webots access to the directory in which the files are being created.
-7. Once the new controller is created you will need to copy the file located in 
-   ```FAIRIS/Simulation/controllers/Template/runtime.ini``` into the directory just created.
+World files for REALM are located in `simulation/worlds/`. Open them directly in Webots to launch a simulation.
 
-![img.png](../../docs/figs/runtime.png)
+**Reference:** [Webots World Files](https://cyberbotics.com/doc/guide/tutorial-1-your-first-simulation-in-webots)
 
-8. We recomend that you include the following lines in your new Python controller.
+---
+
+## PROTO Files
+
+A **PROTO** defines a reusable robot or object node in Webots. The HamBot is defined in `simulation/protos/HamBot/HamBot.proto`. It specifies the robot's geometry, appearance, sensors, actuators, and physics in a hierarchical node structure.
+
+**Reference:** [PROTO Nodes](https://cyberbotics.com/doc/guide/tutorial-7-your-first-proto)
+
+---
+
+## Robot
+
+The `Robot` node is the base node for any controllable agent in Webots. It holds all devices (sensors, actuators) as children and links to a controller script that runs the robot's logic each timestep.
+
+In REALM, `HamBot` is built on the `Robot` node (via `Supervisor`) and is defined in `HamBot.proto`.
+
+**Reference:** [Robot Node](https://cyberbotics.com/doc/guide/tutorial-6-4-wheels-robot)
+
+---
+
+## Supervisor
+
+A **Supervisor** is a special type of `Robot` that has elevated privileges — it can read and modify the simulation world at runtime (move nodes, reset physics, query any node's position, etc.). This is how REALM teleports the robot to starting positions and loads maze geometry dynamically.
 
 ```python
-# Import MyRobot Class
-from fairis_lib.robot_lib.my_robot import MyRobot
+from controller import Supervisor
+supervisor = Supervisor()
 
-# Create the robot instance.
-robot = MyRobot()
-
-# Loads the environment from the maze file
-maze_file = '../../path/to/maze/file.xml'
-robot.load_environment(maze_file)
-
-# Move robot to a random staring position listed in maze file
-robot.move_to_start()
+# Get a node and move it
+node = supervisor.getSelf()
+node.getField('translation').setSFVec3f([1.0, 0.0, 0.09])
 ```
 
-## How to select new controller for robot to use
-1. Launch WebotsR2023b and open the world file located in ```FAIRIS/Simulation/worlds/StartingWorld.wbt```
-2. On the left panel expand ```DEF Agent Rosbot```
-3. Under ```DEF Agent Rosbot``` select the controller "current_controller" argument
-4. Towards the bottom of the left panel, click the ```Select...``` button
-5. A window will pop up with a list of all controllers available for FAIRS-Lite, select your desired controller and 
-   click ```OK``` button
+**Reference:** [Supervisor Node](https://cyberbotics.com/doc/guide/tutorial-8-the-supervisor)
 
-![img.png](../../docs/figs/contrselection.png)
+---
 
+## Controller
+
+A **controller** is the Python script that runs the robot's logic. Each controller runs in its own process and communicates with Webots via the controller API. Every controller follows the same basic structure — a setup section followed by a `while` loop that steps the simulation:
+
+```python
+from controller import Robot
+
+robot = Robot()
+timestep = int(robot.getBasicTimeStep())
+
+while robot.step(timestep) != -1:
+    # read sensors, compute, actuate
+    pass
+```
+
+`step()` advances the simulation by one timestep and returns `-1` when the simulation ends or is reset.
+
+Controllers are stored in `simulation/controllers/`. Each controller lives in its own subdirectory with a matching Python file and a `runtime.ini` that points to the correct Python interpreter.
+
+**Reference:** [Controller Programming](https://cyberbotics.com/doc/guide/tutorial-4-more-about-controllers)
+
+---
+
+## Timestep
+
+The **timestep** is the duration of one simulation step in milliseconds. It is set in the world file and retrieved in the controller via `robot.getBasicTimeStep()`. All sensor enables and `step()` calls use this value.
+
+In REALM the timestep is accessed as `robot.timestep`.
+
+**Reference:** [Robot.getBasicTimeStep()](https://cyberbotics.com/doc/guide/the-user-interface)
+
+---
+
+## Motors
+
+The HamBot uses two **RotationalMotor** devices — one per wheel. Motors are retrieved by name and set to velocity control mode by passing `float('inf')` as the position target.
+
+```python
+motor = robot.getDevice('left motor')
+motor.setPosition(float('inf'))   # velocity control mode
+motor.setVelocity(5.0)            # rad/sec
+```
+
+| Property | Value |
+|----------|-------|
+| Max velocity | 20 rad/s |
+| Max torque | 50 N·m |
+
+**Reference:** [RotationalMotor](https://cyberbotics.com/doc/reference/motor)
+
+---
+
+## Encoders (Position Sensors)
+
+Each motor has a **PositionSensor** (wheel encoder) that measures cumulative wheel rotation in radians. To compute distance traveled, multiply the encoder reading by the wheel radius:
+
+```python
+encoder = robot.getDevice('left wheel encoder')
+encoder.enable(timestep)
+
+distance = encoder.getValue() * wheel_radius  # meters
+```
+
+| Property | Value |
+|----------|-------|
+| Wheel radius | 0.045 m |
+| Axel length | 0.205 m |
+
+**Reference:** [PositionSensor](https://cyberbotics.com/doc/reference/positionsensor)
+
+---
+
+## IMU (Inertial Measurement Unit)
+
+The HamBot uses a **InertialUnit** device that returns the robot's roll, pitch, and yaw in radians. Yaw is used to derive the robot's compass heading.
+
+```python
+imu = robot.getDevice('imu')
+imu.enable(timestep)
+
+roll, pitch, yaw = imu.getRollPitchYaw()
+```
+
+Heading in degrees (0–360, East = 0°):
+```python
+import math
+bearing = math.degrees(yaw)
+if bearing < 0:
+    bearing += 360
+```
+
+**Hardware equivalent:** [Adafruit BNO055](https://learn.adafruit.com/adafruit-bno055-absolute-orientation-sensor/python-circuitpython)
+
+**Reference:** [InertialUnit](https://cyberbotics.com/doc/reference/inertialunit)
+
+---
+
+## Camera
+
+The HamBot has a front-facing **Camera** with object recognition enabled. It captures `224×224` RGB images and can identify objects by their recognition color.
+
+```python
+camera = robot.getDevice('camera')
+camera.enable(timestep)
+camera.recognitionEnable(timestep)
+
+image = camera.getImageArray()         # 224x224 RGB pixel array
+objects = camera.getRecognitionObjects()  # list of recognized objects
+```
+
+| Property | Value |
+|----------|-------|
+| Resolution | 224 × 224 |
+| Field of view | 45° (0.785 rad) |
+
+**Reference:** [Camera](https://cyberbotics.com/doc/reference/camera)
+
+---
+
+## LiDAR
+
+The HamBot uses a **Lidar** device modeled on the Slamtec RPLidar A2. It returns a 360° horizontal range scan as a list of 360 distance values in meters (index 0 = rear, index 180 = front, index 90 = left, index 270 = right).
+
+```python
+lidar = robot.getDevice('lidar')
+lidar.enable(timestep)
+lidar.enablePointCloud()
+
+ranges = lidar.getRangeImage()   # list of 360 floats (meters)
+front  = ranges[180]
+left   = ranges[90]
+rear   = ranges[0]
+right  = ranges[270]
+```
+
+| Property | Value |
+|----------|-------|
+| Range | 0.05 – 12.0 m |
+| Resolution | 360 points / 360° |
+| Noise | 0.000833 m |
+
+**Hardware equivalent:** [Slamtec RPLidar A2](https://learn.adafruit.com/slamtec-rplidar-on-pi)
+
+**Reference:** [Lidar](https://cyberbotics.com/doc/reference/lidar)
+
+---
+
+## GPS
+
+The HamBot includes a **GPS** device that returns the robot's absolute position in the simulation world frame.
+
+```python
+gps = robot.getDevice('gps')
+gps.enable(timestep)
+
+x, y, z = gps.getValues()
+```
+
+**Reference:** [GPS](https://cyberbotics.com/doc/reference/gps)
+
+---
+
+## Display
+
+The HamBot has a **Display** device (`800×800`) used to render images inside the Webots GUI — REALM uses it to show maze maps and visualizations.
+
+Images are loaded as raw pixel data and pasted to the display each timestep:
+
+```python
+from controller import Display
+
+display = robot.getDevice('Robot Display')
+ir = display.imageNew(data, Display.RGB, width, height)
+display.imagePaste(ir, 0, 0, False)
+display.imageDelete(ir)
+```
+
+**Reference:** [Display](https://cyberbotics.com/doc/reference/display)
+
+---
+
+## Physics & Bounding Objects
+
+Every solid node in Webots that participates in physics needs a `boundingObject` (collision geometry) and a `Physics` node (mass/density). The HamBot body uses a `Box`, wheels use `Cylinder` shapes, and caster wheels are `Sphere` shapes.
+
+**Reference:** [Physics](https://cyberbotics.com/doc/reference/physics)
+
+---
+
+## Useful Webots Links
+
+| Resource | Link |
+|----------|------|
+| Webots User Guide | [cyberbotics.com/doc/guide](https://cyberbotics.com/doc/guide/index) |
+| Webots Reference Manual | [cyberbotics.com/doc/reference](https://cyberbotics.com/doc/reference/index) |
+| Controller Programming (Python) | [Controller Guide](https://cyberbotics.com/doc/guide/controller-programming?tab-language=python) |
+| PROTO Reference | [PROTO Nodes](https://cyberbotics.com/doc/reference/proto) |
+| Webots GitHub | [github.com/cyberbotics/webots](https://github.com/cyberbotics/webots) |

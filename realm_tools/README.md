@@ -10,25 +10,59 @@ The `HamBot` class is the base robot class for the REALM framework. It interface
 
 The physical HamBot is an open-source differential drive robot. Its Webots model mirrors the real hardware specs.
 
-![HamBot Diagram](../docs/figs/HamBotDoc/hambot_spec.png)
+---
+
+### Robot Views
+
+<table>
+  <tr>
+    <td align="center"><b>Front</b></td>
+    <td align="center"><b>Rear</b></td>
+    <td align="center"><b>Left</b></td>
+  </tr>
+  <tr>
+    <td><img src="../docs/figures/hambot_figures/HamBot_front_NB.png" width="220"/></td>
+    <td><img src="../docs/figures/hambot_figures/HamBot_rear_NB.png" width="220"/></td>
+    <td><img src="../docs/figures/hambot_figures/HamBot_left_NB.png" width="220"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Right</b></td>
+    <td align="center"><b>Top</b></td>
+    <td align="center"><b>Bottom</b></td>
+  </tr>
+  <tr>
+    <td><img src="../docs/figures/hambot_figures/HamBot_right_NB.png" width="220"/></td>
+    <td><img src="../docs/figures/hambot_figures/HamBot_top_NB.png" width="220"/></td>
+    <td><img src="../docs/figures/hambot_figures/HamBot_bottom_NB.png" width="220"/></td>
+  </tr>
+</table>
+
+---
+
+### Specifications
+
+![HamBot Dimensions](../docs/figures/hambot_figures/HamBot_Dims.png)
 
 | Characteristic                   | Value         |
 |----------------------------------|---------------|
 | Length                           | 200 mm        |
 | Width                            | 184 mm        |
 | Wheel Diameter / Radius          | 90 mm / 45 mm |
-| Axel Width                       | 184 mm        |
+| Axel Width                       | 205 mm        |
 | Height                           | 220 mm        |
 | Weight                           | 1.65 kg       |
 | Max forward/reverse wheel speed  | 0.81 m/s      |
 | Max forward/reverse motor speed  | 18 rad/s      |
 
-**Hardware:**
-- [LEGO Technic Large Motors](https://le-www-live-s.legocdn.com/sc/media/files/support/spike-prime/techspecs_techniclargeangularmotor-1b79e2f4fbb292aaf40c97fec0c31fff.pdf) via [LEGO Build HAT](https://www.raspberrypi.com/products/build-hat/)
-- [BNO055 IMU](https://learn.adafruit.com/adafruit-bno055-absolute-orientation-sensor/python-circuitpython)
-- [Slamtec RPLidar A2](https://learn.adafruit.com/slamtec-rplidar-on-pi)
-- Camera with object recognition
-- GPS
+### Hardware
+
+| Component | Details |
+|-----------|---------|
+| Motors | [LEGO Technic Large Motors](https://le-www-live-s.legocdn.com/sc/media/files/support/spike-prime/techspecs_techniclargeangularmotor-1b79e2f4fbb292aaf40c97fec0c31fff.pdf) via [LEGO Build HAT](https://www.raspberrypi.com/products/build-hat/) |
+| IMU | [Adafruit BNO055](https://learn.adafruit.com/adafruit-bno055-absolute-orientation-sensor/python-circuitpython) |
+| LiDAR | [Slamtec RPLidar A2](https://learn.adafruit.com/slamtec-rplidar-on-pi) |
+| Camera | Front-facing, 224×224, with object recognition |
+| GPS | Absolute position in world frame |
 
 ---
 
@@ -135,28 +169,62 @@ Fill in `reset()`, `step()`, and the `action_space` / `observation_space` defini
 
 ## Usage Example
 
+The distance traveled by each wheel is calculated from the change in encoder reading (radians) multiplied by the wheel radius (meters). The robot's forward displacement is the average of the two wheels:
+
+```
+left_distance  = Δleft_encoder  × wheel_radius
+right_distance = Δright_encoder × wheel_radius
+distance       = (left_distance + right_distance) / 2
+```
+
 ```python
 import os
 os.chdir("../../..")
 
 from realm_tools.robot_lib.my_robot import MyRobot
 
+# Create the robot instance
 robot = MyRobot()
+
+# Load the environment from a maze file
 robot.load_environment('simulation/worlds/mazes/Samples/WM00.xml')
 
-# Move to training start position 0
+# Move robot to training start position 0
 robot.move_to_start(mode='training', index=0)
 
-# Move to a random testing start
-robot.move_to_start(mode='testing', index=-1)
+# Record starting encoder values (radians)
+left_encoder_start  = robot.get_left_motor_encoder_reading()
+right_encoder_start = robot.get_right_motor_encoder_reading()
 
-# Basic motion
-robot.rotate(90)
-robot.move_forward(0.5)
+# Main control loop
+while robot.experiment_supervisor.step(robot.timestep) != -1:
 
-# Sensor readings
-print(robot.get_robot_pose())
-print(robot.get_min_lidar_reading())
+    # Read current encoder values (radians)
+    left_encoder  = robot.get_left_motor_encoder_reading()
+    right_encoder = robot.get_right_motor_encoder_reading()
+
+    # Calculate distance each wheel has traveled since start (meters)
+    left_distance  = (left_encoder  - left_encoder_start)  * robot.wheel_radius
+    right_distance = (right_encoder - right_encoder_start) * robot.wheel_radius
+
+    # Forward displacement = average of both wheels
+    distance_traveled = (left_distance + right_distance) / 2
+
+    # Print sensor readings
+    print("Left wheel distance: ",  round(left_distance,  3), "m")
+    print("Right wheel distance:", round(right_distance, 3), "m")
+    print("Distance traveled:",    round(distance_traveled, 3), "m")
+    print("Lidar front:",          robot.get_lidar_range_image()[180], "m")
+
+    # Drive forward
+    robot.set_left_motor_velocity(5)
+    robot.set_right_motor_velocity(5)
+
+    # Stop after 1.5 meters
+    if distance_traveled >= 1.5:
+        robot.set_left_motor_velocity(0)
+        robot.set_right_motor_velocity(0)
+        break
 ```
 
 ---
