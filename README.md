@@ -173,7 +173,7 @@ REALM-VPCE/
 │
 ├── simulation/
 │   ├── controllers/
-│   │   ├── Example/              # Example Webots controller
+│   │   ├── example/              # Example Webots controller
 │   │   └── calibration/          # Keyboard-driven calibration controller
 │   ├── protos/                   # HamBot and world object Webots protos
 │   └── worlds/                   # Webots world files and maze XMLs
