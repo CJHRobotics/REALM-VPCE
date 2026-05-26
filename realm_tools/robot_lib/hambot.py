@@ -126,16 +126,6 @@ class HamBot(Supervisor):
         for motor in self.all_motors:
             motor.setVelocity(0)
 
-    def slow_stop(self):
-        while self.experiment_supervisor.step(self.timestep) != -1:
-            current_velocity = self.left_motor.getVelocity()
-            if current_velocity > .1:
-                for motor in self.all_motors:
-                    motor.setVelocity(current_velocity / 4)
-            else:
-                self.stop()
-                break
-
     # Sets all motors speed to velocity
     def go_forward(self, velocity=1):
         for motor in self.all_motors:
@@ -152,53 +142,6 @@ class HamBot(Supervisor):
     # Get Lidar Range Image (meters)
     def get_lidar_range_image(self):
         return self.lidar.getRangeImage()
-
-    def rotate(self, degrees = 90,  Kp=1, Ki=0, Kd=0, margin_error = 0.01):
-        I = 0.0
-        prev_error = 0.0
-        dt = 0.032
-
-        # degrees > 0 -> ccw
-        # degrees < 0 -> cw
-
-        setpoint = (self.get_compass_reading() + degrees) % 360
-
-        while self.experiment_supervisor.step(self.timestep) != -1:
-            current_heading =  self.get_compass_reading()
-            error = (setpoint - current_heading+180)%360 -180 # (-180,180)
-            P = Kp * error
-
-            I = Ki * (I + error * dt)
-
-            D = Kd * ((error - prev_error) / dt)
-
-            out_signal = abs(self.sat(P + I + D))
-            if -margin_error <= error <= margin_error:
-                self.stop()
-                break
-            elif error < 0:
-                self.set_right_motor_velocity(-out_signal)
-                self.set_left_motor_velocity(out_signal)
-            elif error > 0:
-                self.set_right_motor_velocity(out_signal)
-                self.set_left_motor_velocity(-out_signal)
-
-            prev_error = error
-    def calculate_wheel_distance_traveled(self, starting_encoder_position):
-        current_encoder_readings = self.get_encoder_readings()
-        differences = list(map(operator.sub, current_encoder_readings, starting_encoder_position))
-        average_differences = sum(differences) / len(differences)
-        average_distance = average_differences * self.wheel_radius
-        return average_distance
-    def move_forward(self, distance, Kp=20, margin_error=0.01):
-        starting_encoder_position = self.get_encoder_readings()
-        while self.experiment_supervisor.step(self.timestep) != -1:
-            error = distance - self.calculate_wheel_distance_traveled(starting_encoder_position)
-            if error <= margin_error:
-                self.stop()
-                break
-            self.go_forward(velocity=self.sat(Kp * error))
-
 
     # Supervisor Functions: allows robot to control the simulation
     # DO NOT MODIFY: unless you are attempting to manipulate the webots world simulations!!!
