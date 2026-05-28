@@ -164,7 +164,7 @@ REALM-VPCE/
 │   │   ├── my_robot.py           # User extension template (inherits HamBot)
 │   │   └── robot_tools.py        # Shared robot utility functions
 │   ├── simulation_lib/
-│   │   ├── environment.py        # Maze class and environment objects
+│   │   ├── environment.py        # Environment class and environment objects
 │   │   ├── maze_parser.py        # XML maze file parser
 │   │   └── webots_torch_environment.py  # Gymnasium environment skeleton
 │   └── image_lib/
