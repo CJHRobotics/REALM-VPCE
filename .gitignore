@@ -220,6 +220,7 @@ __marimo__/
 # REALM Spacifics
 !data/DataCache/default.png
 data/DataCache/*
+data/vpce_data/
 !simulation/controllers/Calibration/
 !simulation/controllers/Example/
 *.ini
