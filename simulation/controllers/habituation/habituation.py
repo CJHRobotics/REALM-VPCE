@@ -9,7 +9,7 @@ from tqdm import tqdm
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
 
-maze_files = ['LM8_test', 'LM8D', 'LMO8', 'LMO8D']
+maze_files = ['LM8', 'LM8D', 'LMO8', 'LMO8D']
 maze_index = 0
 
 # create the robot/supervisor instance.
