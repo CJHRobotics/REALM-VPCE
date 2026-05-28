@@ -221,6 +221,7 @@ __marimo__/
 !data/DataCache/default.png
 data/DataCache/*
 data/vpce_data/*
+data/vpce/*
 !simulation/controllers/Calibration/
 !simulation/controllers/Example/
 *.ini
