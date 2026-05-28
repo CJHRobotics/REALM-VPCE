@@ -119,14 +119,6 @@ class MyRobot(HamBot):
 
         return closest_heading
 
-        # Calculates the average mm all the wheels have traveled from a relative starting encoder reading
-    def calculate_wheel_distance_traveled(self, starting_encoder_position):
-        current_encoder_readings = self.get_encoder_readings()
-        differences = list(map(operator.sub, current_encoder_readings, starting_encoder_position))
-        average_differences = sum(differences) / len(differences)
-        average_distance = average_differences * self.wheel_radius
-        return average_distance
-
     # Calculates the vector needed to move the robot to the point (x,y)
     def calculate_robot_motion_vector(self, x, y):
         self.sensor_calibration()
@@ -180,16 +172,6 @@ class MyRobot(HamBot):
             if end_bearing - margin_error <= self.get_compass_reading() <= end_bearing + margin_error:
                 self.stop()
                 break
-
-    # Rotates the robot by the amount degree. Only rotates until robot reaches the calculated end_bearing
-    def rotate(self, degree, margin_error=.0001):
-        start_bearing = self.get_compass_reading()
-        end_bearing = start_bearing - degree
-        if end_bearing > 360:
-            end_bearing -= 360
-        elif end_bearing < 0:
-            end_bearing += 360
-        self.rotate_to(end_bearing, margin_error=margin_error)
 
     # Moves the robot forward in a straight line by the amount distance (in mm)
     def move_forward_with_PID(self, distance, margin_error=.01, safty=True):

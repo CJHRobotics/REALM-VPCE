@@ -30,7 +30,7 @@
 	<tag_landmark x="1.85" y="-1.85" theta="2.356" tag_id="6" height="1.0" width="1.0" red="0.50" green="0.00" blue="0.50" />
 	<tag_landmark x="2.61" y="0.00" theta="3.142" tag_id="7" height="1.0" width="1.0" red="1.00" green="0.20" blue="1.00" />
 
-    <experimentStartPositions>
+    <TrainStartPositions>
         <pos x="-0.03" y="-2.38" theta="1.5707963267948966" />
         <pos x="-0.00" y="-2.38" theta="1.5707963267948966" />
         <pos x="0.02" y="-2.38" theta="1.5707963267948966" />
@@ -19439,10 +19439,10 @@
         <pos x="-0.03" y="2.37" theta="1.5707963267948966" />
         <pos x="-0.00" y="2.37" theta="1.5707963267948966" />
         <pos x="0.02" y="2.37" theta="1.5707963267948966" />
-    </experimentStartPositions>
-	<habituationStartPositions>
+    </TrainStartPositions>
+	<TestStartPositions>
 		<pos x="0.00" y="-2.5" theta="1.5707963267948966" />
-	</habituationStartPositions>
+	</TestStartPositions>
 
 	<goal id="1" x="0.0" y="2.5" />
 
