@@ -104,43 +104,31 @@ cd REALM-VPCE
 
 ### 2. Run the install script
 
-```bash
-# Core environment only (Webots + RL training)
+```shell
 python setup/realm_install.py
-
-# Core + analysis environment (adds Jupyter, statsmodels, seaborn, etc.)
-python setup/realm_install.py --data_analysis
 ```
 
 This will:
 - Find Python 3.11 on your system
-- Create `realm_core_venv` (and optionally `realm_analysis_venv`)
-- Install all dependencies
+- Create `realm_venv` with all dependencies
 - Add the project root to the venv's Python path
 - Generate `runtime.ini` files in all Webots controller directories
 
-To remove the environments:
-```bash
+To remove the environment:
+```shell
 python setup/realm_install.py --uninstall
-python setup/realm_install.py --uninstall --data_analysis
 ```
 
 ### 3. Activate the environment
 
 **macOS/Linux:**
-```bash
-source realm_core_venv/bin/activate
+```shell
+source realm_venv/bin/activate
 ```
 
 **Windows:**
-```bash
-realm_core_venv\Scripts\activate
-```
-
-For analysis work:
-```bash
-source realm_analysis_venv/bin/activate   # macOS/Linux
-realm_analysis_venv\Scripts\activate      # Windows
+```shell
+realm_venv\Scripts\activate
 ```
 
 > If you add a new controller under `simulation/controllers/`, re-run 
@@ -155,8 +143,7 @@ REALM-VPCE/
 ├── setup/
 │   ├── realm_install.py          # Install / uninstall script
 │   ├── add_runtime_ini.py        # Generates Webots runtime.ini files
-│   ├── requirements_webots.txt   # Core venv dependencies
-│   └── requirements_analysis.txt # Analysis venv dependencies
+│   └── requirements.txt          # Venv dependencies
 │
 ├── realm_tools/
 │   ├── robot_lib/
