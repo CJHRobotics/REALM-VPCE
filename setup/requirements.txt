@@ -18,3 +18,5 @@ stable-baselines3
 jupyterlab
 ipykernel
 ipywidgets
+# REALM-VPCE dependencies
+h5py

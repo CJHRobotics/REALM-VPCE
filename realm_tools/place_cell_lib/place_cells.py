@@ -4,7 +4,6 @@ from threading import Thread
 import numpy as np
 from sklearn.neighbors import KDTree
 
-
 class PlaceCellTread(Thread):
     def __init__(self,pc,robot_x,robot_y):
         Thread.__init__(self)
