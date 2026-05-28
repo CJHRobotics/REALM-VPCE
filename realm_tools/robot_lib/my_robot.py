@@ -1,7 +1,6 @@
 from realm_tools.robot_lib.hambot import HamBot
 from realm_tools.image_lib.image_feature_lib import *
 from realm_tools.robot_lib.navigation_tools import *
-from realm_tools.image_lib.feature_extractor import FeatureExtractor
 import operator
 import numpy as np
 import math
@@ -27,6 +26,7 @@ class MyRobot(HamBot):
         self.enable_cnn_features = enable_cnn_features
         self.cnn_extractor_model = cnn_extractor_model
         if self.enable_cnn_features:
+            from realm_tools.image_lib.feature_extractor import FeatureExtractor
             self.cnn_feature_extractor = FeatureExtractor(self.cnn_extractor_model)
         else:
             self.cnn_feature_extractor = None

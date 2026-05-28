@@ -1,10 +1,10 @@
 # REALM venv dependencies
-numpy
+numpy<2
 scipy
 pandas
 scikit-learn
 statsmodels
-opencv-python
+opencv-python<=4.9
 matplotlib
 seaborn
 pygame
