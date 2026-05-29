@@ -276,7 +276,7 @@ class TagLandmark:
 
     def get_webots_tag_string(self):
         txt = 'signImage ["{path_to_tag_image}"]'
-        return txt.format(path_to_tag_image='../protos/WorldObjects/LandMarkTags/landmark_tag_'+str(int(self.tag_id))+'.png')
+        return txt.format(path_to_tag_image='../protos/WorldObjects/LandMarkTags/landmark_tag_'+self.tag_id+'.png')
 
     def get_webots_node_string(self):
         node_string = "{translation} {rotation} {color} {recognitionColors} {size} {signImage}".format(translation=self.get_webots_translation_string(),
@@ -285,4 +285,4 @@ class TagLandmark:
                                                             recognitionColors=self.get_webots_recognition_color_string(),
                                                             size=self.get_webots_size_string(),
                                                             signImage = self.get_webots_tag_string())
-        return 'DEF Tag_Landmark_{id} RectangularPanel '.format(id=int(self.tag_id)) + '{ ' + node_string + ' }'
+        return 'DEF Tag_Landmark_{id} RectangularPanel '.format(id=self.tag_id) + '{ ' + node_string + ' }'
