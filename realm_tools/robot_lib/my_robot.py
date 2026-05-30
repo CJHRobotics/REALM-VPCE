@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from realm_tools.robot_lib.hambot import HamBot
 from realm_tools.image_lib.image_feature_lib import *
 from realm_tools.robot_lib.navigation_tools import *
@@ -60,28 +61,52 @@ class MyRobot(HamBot):
 
         return multimodal_features, cnn_features, landmark_mask
 
-    def get_full_robot_pov_features(self,thetas):
-        robot_x, robot_y, robot_theta = self.get_robot_feature_pose()
-        multimodal_features = []
-        cnn_features = []
+    def capture_pov_images(self, thetas):
+        """
+        Capture one image per heading without extracting features.
+        Use this for batch collection — accumulate images across many positions
+        then extract features in parallel in the controller.
+        Caller must have already teleported to the target position.
+        """
+        images = []
         for theta in thetas:
-            self.teleport_robot(x=robot_x, y=robot_y, theta=theta)
-            pov = self.get_pov_image()
-            multimodal_features.append(extract_combined_features(pov))
-            # Extract CNN features if enabled
+            self.robot_rotation_field.setSFRotation([0, 0, 1, theta])
+            images.append(self.get_pov_image())
+        return images
+
+    def get_full_robot_pov_features(self, thetas):
+        robot_x, robot_y, robot_theta = self.get_robot_feature_pose()
+
+        # Phase 1 — capture all images sequentially (requires simulation steps)
+        images = []
+        for theta in thetas:
+            self.robot_rotation_field.setSFRotation([0, 0, 1, theta])
+            images.append(self.get_pov_image())
+
+        # Phase 2 — extract features in parallel (pure CPU, no Webots dependency)
+        with ThreadPoolExecutor() as executor:
+            multimodal_features = list(executor.map(extract_combined_features, images))
             if self.enable_cnn_features:
-                cnn_features.append(self.cnn_feature_extractor.get_cnn_features(pov))
+                cnn_features = list(executor.map(
+                    self.cnn_feature_extractor.get_cnn_features, images))
             else:
-                cnn_features = np.array([])  # Empty array if CNN features are not enabled
-        multimodal_features = np.concatenate(multimodal_features)
-        cnn_features = None
-        return multimodal_features, cnn_features
+                cnn_features = None
+
+        return np.concatenate(multimodal_features), cnn_features
 
     def get_pov_image(self, landmark_dictionary=None):
         while self.experiment_supervisor.step(self.timestep) != -1:
-            landmark_mask = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-            pov = self.camera.getImageArray()
-            if landmark_dictionary != None:
+            # getImage() returns raw BGRA bytes — much faster than getImageArray()
+            # which returns a Python list of lists that must be converted to numpy.
+            w = self.camera.getWidth()
+            h = self.camera.getHeight()
+            img_bgra = np.frombuffer(self.camera.getImage(), dtype=np.uint8).reshape(h, w, 4)
+            # Make contiguous RGB array — .copy() ensures cv2 operations downstream
+            # don't pay a stride penalty from the reversed-channel view.
+            pov = np.ascontiguousarray(img_bgra[:, :, 2::-1])
+
+            if landmark_dictionary is not None:
+                landmark_mask = [0, 0, 0, 0, 0, 0, 0, 0, 0]
                 landmarks = self.camera.getRecognitionObjects()
                 for landmark in landmarks:
                     color = landmark.getColors()
