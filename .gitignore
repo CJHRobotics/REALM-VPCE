@@ -233,3 +233,6 @@ data/vpce/*
 *.wbproj
 .claude
 .idea/
+
+# Webots Stuff
+*.wbproj
