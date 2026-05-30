@@ -7,15 +7,20 @@ defined in a REALM environment XML file.
 Algorithm
 ---------
 1. Parse all wall segments from the XML.
-2. Use Shapely polygonize to find the closed outer boundary polygon formed
-   by whichever wall segments connect end-to-end into a ring.
-3. Erode the boundary inward by `wall_clearance` so the robot body
-   stays away from the perimeter.
-4. Buffer every wall segment outward by `wall_clearance` and subtract
-   those regions — keeps the robot clear of interior obstacle walls too.
-5. Lay a uniform grid over the remaining safe zone and keep every point
-   that falls inside it.
-6. Save to CSV  (x, y, theta).
+2. Build the outer boundary polygon as the convex hull of the boundary-typed
+   wall endpoints (falls back to all walls for untyped XMLs).
+3. Lay a uniform grid over the boundary bounding box.
+4. Keep every point that is (a) inside the boundary polygon and (b) at least
+   wall_clearance metres from every wall segment (boundary and obstacle).
+5. Save to CSV  (x, y, theta).
+
+Parameters
+----------
+spacing       Distance between adjacent grid points (metres).
+              Smaller values = denser coverage, more habituation positions.
+wall_clearance Minimum distance from any wall surface to a grid point (metres).
+              Acts as a safety buffer — points closer than this to any wall
+              are excluded.
 
 Usage — from Python
 -------------------
@@ -24,16 +29,18 @@ Usage — from Python
     df = generate_grid(
         'simulation/worlds/environments/vpce/LMO8.xml',
         spacing=0.1,
-        wall_clearance=0.5,
-        output='simulation/worlds/environments/vpce/LMO8_train_points.csv'
+        wall_clearance=0.2,
+        output='simulation/worlds/environments/vpce/LMO8_train_points.csv',
+        plot=True,
     )
 
 Usage — from the command line
 ------------------------------
     python -m realm_tools.simulation_lib.start_position_generator \\
         simulation/worlds/environments/vpce/LMO8.xml \\
-        --spacing 0.1 --clearance 0.5 --theta 0.0 \\
-        --output simulation/worlds/environments/vpce/LMO8_train_points.csv
+        --spacing 0.1 --clearance 0.2 --theta 0.0 \\
+        --output simulation/worlds/environments/vpce/LMO8_train_points.csv \\
+        --plot
 """
 
 import argparse
@@ -43,7 +50,6 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 from shapely.geometry import LineString, MultiPoint, Point
-from shapely.ops import unary_union
 
 from realm_tools.simulation_lib.environment_parser import parse_all_walls
 
@@ -80,28 +86,69 @@ def _outer_boundary(walls):
     return MultiPoint(endpoints).convex_hull
 
 
-def _is_valid_point(x, y, boundary, wall_lines, wall_clearance):
+def _is_valid_point(x, y, boundary, all_lines, wall_clearance):
     """
     Return True if (x, y) is a valid robot start position:
       - inside the outer boundary polygon, and
-      - at least wall_clearance metres from every wall segment.
-
-    Using per-point distance checks avoids the Shapely buffer/difference
-    approach, which merges clearance zones from opposing walls and incorrectly
-    eliminates narrow-but-navigable corridors.
+      - at least wall_clearance metres from every wall segment (boundary and
+        obstacle).
     """
     p = Point(x, y)
     if not boundary.contains(p):
         return False
-    return all(p.distance(line) >= wall_clearance for line in wall_lines)
+    return all(p.distance(line) >= wall_clearance for line in all_lines)
+
+
+# ---------------------------------------------------------------------------
+# Plot helper
+# ---------------------------------------------------------------------------
+
+def _save_plot(df, walls, boundary, xml_path, spacing, wall_clearance):
+    """Save a coverage plot to data/data_cache/<maze>_grid.png."""
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+
+    maze_name = os.path.splitext(os.path.basename(xml_path))[0]
+    out_path  = os.path.join('data', 'data_cache', f'{maze_name}_grid.png')
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+
+    bx, by = boundary.exterior.xy
+    ax.fill(bx, by, alpha=0.06, color='steelblue')
+    ax.plot(bx, by, 'b--', lw=1, alpha=0.4)
+
+    for w in walls:
+        color = 'black' if w['wall_type'] == 'boundary' else 'saddlebrown'
+        ax.plot([w['x1'], w['x2']], [w['y1'], w['y2']],
+                color=color, lw=2.5, solid_capstyle='round')
+
+    ax.scatter(df.x, df.y, s=6, color='steelblue', zorder=4)
+    ax.set_title(
+        f'{maze_name}  —  {len(df)} positions\n'
+        f'spacing={spacing} m   clearance={wall_clearance} m'
+    )
+    ax.set_aspect('equal')
+    ax.set_xlabel('x (m)')
+    ax.set_ylabel('y (m)')
+    ax.grid(True, alpha=0.2)
+    ax.legend(handles=[
+        mpatches.Patch(color='black',       label='boundary wall'),
+        mpatches.Patch(color='saddlebrown', label='obstacle wall'),
+    ], fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=130)
+    plt.close(fig)
+    print(f"Plot saved  →  {out_path}")
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_grid(xml_path, spacing=0.1, wall_clearance=MIN_LIDAR_DIST,
-                  theta=0.0, output=None):
+def generate_grid(xml_path, spacing=0.1, wall_clearance=0.2,
+                  theta=0.0, output=None, plot=False):
     """
     Generate a uniform grid of valid start positions for a REALM maze.
 
@@ -110,18 +157,21 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=MIN_LIDAR_DIST,
     xml_path : str
         Path to the maze XML file.
     spacing : float
-        Distance between grid points in metres.  Smaller = denser coverage.
+        Distance between adjacent grid points in metres.
+        Smaller = denser coverage, more habituation positions.
         Default 0.1 m.
     wall_clearance : float
         Minimum distance from any wall surface to a grid point in metres.
-        Should be at least the robot radius (0.31 m).
-        Default 0.5 m (matches the minimum lidar action distance).
+        Default 0.2 m.
     theta : float
         Heading assigned to every generated position, in radians.
         Default 0.0.
     output : str or None
         If given, save the result to this CSV path (directories are created
         automatically).  Either way the DataFrame is returned.
+    plot : bool
+        If True, save a coverage plot to data/data_cache/<maze>_grid.png.
+        Default False.
 
     Returns
     -------
@@ -130,21 +180,19 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=MIN_LIDAR_DIST,
     """
     root  = ET.parse(xml_path).getroot()
     walls = parse_all_walls(root)
-    lines = _wall_lines(walls)
 
-    boundary = _outer_boundary(walls)
+    all_lines = _wall_lines(walls)
+    boundary  = _outer_boundary(walls)
 
-    # Restrict the search grid to the boundary bounding box, shrunk by
-    # wall_clearance on each side (no valid point can exist outside this).
     minx, miny, maxx, maxy = boundary.bounds
-    xs = np.arange(minx + wall_clearance, maxx - wall_clearance + spacing, spacing)
-    ys = np.arange(miny + wall_clearance, maxy - wall_clearance + spacing, spacing)
+    xs = np.arange(minx, maxx + spacing, spacing)
+    ys = np.arange(miny, maxy + spacing, spacing)
 
     points = [
         (round(float(x), 4), round(float(y), 4), theta)
         for x in xs
         for y in ys
-        if _is_valid_point(x, y, boundary, lines, wall_clearance)
+        if _is_valid_point(x, y, boundary, all_lines, wall_clearance)
     ]
 
     if not points:
@@ -161,6 +209,9 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=MIN_LIDAR_DIST,
             os.makedirs(dir_name, exist_ok=True)
         df.to_csv(output, index=False)
         print(f"Saved {len(df)} positions  →  {output}")
+
+    if plot:
+        _save_plot(df, walls, boundary, xml_path, spacing, wall_clearance)
 
     return df
 
@@ -181,15 +232,17 @@ def _build_parser():
     p.add_argument('xml',
                    help='Path to the maze XML file.')
     p.add_argument('--spacing', type=float, default=0.1,
-                   help='Grid spacing in metres (default: 0.1).')
-    p.add_argument('--clearance', type=float, default=MIN_LIDAR_DIST,
-                   help=f'Min distance from any wall in metres '
-                        f'(default: {MIN_LIDAR_DIST}).')
+                   help='Distance between grid points in metres (default: 0.1). '
+                        'Smaller = denser coverage.')
+    p.add_argument('--clearance', type=float, default=0.2,
+                   help='Min distance from any wall in metres (default: 0.2).')
     p.add_argument('--theta', type=float, default=0.0,
                    help='Robot heading for all positions in radians (default: 0.0).')
     p.add_argument('--output', '-o', default=None,
                    help='Output CSV path.  Defaults to <maze>_train_points.csv '
                         'alongside the input XML.')
+    p.add_argument('--plot', action='store_true', default=False,
+                   help='Save a coverage plot to data/data_cache/<maze>_grid.png.')
     return p
 
 
@@ -206,4 +259,5 @@ if __name__ == '__main__':
         wall_clearance=args.clearance,
         theta=args.theta,
         output=output,
+        plot=args.plot,
     )
