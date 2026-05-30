@@ -28,7 +28,7 @@ with tqdm(total=total_steps, desc="Collecting data") as pbar:
         dataset.add_observations(multimodal_features, cnn_features, robot_x, robot_y, robot_theta)
         pbar.update(1)
 
-dataset.save_dataset("data/vpce/habituation/" + maze_files[maze_index])
+dataset.save_dataset("data/vpce/collect_data/" + maze_files[maze_index])
 
 robot.experiment_supervisor.simulationReset()
 

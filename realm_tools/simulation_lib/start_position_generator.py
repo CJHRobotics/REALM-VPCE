@@ -17,7 +17,7 @@ Algorithm
 Parameters
 ----------
 spacing       Distance between adjacent grid points (metres).
-              Smaller values = denser coverage, more habituation positions.
+              Smaller values = denser coverage, more collect_data positions.
 wall_clearance Minimum distance from any wall surface to a grid point (metres).
               Acts as a safety buffer — points closer than this to any wall
               are excluded.
@@ -158,7 +158,7 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=0.2,
         Path to the maze XML file.
     spacing : float
         Distance between adjacent grid points in metres.
-        Smaller = denser coverage, more habituation positions.
+        Smaller = denser coverage, more collect_data positions.
         Default 0.1 m.
     wall_clearance : float
         Minimum distance from any wall surface to a grid point in metres.
