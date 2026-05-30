@@ -226,8 +226,6 @@ simulation/worlds/environments/**/positions/
 
 # VPCE experiment data (large generated files, not committed)
 data/vpce/*
-!simulation/controllers/Calibration/
-!simulation/controllers/Example/
 *.ini
 *.DS_Store
 .DS_Store
