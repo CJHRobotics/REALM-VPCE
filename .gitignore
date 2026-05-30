@@ -217,16 +217,15 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# REALM Spacifics
-<<<<<<< HEAD
-!data/DataCache/default.png
-data/DataCache/*
-data/vpce_data/*
-data/vpce/*
-=======
+# REALM Specifics
 !data/data_cache/default.png
 data/data_cache/*
->>>>>>> upstream/main
+
+# Generated position grids — run start_position_generator.py to recreate
+simulation/worlds/environments/**/positions/
+
+# VPCE experiment data (large generated files, not committed)
+data/vpce/*
 !simulation/controllers/Calibration/
 !simulation/controllers/Example/
 *.ini
