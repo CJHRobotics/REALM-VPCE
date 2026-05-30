@@ -218,10 +218,15 @@ __marimo__/
 .streamlit/secrets.toml
 
 # REALM Spacifics
+<<<<<<< HEAD
 !data/DataCache/default.png
 data/DataCache/*
 data/vpce_data/*
 data/vpce/*
+=======
+!data/data_cache/default.png
+data/data_cache/*
+>>>>>>> upstream/main
 !simulation/controllers/Calibration/
 !simulation/controllers/Example/
 *.ini
