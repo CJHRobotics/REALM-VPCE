@@ -27,7 +27,7 @@ Usage — from Python
     from realm_tools.simulation_lib.start_position_generator import generate_grid
 
     df = generate_grid(
-        'simulation/worlds/environments/vpce/LMO8.xml',
+        'simulation/worlds/environments/vpce/lm8_o6.xml',
         spacing=0.1,
         wall_clearance=0.2,
         output='simulation/worlds/environments/vpce/LMO8_positions.csv',
@@ -37,7 +37,7 @@ Usage — from Python
 Usage — from the command line
 ------------------------------
     python -m realm_tools.simulation_lib.start_position_generator \\
-        simulation/worlds/environments/vpce/LMO8.xml \\
+        simulation/worlds/environments/vpce/lm8_o6.xml \\
         --spacing 0.1 --clearance 0.2 --theta 0.0 \\
         --output simulation/worlds/environments/vpce/LMO8_positions.csv \\
         --plot
