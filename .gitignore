@@ -226,6 +226,9 @@ simulation/worlds/environments/**/positions/
 
 # VPCE experiment data (large generated files, not committed)
 data/vpce/*
+
+# Generated analysis figures (run the notebooks to recreate)
+analysis/figures/
 *.ini
 *.DS_Store
 .DS_Store
