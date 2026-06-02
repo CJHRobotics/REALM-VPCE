@@ -15,7 +15,7 @@ from realm_tools.image_lib.image_feature_lib import extract_combined_features
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
 maze_files = ['lm8', 'lm8_r45', 'lm8_r90', 'lmo8']
-maze_index  = 1
+maze_index  = 2
 
 # How many positions to capture before extracting features.
 # Larger = more parallelism, more RAM. Tune to your machine.
@@ -25,7 +25,7 @@ BATCH_SIZE = 500
 thetas = [0.0, 0.7854, 1.5708, 2.3562, 3.1416, 3.9270, 4.7124, 5.4978]
 
 robot = MyRobot(enable_cnn_features=False, cnn_extractor_model='mobilenetv3')
-robot.load_environment(maze_file_dir + maze_files[maze_index] + '.xml')
+robot.load_environment(maze_file_dir + maze_files[maze_index] + '.xml',floor_texture="lightwood")
 
 # positions_path = maze_file_dir + 'positions/' + maze_files[maze_index] + '_positions.csv'
 positions_path = maze_file_dir + 'positions/lm8_positions.csv'
