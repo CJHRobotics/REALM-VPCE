@@ -25,7 +25,7 @@ BATCH_SIZE = 500
 thetas = [0.0, 0.7854, 1.5708, 2.3562, 3.1416, 3.9270, 4.7124, 5.4978]
 
 robot = MyRobot(enable_cnn_features=False, cnn_extractor_model='mobilenetv3')
-robot.load_environment(maze_file_dir + maze_files[maze_index] + '.xml',floor_texture="lightwood")
+robot.load_environment(maze_file_dir + maze_files[maze_index] + '.xml',floor_texture="carpet")
 
 # positions_path = maze_file_dir + 'positions/' + maze_files[maze_index] + '_positions.csv'
 positions_path = maze_file_dir + 'positions/lm8_positions.csv'
