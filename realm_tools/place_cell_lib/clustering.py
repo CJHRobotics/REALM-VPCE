@@ -19,7 +19,7 @@ def fit_kmeans(features, n_clusters):
     centers = kmeans.cluster_centers_
     labels  = kmeans.labels_
     radii = np.array([
-        np.mean(np.linalg.norm(features[labels == i] - centers[i], axis=1))
+        np.max(np.linalg.norm(features[labels == i] - centers[i], axis=1))
         for i in range(n_clusters)
     ])
     return centers, radii
@@ -36,11 +36,17 @@ def fit_gmm(features, n_components):
         radii   (np.ndarray): shape (n_components,)
                               isotropic sigma approximated from the diagonal covariance
     """
-    gmm = GaussianMixture(n_components=n_components, random_state=42)
+    gmm = GaussianMixture(n_components=n_components, random_state=42,
+                          covariance_type='diag')
     gmm.fit(features)
     centers = gmm.means_
+    labels  = gmm.predict(features)
+    # Radius = max Euclidean distance from any cluster member to its centroid.
+    # This keeps sigma in the same units as the total feature-space distance,
+    # ensuring the RBF exponent is correctly scaled.
     radii = np.array([
-        np.sqrt(np.mean(np.diag(gmm.covariances_[i])))
+        np.max(np.linalg.norm(features[labels == i] - centers[i], axis=1))
+        if np.any(labels == i) else 1.0
         for i in range(n_components)
     ])
     return centers, radii

@@ -15,7 +15,7 @@ from realm_tools.image_lib.image_feature_lib import extract_combined_features
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
 maze_files = ['lm8', 'lm8_r45', 'lm8_r90', 'lmo8']
-maze_index  = 2
+maze_index  = 1
 
 # How many positions to capture before extracting features.
 # Larger = more parallelism, more RAM. Tune to your machine.

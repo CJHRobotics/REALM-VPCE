@@ -1,189 +1,164 @@
-import math
-from threading import Thread
+"""
+place_cells.py
+
+Vectorised place cell ensembles for the REALM / VPCE framework.
+
+Two ensemble types share the same RBF core:
+
+    SpatialPlaceCellEnsemble   — cells defined in 2D (x, y) space
+                                  used by navigation / RL agents
+
+    VisualPlaceCellEnsemble    — cells defined in high-dimensional feature
+                                  space (the VPCE model)
+
+Both expose the same interface:
+
+    ensemble.activate(inputs)  →  np.ndarray  shape (N, K)
+
+where N is the number of observations and K is the number of place cells.
+Activations are computed with a single vectorised pass — no per-cell Python
+loops, no mutable state stored inside cell objects.
+"""
 
 import numpy as np
-from sklearn.neighbors import KDTree
-
-class PlaceCellTread(Thread):
-    def __init__(self,pc,robot_x,robot_y):
-        Thread.__init__(self)
-        self.pc = pc
-        self.robot_x = robot_x
-        self.robot_y = robot_y
-    def run(self):
-        self.pc.calculate_activation(self.robot_x,self.robot_y)
-
-class PlaceCellGenParm:
-    def __init__(self,num_of_pc = 1, pc_scales = [.16]):
-        self.num_of_pc = num_of_pc
-        self.pc_scales = pc_scales
-
-class PlaceCell:
-    def __init__(self,id,x,y,r,alpha = 0.01,min_activation=0.001):
-        self.id = id
-        self.center_x = x
-        self.center_y = y
-        self.radius = r
-        self.alpha = alpha
-        self.min_activation = min_activation
-        self.radius_tolerance = self.radius + self.alpha
-        self.radius_squared = self.radius_tolerance**2
-        self.k = math.log(self.min_activation)/self.radius_squared
-        self.activity = 0.0
 
 
-    def calculate_activation(self,robot_x,robot_y):
+# ---------------------------------------------------------------------------
+# Core computation
+# ---------------------------------------------------------------------------
+
+def rbf_activations(features, centers, radii):
+    """
+    Compute the row-normalised RBF activation matrix.
+
+    Each row i contains the normalised activation of all K place cells
+    for observation i.  Normalisation ensures the population vector sums
+    to 1 at every observation, giving a probability-like encoding.
+
+    Uses the identity  ||a-b||² = ||a||² - 2a·b + ||b||²  to compute all
+    pairwise distances via matrix multiplication, avoiding the O(N·K·D)
+    memory cost of the naive broadcast approach.
+
+    Parameters
+    ----------
+    features : np.ndarray, shape (N, D)
+        Observation feature vectors.  For SpatialPlaceCellEnsemble D=2.
+    centers  : np.ndarray, shape (K, D)
+        Place cell centroids in feature space.
+    radii    : np.ndarray, shape (K,)
+        RBF sigma (receptive field width) per cell.
+
+    Returns
+    -------
+    np.ndarray, shape (N, K)  —  row-normalised activations in [0, 1].
+    """
+    features = np.atleast_2d(features)
+    f_sq     = np.sum(features ** 2, axis=1, keepdims=True)   # (N, 1)
+    c_sq     = np.sum(centers  ** 2, axis=1)                   # (K,)
+    fc       = features @ centers.T                             # (N, K)
+    dist_sq  = np.maximum(f_sq - 2 * fc + c_sq, 0)            # (N, K)
+    raw      = np.exp(-dist_sq / (2 * radii ** 2))             # (N, K)
+    row_sums = raw.sum(axis=1, keepdims=True)
+    return raw / np.where(row_sums == 0, 1, row_sums)
+
+
+# ---------------------------------------------------------------------------
+# Ensemble classes
+# ---------------------------------------------------------------------------
+
+class SpatialPlaceCellEnsemble:
+    """
+    Place cell ensemble defined in 2D (x, y) physical space.
+
+    Replaces the old PlaceCell / PlaceCellNetwork pair with a fully
+    vectorised implementation.  No per-cell objects, no mutable activity
+    state — activation is computed on demand and returned as a numpy array.
+
+    Parameters
+    ----------
+    centers : array-like, shape (K, 2)   — cell centres in metres
+    radii   : array-like, shape (K,)     — RBF sigma per cell in metres
+
+    Example
+    -------
+    >>> ensemble = SpatialPlaceCellEnsemble(centers, radii)
+    >>> act = ensemble.activate(np.array([[x, y]]))   # (1, K)
+    >>> act = ensemble.activate(positions)             # (N, K)
+    """
+
+    def __init__(self, centers, radii):
+        self.centers = np.asarray(centers, dtype=np.float64)   # (K, 2)
+        self.radii   = np.asarray(radii,   dtype=np.float64)   # (K,)
+
+    @property
+    def n_cells(self):
+        return len(self.radii)
+
+    def activate(self, positions):
         """
-        Computes the activation of the place cell.
-        @param robot_x: The robot's current x coordinate
-        @param robot_y: The robot's current y coordinate
+        Compute normalised activations for one or more (x, y) positions.
+
+        Parameters
+        ----------
+        positions : array-like, shape (N, 2) or (2,)
+
+        Returns
+        -------
+        np.ndarray, shape (N, K)
         """
-        dx = self.center_x - robot_x
-        dy = self.center_y - robot_y
-        r2 = dx**2 + dy**2
-        self.activity = math.exp(self.k * r2)
-        # if r2 <= self.radius_squared:
-        #     self.activity = math.exp(self.k * r2)
-        # else:
-        #     self.activity = 0.0
+        return rbf_activations(
+            np.asarray(positions, dtype=np.float64),
+            self.centers,
+            self.radii,
+        )
 
 
-class PlaceCellNetwork:
+class VisualPlaceCellEnsemble:
+    """
+    Visual Place Cell (VPCE) ensemble defined in high-dimensional feature space.
 
-    def __init__(self,pc_generation_parm = PlaceCellGenParm()):
-        self.pc_network = None
-        self.pc_list = []
-        self.pc_coordinates = []
-        self.pc_generation_parm = pc_generation_parm
-        self.add_pc_to_network(0.0,0.0,radius=4.243)
+    Replaces the old VisiualPlaceCell / VisualPlaceCellNetwork pair.
+    Centers and radii are produced by fit_kmeans / fit_gmm in clustering.py
+    and are stored in the PlaceCellEnsemble HDF5 model file.
 
-    def add_pc_to_network(self, robot_x, robot_y,radius=.1):
-        pc_id = len(self.pc_list)
-        self.pc_list.append(PlaceCell(pc_id, robot_x, robot_y, radius))
-        self.pc_coordinates.append((robot_x, robot_y))
-        self.pc_network = KDTree(self.pc_coordinates)
+    Parameters
+    ----------
+    centers : array-like, shape (K, D)   — cluster centroids in feature space
+    radii   : array-like, shape (K,)     — RBF sigma per cell
 
-    def get_num_active_pc(self, robot_x, robot_y, search_radius=.5):
-        if self.pc_network is not None:
-            return self.pc_network.query_radius([(robot_x,robot_y)], r=search_radius,count_only=True)[0]
-        else:
-            return 0
+    Example
+    -------
+    >>> ensemble = VisualPlaceCellEnsemble(centers, radii)
+    >>> act = ensemble.activate(features_pca)   # (N, K)
+    >>> act = ensemble.activate(single_obs)     # (1, K)
+    """
 
-    # Used for threading implementation
-    def calculate_single_pc_activation(self,pc,robot_x,robot_y):
-        pc.calculate_activation(robot_x,robot_y)
+    def __init__(self, centers, radii):
+        self.centers = np.asarray(centers, dtype=np.float64)   # (K, D)
+        self.radii   = np.asarray(radii,   dtype=np.float64)   # (K,)
 
-    def activate_pc_network(self, robot_x, robot_y):
-        # Standard approach
-        for pc in self.pc_list:
-            pc.calculate_activation(robot_x,robot_y)
+    @property
+    def n_cells(self):
+        return len(self.radii)
 
-        # Threading approach
-        # pc_activation_threads = []
-        # for pc in self.pc_list:
-        #     t = PlaceCellTread(pc,robot_x,robot_y)
-        #     pc_activation_threads.append(t)
-        #     t.start()
-        # for t in pc_activation_threads:
-        #     t.join()
-        #     self.pc_list[t.pc.id] = t.pc
+    @property
+    def feature_dim(self):
+        return self.centers.shape[1]
 
-    def get_total_pc_activation(self):
-        sum = 0
-        for pc in self.pc_list:
-            sum += pc.activity
-        return sum
-
-    def get_all_pc_activations_normalized(self, robot_x, robot_y):
-        self.activate_pc_network(robot_x=robot_x,robot_y=robot_y)
-        self.normilize_all_pc()
-        return np.array([pc.activity for pc in self.pc_list],dtype=np.float32)
-
-    def print_pc_activations(self):
-        for pc in self.pc_list:
-            print(pc.id, pc.activity)
-    def normilize_all_pc(self):
-        total_activation = self.get_total_pc_activation()
-        if total_activation == 0:
-            total_activation = 1
-        for pc in self.pc_list:
-            pc.activity = pc.activity/total_activation
-
-class VisiualPlaceCell:
-    def __init__(self, pc_id, center_point, sigma):
-        self.id = pc_id
-        self.center_point = center_point
-        self.sigma = sigma
-        self.activity = 0.0
-
-    def calculate_activation(self,robot_point):
-        distance = np.linalg.norm(self.center_point - robot_point)
-        self.activity = np.exp(-(distance**2) / (2*self.sigma**2))
-
-class VisualPlaceCellNetwork:
-    def __init__(self):
-        self.pc_network = None
-        self.pc_list = []
-        self.pc_coordinates = []
-
-    def add_pc_to_network(self, robot_point, radius=.1):
-        pc_id = len(self.pc_list)
-        self.pc_list.append(VisiualPlaceCell(pc_id, robot_point, radius))
-        self.pc_coordinates.append(robot_point)
-        self.pc_network = KDTree(self.pc_coordinates)
-
-    def get_num_active_pc(self, robot_point, search_radius=.5):
-        if self.pc_network is not None:
-            return self.pc_network.query_radius([robot_point], r=search_radius, count_only=True)[0]
-        else:
-            return 0
-
-    def calculate_single_pc_activation(self, pc, robot_point):
-        pc.calculate_activation(robot_point)
-
-    def activate_pc_network(self, robot_point):
-        # Standard approach
-        for pc in self.pc_list:
-            pc.calculate_activation(robot_point)
-        self.normilize_all_pc()
-    def get_total_pc_activation(self):
-        total_activation = 0
-        for pc in self.pc_list:
-            total_activation += pc.activity
-        return total_activation
-
-    def get_all_pc_activations_normalized(self, robot_point,norm_type = 'norm'):
-        self.activate_pc_network(robot_point)
-        if norm_type == 'norm':
-            self.normilize_all_pc()
-        elif norm_type == 'min_max':
-            self.min_max_normalize_pc_activations()
-        return np.array([pc.activity for pc in self.pc_list], dtype=np.float32)
-
-    def print_pc_activations(self):
-        for pc in self.pc_list:
-            print(pc.id, pc.activity)
-
-    def normilize_all_pc(self):
-        total_activation = self.get_total_pc_activation()
-        if total_activation == 0:
-            total_activation = 1
-        for pc in self.pc_list:
-            pc.activity = pc.activity / total_activation
-
-    def min_max_normalize_pc_activations(self):
+    def activate(self, features):
         """
-        Perform min-max normalization on the place cell activations such that
-        the minimum activation becomes 0 and the maximum becomes 1.
-        """
-        activations = np.array([pc.activity for pc in self.pc_list])
-        min_activation = np.min(activations)
-        max_activation = np.max(activations)
+        Compute normalised activations for one or more feature vectors.
 
-        if max_activation - min_activation == 0:
-            # Prevent division by zero in case all activations are the same
-            for pc in self.pc_list:
-                pc.activity = 1.0  # Set all activations to 1 (arbitrary choice)
-        else:
-            for pc in self.pc_list:
-                pc.activity = (pc.activity - min_activation) / (max_activation - min_activation)
+        Parameters
+        ----------
+        features : array-like, shape (N, D) or (D,)
+
+        Returns
+        -------
+        np.ndarray, shape (N, K)
+        """
+        return rbf_activations(
+            np.asarray(features, dtype=np.float64),
+            self.centers,
+            self.radii,
+        )
