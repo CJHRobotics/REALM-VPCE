@@ -24,19 +24,46 @@ def extract_spatial_histogram(image, size=(32, 32)):
     return downscaled_image
 
 
-def extract_combined_features(image, landmark_mask=None, robot_theta=None):
-    # Ensure contiguous uint8 RGB array. If already numpy (from get_pov_image) this is a no-op.
+def extract_combined_features(image,
+                               landmark_mask=None,
+                               robot_theta=None,
+                               use_hog=True,
+                               use_color_hist=True,
+                               use_spatial=True):
+    """
+    Extract a concatenated multimodal feature vector from a single POV image.
+
+    Parameters
+    ----------
+    image         : np.ndarray or list — RGB image from the Webots camera
+    landmark_mask : list[int] or None  — binary mask of visible landmarks
+    robot_theta   : float or None      — robot heading in radians
+    use_hog       : bool — include HOG features          (default True)
+    use_color_hist: bool — include colour histogram       (default True)
+    use_spatial   : bool — include downsampled spatial map (default True)
+
+    Returns
+    -------
+    np.ndarray — flat concatenated feature vector containing only the
+                 requested descriptors, in the order: HOG · colour hist · spatial.
+    """
     if not isinstance(image, np.ndarray):
         image = np.array(image, dtype=np.uint8)
     image = np.ascontiguousarray(image[:, :, :3], dtype=np.uint8)
-    # Extract individual features
-    hog_features = extract_hog_features(image)
-    color_histogram = extract_color_histogram(image)
-    spatial_histogram = extract_spatial_histogram(image)
-    if landmark_mask is not None and robot_theta is not None:
-        # Concatenate all features into a single flat feature vector
-        combined_features = np.concatenate([hog_features, color_histogram, spatial_histogram, landmark_mask, [robot_theta]])
-    else:
-        combined_features = np.concatenate([hog_features, color_histogram, spatial_histogram])
-    return combined_features
 
+    parts = []
+    if use_hog:
+        parts.append(extract_hog_features(image))
+    if use_color_hist:
+        parts.append(extract_color_histogram(image))
+    if use_spatial:
+        parts.append(extract_spatial_histogram(image))
+
+    if landmark_mask is not None and robot_theta is not None:
+        parts.append(np.asarray(landmark_mask, dtype=np.float32))
+        parts.append(np.array([robot_theta], dtype=np.float32))
+
+    if not parts:
+        raise ValueError("At least one feature type must be enabled.")
+
+    return np.concatenate(parts)
