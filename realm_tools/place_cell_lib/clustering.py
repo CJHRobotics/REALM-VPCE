@@ -24,7 +24,7 @@ def fit_kmeans(features, n_clusters):
         for i in range(n_clusters)
     ])
     return centers, radii
-def fit_gmm(features, n_components, reg_covar=1e-3):
+def fit_gmm(features, n_components, reg_covar=1e-3, random_state=42):
     """
     Cluster feature vectors using a Gaussian Mixture Model.
 
@@ -43,7 +43,7 @@ def fit_gmm(features, n_components, reg_covar=1e-3):
     # float64 is required for numerical stability in high-dimensional GMM fitting
     features = np.asarray(features, dtype=np.float64)
 
-    gmm = GaussianMixture(n_components=n_components, random_state=42,
+    gmm = GaussianMixture(n_components=n_components, random_state=random_state,
                           covariance_type='diag', reg_covar=reg_covar)
     gmm.fit(features)
     centers = gmm.means_

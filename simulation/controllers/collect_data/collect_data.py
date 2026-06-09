@@ -15,7 +15,8 @@ from realm_tools.image_lib.image_feature_lib import extract_combined_features
 
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
-maze_files = ['lm8', 'lm8_r45', 'lm8_r90']
+# maze_files = ['lm8', 'lm8_r45', 'lm8_r90','lm8_o6']
+maze_files = ['four_room']
 
 
 # How many positions to capture before extracting features.
@@ -72,8 +73,8 @@ for maze_index, maze in enumerate(maze_files):
         robot.reset_environment()
         robot.load_environment(maze_file_dir + maze + '.xml', floor_texture='carpet')
 
-    # positions_path = maze_file_dir + 'positions/' + maze + '_positions.csv'
-    positions_path = maze_file_dir + 'positions/lm8_positions.csv'
+    positions_path = maze_file_dir + 'positions/' + maze + '_positions.csv'
+    # positions_path = maze_file_dir + 'positions/lm8_positions.csv'
     positions = pd.read_csv(positions_path)
 
     dataset = PovDataset()

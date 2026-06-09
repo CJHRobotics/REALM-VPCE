@@ -175,7 +175,6 @@ def plot_place_cell_activations(
     if save:
         _save_figure(fig, output_dir,
                      f'{maze}_{method}_K{n_cells}_activations.png')
-    plt.show()
 
 
 def plot_place_cell_activations_overlay(
@@ -271,4 +270,3 @@ def plot_place_cell_activations_overlay(
     if save:
         _save_figure(fig2, output_dir,
                      f'{maze}_{method}_K{n_cells}_activations_overlay.png')
-    plt.show()

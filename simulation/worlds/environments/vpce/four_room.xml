@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<world>
+
+    <!-- Square boundary: 5x5m (2.5m on each axis) -->
+    <wall x1="-2.50" y1=" 2.50" x2=" 2.50" y2=" 2.50" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 2.50" y1=" 2.50" x2=" 2.50" y2="-2.50" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 2.50" y1="-2.50" x2="-2.50" y2="-2.50" type="boundary" height="0.5" width="0.012"/>
+    <wall x1="-2.50" y1="-2.50" x2="-2.50" y2=" 2.50" type="boundary" height="0.5" width="0.012"/>
+
+    <!-- Horizontal internal wall (y=0): 0.5m doorway centered at origin (gap: x=-0.25 to x=+0.25) -->
+    <wall x1="-2.50" y1=" 0.00" x2="-0.5" y2=" 0.00" type="obstacle" height="0.5" width="0.012"/>
+    <wall x1=" 0.5" y1=" 0.00" x2=" 2.50" y2=" 0.00" type="obstacle" height="0.5" width="0.012"/>
+
+    <!-- Vertical internal wall (x=0): 0.5m doorway centered at origin (gap: y=-0.25 to y=+0.25) -->
+    <wall x1=" 0.00" y1=" 2.50" x2=" 0.00" y2=" 0.5" type="obstacle" height="0.5" width="0.012"/>
+    <wall x1=" 0.00" y1="-0.5" x2=" 0.00" y2="-2.50" type="obstacle" height="0.5" width="0.012"/>
+
+    <!-- ============================================================ -->
+    <!-- Landmarks: 2 per room, placed on boundary walls facing inward -->
+    <!-- ============================================================ -->
+
+    <!-- NE room (x>0, y>0) -->
+    <landmark type="panel" x=" 1.25" y=" 2.50" theta="-1.5708" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_0.png"
+              red="1.00" green="0.00" blue="0.00"/>
+    <landmark type="panel" x=" 2.50" y=" 1.25" theta=" 3.1416" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_1.png"
+              red="0.00" green="1.00" blue="0.00"/>
+
+    <!-- NW room (x<0, y>0) -->
+    <landmark type="panel" x="-1.25" y=" 2.50" theta="-1.5708" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_2.png"
+              red="0.00" green="0.00" blue="1.00"/>
+    <landmark type="panel" x="-2.50" y=" 1.25" theta=" 0.0000" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_3.png"
+              red="1.00" green="1.00" blue="0.00"/>
+
+    <!-- SW room (x<0, y<0) -->
+    <landmark type="panel" x="-1.25" y="-2.50" theta=" 1.5708" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_4.png"
+              red="0.00" green="1.00" blue="1.00"/>
+    <landmark type="panel" x="-2.50" y="-1.25" theta=" 0.0000" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_5.png"
+              red="1.00" green="0.50" blue="0.00"/>
+
+    <!-- SE room (x>0, y<0) -->
+    <landmark type="panel" x=" 1.25" y="-2.50" theta=" 1.5708" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_6.png"
+              red="0.50" green="0.00" blue="0.50"/>
+    <landmark type="panel" x=" 2.50" y="-1.25" theta=" 3.1416" height="1.0" width="1.0"
+              texture="../protos/world_objects/textures/flags/flag_7.png"
+              red="0.00" green="0.50" blue="0.50"/>
+
+    <train_start_positions>
+        <pos x="-1.50" y="-1.50" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="-1.50" y="-1.50" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+
+</world>
