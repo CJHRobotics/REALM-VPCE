@@ -13,11 +13,17 @@
 #SBATCH --mem=64G
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=chamilton5995@gmail.com
 # ---- fill in GAIVI-specific lines before first submission ---------------
 # #SBATCH --partition=<partition>
 # #SBATCH --account=<account>
 # #SBATCH --qos=<qos>
 # --------------------------------------------------------------------------
+# For the rich report (metrics + figures attached), export EMAIL_TO before
+# submitting:  EMAIL_TO=chamilton5995@gmail.com sbatch slurm/compare_feature_sets.sh
+# If GAIVI's localhost mail relay refuses, set EMAIL_SMTP / EMAIL_SMTP_USER
+# / EMAIL_SMTP_PASS (see slurm/send_report.py).
 
 set -euo pipefail
 
@@ -43,8 +49,15 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
+# Unbuffered stdout so the SLURM log we email later is complete when read.
+export PYTHONUNBUFFERED=1
+
+JOB_NAME="${SLURM_JOB_NAME:-cmp-feat}"
+JOB_ID="${SLURM_JOB_ID:-local}"
+LOG_PATH="slurm/logs/${JOB_NAME}-${JOB_ID}.out"
+
 echo "===================================================================="
-echo "Job     : ${SLURM_JOB_ID:-local}"
+echo "Job     : ${JOB_ID}"
 echo "Env     : ${ENV}"
 echo "Repo    : ${REPO_DIR}"
 echo "Threads : ${OMP_NUM_THREADS}"
@@ -53,5 +66,18 @@ echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
 
 python analysis/experiment_feature_selection/compare_feature_sets.py "${ENV}"
+STATUS=$?
 
-echo "Finished: $(date -Is)"
+echo "Finished: $(date -Is)  (exit ${STATUS})"
+
+# ---- email the summary + comparison figure ------------------------------
+# Silent no-op if EMAIL_TO isn't exported; won't fail the job either way.
+if [[ -n "${EMAIL_TO:-}" ]]; then
+    python slurm/send_report.py \
+        "REALM-VPCE ${ENV} compare_feature_sets (job ${JOB_ID}, exit ${STATUS})" \
+        "${LOG_PATH}" \
+        "analysis/experiment_feature_selection/figures/${ENV}__compare.png" \
+        || echo "(mailer failed — job status unchanged)"
+fi
+
+exit ${STATUS}
