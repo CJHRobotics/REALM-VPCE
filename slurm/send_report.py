@@ -81,14 +81,21 @@ def main() -> int:
     port    = int(os.environ.get('EMAIL_SMTP_PORT', '25'))
     user    = os.environ.get('EMAIL_SMTP_USER')
     pwd     = os.environ.get('EMAIL_SMTP_PASS')
-    use_tls = os.environ.get('EMAIL_SMTP_TLS', '').lower() in ('1', 'true', 'yes')
+    tls_env = os.environ.get('EMAIL_SMTP_TLS', '').lower() in ('1', 'true', 'yes')
+    # Auto-upgrade on the standard submission port even if the env var
+    # wasn't set; auth also requires TLS.
+    use_tls = tls_env or port == 587 or bool(user and pwd)
 
     try:
         with smtplib.SMTP(host, port, timeout=30) as s:
-            if use_tls or (user and pwd):
+            s.ehlo()
+            if use_tls:
                 s.starttls()
+                s.ehlo()
+                print(f'  starttls: on ({host}:{port})', file=sys.stderr)
             if user and pwd:
                 s.login(user, pwd)
+                print(f'  auth as {user}', file=sys.stderr)
             s.send_message(msg)
     except Exception as e:
         print(f'send failed via {host}:{port} — {e}', file=sys.stderr)
