@@ -77,15 +77,17 @@ def main() -> int:
                                filename=Path(path).name)
             n_attached += 1
 
-    host = os.environ.get('EMAIL_SMTP', 'localhost')
-    port = int(os.environ.get('EMAIL_SMTP_PORT', '25'))
-    user = os.environ.get('EMAIL_SMTP_USER')
-    pwd  = os.environ.get('EMAIL_SMTP_PASS')
+    host    = os.environ.get('EMAIL_SMTP', 'localhost')
+    port    = int(os.environ.get('EMAIL_SMTP_PORT', '25'))
+    user    = os.environ.get('EMAIL_SMTP_USER')
+    pwd     = os.environ.get('EMAIL_SMTP_PASS')
+    use_tls = os.environ.get('EMAIL_SMTP_TLS', '').lower() in ('1', 'true', 'yes')
 
     try:
         with smtplib.SMTP(host, port, timeout=30) as s:
-            if user and pwd:
+            if use_tls or (user and pwd):
                 s.starttls()
+            if user and pwd:
                 s.login(user, pwd)
             s.send_message(msg)
     except Exception as e:
