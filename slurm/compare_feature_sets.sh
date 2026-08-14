@@ -12,8 +12,8 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --output=slurm/logs/%x-%j.out
-#SBATCH --error=slurm/logs/%x-%j.err
+#SBATCH --output=%h/slurm-logs/%x-%j.out
+#SBATCH --error=%h/slurm-logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 # --------------------------------------------------------------------------
@@ -51,7 +51,7 @@ export PYTHONUNBUFFERED=1
 
 JOB_NAME="${SLURM_JOB_NAME:-cmp-feat}"
 JOB_ID="${SLURM_JOB_ID:-local}"
-LOG_PATH="slurm/logs/${JOB_NAME}-${JOB_ID}.out"
+LOG_PATH="${HOME}/slurm-logs/${JOB_NAME}-${JOB_ID}.out"
 
 echo "===================================================================="
 echo "Job     : ${JOB_ID}"
