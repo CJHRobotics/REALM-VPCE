@@ -227,8 +227,15 @@ simulation/worlds/environments/**/positions/
 # VPCE experiment data (large generated files, not committed)
 data/vpce/*
 
-# Generated analysis figures (run the notebooks to recreate)
+# Root-level cache of pipeline artifacts (banks, mu vectors, config snapshots)
+data_cache/
+
+# Any HDF5 dataset anywhere (belt-and-suspenders — datasets never in git)
+*.h5
+
+# Generated analysis figures (recreate by running the notebooks / scripts)
 analysis/figures/
+analysis/**/figures/
 *.ini
 *.DS_Store
 .DS_Store
