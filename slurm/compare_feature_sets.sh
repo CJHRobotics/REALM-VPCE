@@ -14,14 +14,14 @@
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=chamilton5995@gmail.com
+#SBATCH --mail-user=chamilton4@usf.edu
 # ---- fill in GAIVI-specific lines before first submission ---------------
 # #SBATCH --partition=<partition>
 # #SBATCH --account=<account>
 # #SBATCH --qos=<qos>
 # --------------------------------------------------------------------------
 # For the rich report (metrics + figures attached), export EMAIL_TO before
-# submitting:  EMAIL_TO=chamilton5995@gmail.com sbatch slurm/compare_feature_sets.sh
+# submitting:  EMAIL_TO=chamilton4@usf.edu sbatch slurm/compare_feature_sets.sh
 # If GAIVI's localhost mail relay refuses, set EMAIL_SMTP / EMAIL_SMTP_USER
 # / EMAIL_SMTP_PASS (see slurm/send_report.py).
 
