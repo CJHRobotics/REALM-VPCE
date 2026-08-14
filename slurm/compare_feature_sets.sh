@@ -12,8 +12,10 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --output=%h/slurm-logs/%x-%j.out
-#SBATCH --error=%h/slurm-logs/%x-%j.err
+#SBATCH --output=slurm/logs/%x-%j.out
+#SBATCH --error=slurm/logs/%x-%j.err
+# Note: this SLURM does NOT substitute %h. Path is repo-relative, so run
+# `mkdir -p slurm/logs` in the repo ONCE before your first submission.
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 # --------------------------------------------------------------------------
@@ -51,7 +53,8 @@ export PYTHONUNBUFFERED=1
 
 JOB_NAME="${SLURM_JOB_NAME:-cmp-feat}"
 JOB_ID="${SLURM_JOB_ID:-local}"
-LOG_PATH="${HOME}/slurm-logs/${JOB_NAME}-${JOB_ID}.out"
+LOG_PATH="slurm/logs/${JOB_NAME}-${JOB_ID}.out"
+mkdir -p slurm/logs
 
 echo "===================================================================="
 echo "Job     : ${JOB_ID}"
