@@ -24,6 +24,40 @@ def extract_spatial_histogram(image, size=(32, 32)):
     return downscaled_image
 
 
+def extract_feature_dict(image, use_hog=True, use_color_hist=True, use_spatial=True):
+    """Extract selected per-image descriptors as a dict, keyed by block name.
+
+    Downstream code can pick any subset by key. Keys mirror the flags:
+    'hog', 'color_hist', 'spatial'. Returned arrays are float32.
+    """
+    if not isinstance(image, np.ndarray):
+        image = np.array(image, dtype=np.uint8)
+    image = np.ascontiguousarray(image[:, :, :3], dtype=np.uint8)
+
+    out = {}
+    if use_hog:
+        out['hog']        = extract_hog_features(image).astype(np.float32)
+    if use_color_hist:
+        out['color_hist'] = extract_color_histogram(image).astype(np.float32)
+    if use_spatial:
+        out['spatial']    = extract_spatial_histogram(image).astype(np.float32)
+    return out
+
+
+def feature_block_sizes():
+    """Return the dimensionality of each descriptor block with the defaults
+    used above. Useful for splitting a legacy `multimodal_features` vector
+    (stored as HOG||color_hist||spatial) back into its blocks."""
+    # HOG on a 64x128 grey image with blockSize 16, blockStride 8, cellSize
+    # 8, nbins 9 → (64-16)/8+1 = 7 blocks per row, (128-16)/8+1 = 15 per
+    # col, (16/8)^2 = 4 cells/block, 9 bins/cell → 7*15*4*9 = 3780.
+    return {
+        'hog':        3780,
+        'color_hist': 8 * 8 * 8,
+        'spatial':    32 * 32 * 3,
+    }
+
+
 def extract_combined_features(image,
                                landmark_mask=None,
                                robot_theta=None,

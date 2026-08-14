@@ -38,17 +38,14 @@ class MyRobot(HamBot):
             break
         return current_x, current_y, self.get_closest_action_heading()
 
-    def get_robot_pov_features(self, landmark_dictionary):
+    def get_robot_pov_features(self):
         """
         Get combined feature vector including CNN features, multimodal features, and robot pose.
-
-        Args:
-            landmark_dictionary (dict): Dictionary to identify landmarks in the POV image.
 
         Returns:
             np.ndarray: Combined feature vector suitable for clustering.
         """
-        pov, landmark_mask = self.get_pov_image(landmark_dictionary)
+        pov, landmark_mask, landmark_azimuths = self.get_pov_image()
         x, y, theta = self.get_robot_pose()
 
         # Extract CNN features if enabled
@@ -59,20 +56,41 @@ class MyRobot(HamBot):
 
         multimodal_features = extract_combined_features(pov, landmark_mask, theta)
 
-        return multimodal_features, cnn_features, landmark_mask
+        return multimodal_features, cnn_features, landmark_mask, landmark_azimuths
 
-    def capture_pov_images(self, thetas):
+    def capture_pov_images(self, thetas, lidar_heading_index=0):
         """
-        Capture one image per heading without extracting features.
-        Use this for batch collection — accumulate images across many positions
-        then extract features in parallel in the controller.
+        Capture one image per heading without extracting features, plus one
+        lidar range image at heading `thetas[lidar_heading_index]` (the
+        "north-facing" scan by default). Use this for batch collection —
+        accumulate images across many positions then extract features in
+        parallel in the controller.
         Caller must have already teleported to the target position.
+
+        Returns
+        -------
+        images            : list of POV images, one per heading
+        landmark_masks    : list of (n_landmarks,) arrays — visibility per heading
+        landmark_azimuths : list of (n_landmarks,) arrays — egocentric bearing (rad)
+                            to each landmark, NaN where not visible
+        lidar_scan        : (n_lidar,) float32 range image at
+                            thetas[lidar_heading_index]
         """
         images = []
-        for theta in thetas:
+        landmark_masks = []
+        landmark_azimuths = []
+        lidar_scan = None
+        for i, theta in enumerate(thetas):
             self.robot_rotation_field.setSFRotation([0, 0, 1, theta])
-            images.append(self.get_pov_image())
-        return images
+            pov, mask, azimuths = self.get_pov_image()
+            images.append(pov)
+            landmark_masks.append(mask)
+            landmark_azimuths.append(azimuths)
+            # get_pov_image() steps the simulation, so the lidar reading here
+            # is aligned with the heading we just captured the image at.
+            if i == lidar_heading_index:
+                lidar_scan = np.asarray(self.lidar.getRangeImage(), dtype=np.float32)
+        return images, landmark_masks, landmark_azimuths, lidar_scan
 
     def get_full_robot_pov_features(self, thetas):
         robot_x, robot_y, robot_theta = self.get_robot_feature_pose()
@@ -81,7 +99,7 @@ class MyRobot(HamBot):
         images = []
         for theta in thetas:
             self.robot_rotation_field.setSFRotation([0, 0, 1, theta])
-            images.append(self.get_pov_image())
+            images.append(self.get_pov_image()[0])
 
         # Phase 2 — extract features in parallel (pure CPU, no Webots dependency)
         with ThreadPoolExecutor() as executor:
@@ -94,7 +112,7 @@ class MyRobot(HamBot):
 
         return np.concatenate(multimodal_features), cnn_features
 
-    def get_pov_image(self, landmark_dictionary=None):
+    def get_pov_image(self):
         while self.experiment_supervisor.step(self.timestep) != -1:
             # getImage() returns raw BGRA bytes — much faster than getImageArray()
             # which returns a Python list of lists that must be converted to numpy.
@@ -105,19 +123,41 @@ class MyRobot(HamBot):
             # don't pay a stride penalty from the reversed-channel view.
             pov = np.ascontiguousarray(img_bgra[:, :, 2::-1])
 
-            if landmark_dictionary is not None:
-                landmark_mask = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-                landmarks = self.camera.getRecognitionObjects()
-                for landmark in landmarks:
-                    color = landmark.getColors()
-                    color = [color[0], color[1], color[2]]
-                    key_list = list(landmark_dictionary.keys())
-                    val_list = list(landmark_dictionary.values())
-                    position = val_list.index(color)
-                    mask_index = key_list[position]
-                    landmark_mask[mask_index] = 1
-                return pov, landmark_mask
-            return pov
+            landmark_mask, landmark_azimuths = self.get_landmark_observations()
+            return pov, landmark_mask, landmark_azimuths
+
+    def get_landmark_observations(self):
+        """
+        Determine which landmarks (from self.maze.landmarks) are visible in the
+        current camera frame, and the egocentric bearing to each.
+
+        Each landmark is identified by its unique recognitionColors. Bearings come
+        from CameraRecognitionObject.getPosition(), which Webots already reports in
+        the camera's own coordinate frame (x = forward, y = lateral) — so atan2(y, x)
+        is the angle relative to the robot's current heading, with no global-frame
+        math needed.
+
+        Returns
+        -------
+        landmark_mask      : np.ndarray, shape (n_landmarks,) — 1 if visible, else 0
+        landmark_azimuths  : np.ndarray, shape (n_landmarks,) — egocentric bearing
+                             (radians) to each landmark, NaN where not visible
+        """
+        n_landmarks = len(self.maze.landmarks)
+        landmark_mask = np.zeros(n_landmarks, dtype=np.float32)
+        landmark_azimuths = np.full(n_landmarks, np.nan, dtype=np.float32)
+        color_to_id = {tuple(round(c, 2) for c in lm.color): lm.id for lm in self.maze.landmarks}
+
+        for obj in self.camera.getRecognitionObjects():
+            color = tuple(round(c, 2) for c in obj.getColors()[:3])
+            landmark_id = color_to_id.get(color)
+            if landmark_id is None:
+                continue
+            rel_x, rel_y, rel_z = obj.getPosition()
+            landmark_mask[landmark_id] = 1
+            landmark_azimuths[landmark_id] = math.atan2(rel_y, rel_x)
+
+        return landmark_mask, landmark_azimuths
     def get_closest_action_index(self):
         return int((self.get_compass_reading() // 45))
 
