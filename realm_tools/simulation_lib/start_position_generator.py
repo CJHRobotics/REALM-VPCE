@@ -51,7 +51,7 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import LineString, MultiPoint, Point
 
-from realm_tools.simulation_lib.environment_parser import parse_all_walls
+from realm_tools.simulation_lib.environment_parser import parse_all_walls, parse_all_circular_walls
 
 # Robot physical constants (from HamBot spec)
 ROBOT_RADIUS   = 0.3086   # metres
@@ -67,43 +67,61 @@ def _wall_lines(walls):
     return [LineString([(w['x1'], w['y1']), (w['x2'], w['y2'])]) for w in walls]
 
 
-def _outer_boundary(walls):
+def _outer_boundary(walls, circular_walls):
     """
     Build the outer boundary polygon from the maze walls.
 
-    Prefers walls tagged type="boundary".  Falls back to all walls if none
-    are tagged (older XML format).  Uses the convex hull of the selected
-    wall endpoints — this is exact for convex environments (all current VPCE
-    mazes are convex octagons) and requires no exact endpoint connectivity.
+    If circular walls are present their interiors (disk polygons) define the
+    boundary and are intersected with the flat-wall polygon if one exists.
+
+    For flat walls: prefers walls tagged type="boundary", falls back to all
+    walls for untyped XMLs.  Uses convex hull of endpoints — exact for convex
+    environments (octagons etc.) and requires no endpoint connectivity.
     """
+    boundary = None
+
+    if circular_walls:
+        for cw in circular_walls:
+            disk = Point(cw['x'], cw['y']).buffer(cw['radius'])
+            boundary = disk if boundary is None else boundary.intersection(disk)
+
     boundary_walls = [w for w in walls if w['wall_type'] == 'boundary']
     source         = boundary_walls if boundary_walls else walls
+    if source:
+        endpoints = (
+            [(w['x1'], w['y1']) for w in source] +
+            [(w['x2'], w['y2']) for w in source]
+        )
+        flat = MultiPoint(endpoints).convex_hull
+        boundary = flat if boundary is None else boundary.intersection(flat)
 
-    endpoints = (
-        [(w['x1'], w['y1']) for w in source] +
-        [(w['x2'], w['y2']) for w in source]
-    )
-    return MultiPoint(endpoints).convex_hull
+    return boundary
 
 
-def _is_valid_point(x, y, boundary, all_lines, wall_clearance):
+def _is_valid_point(x, y, boundary, all_lines, circular_walls, wall_clearance):
     """
     Return True if (x, y) is a valid robot start position:
       - inside the outer boundary polygon, and
-      - at least wall_clearance metres from every wall segment (boundary and
-        obstacle).
+      - at least wall_clearance metres from every flat wall segment, and
+      - at least wall_clearance metres from every circular wall surface.
     """
     p = Point(x, y)
     if not boundary.contains(p):
         return False
-    return all(p.distance(line) >= wall_clearance for line in all_lines)
+    if not all(p.distance(line) >= wall_clearance for line in all_lines):
+        return False
+    for cw in circular_walls:
+        dist_to_center = p.distance(Point(cw['x'], cw['y']))
+        if cw['radius'] - dist_to_center < wall_clearance:
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
 # Plot helper
 # ---------------------------------------------------------------------------
 
-def _save_plot(df, walls, boundary, xml_path, spacing, wall_clearance):
+def _save_plot(df, walls, circular_walls, boundary, xml_path, spacing, wall_clearance):
     """Save a coverage plot to data/data_cache/<maze>_grid.png."""
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
@@ -122,6 +140,12 @@ def _save_plot(df, walls, boundary, xml_path, spacing, wall_clearance):
         color = 'black' if w['wall_type'] == 'boundary' else 'saddlebrown'
         ax.plot([w['x1'], w['x2']], [w['y1'], w['y2']],
                 color=color, lw=2.5, solid_capstyle='round')
+
+    for cw in circular_walls:
+        ax.add_patch(mpatches.Circle(
+            (cw['x'], cw['y']), cw['radius'],
+            fill=False, edgecolor='black', lw=2.5,
+        ))
 
     ax.scatter(df.x, df.y, s=6, color='steelblue', zorder=4)
     ax.set_title(
@@ -178,11 +202,12 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=0.2,
     pd.DataFrame
         Columns: x, y, theta.
     """
-    root  = ET.parse(xml_path).getroot()
-    walls = parse_all_walls(root)
+    root           = ET.parse(xml_path).getroot()
+    walls          = parse_all_walls(root)
+    circular_walls = parse_all_circular_walls(root)
 
     all_lines = _wall_lines(walls)
-    boundary  = _outer_boundary(walls)
+    boundary  = _outer_boundary(walls, circular_walls)
 
     minx, miny, maxx, maxy = boundary.bounds
     xs = np.arange(minx, maxx + spacing, spacing)
@@ -192,7 +217,7 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=0.2,
         (round(float(x), 4), round(float(y), 4), theta)
         for x in xs
         for y in ys
-        if _is_valid_point(x, y, boundary, all_lines, wall_clearance)
+        if _is_valid_point(x, y, boundary, all_lines, circular_walls, wall_clearance)
     ]
 
     if not points:
@@ -211,7 +236,7 @@ def generate_grid(xml_path, spacing=0.1, wall_clearance=0.2,
         print(f"Saved {len(df)} positions  →  {output}")
 
     if plot:
-        _save_plot(df, walls, boundary, xml_path, spacing, wall_clearance)
+        _save_plot(df, walls, circular_walls, boundary, xml_path, spacing, wall_clearance)
 
     return df
 

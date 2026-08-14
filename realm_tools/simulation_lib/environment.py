@@ -228,11 +228,17 @@ class CircularWall:
                 f'baseColor {r:.2f} {g:.2f} {b:.2f} '
                 f'metalness 0 roughness 0.5 }}'
             )
+        # Convention: the XML `radius` is the *inner* radius of the wall
+        # (the walkable interior of the arena). Webots' SolidPipe.radius is
+        # the OUTER radius, so we shift by +thickness. This keeps `radius`
+        # consistent between the XML and everything downstream that treats
+        # it as the walkable extent (start_position_generator, plotting).
+        webots_outer = self.radius + self.thickness
         return (
             f'DEF circular_wall_{self.id} SolidPipe {{ '
             f'translation {self.translation[0]:.2f} {self.translation[1]:.2f} {self.translation[2]:.2f} '
             f'height {self.height:.3f} '
-            f'radius {self.radius:.3f} '
+            f'radius {webots_outer:.3f} '
             f'thickness {self.thickness:.3f} '
             f'subdivision {self.subdivision} '
             f'appearance {appearance} }}'
