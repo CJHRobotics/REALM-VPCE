@@ -27,13 +27,9 @@ import numpy as np
 # Core computation
 # ---------------------------------------------------------------------------
 
-def rbf_activations(features, centers, radii):
+def rbf_activations(features, centers, radii, normalize='row'):
     """
-    Compute the row-normalised RBF activation matrix.
-
-    Each row i contains the normalised activation of all K place cells
-    for observation i.  Normalisation ensures the population vector sums
-    to 1 at every observation, giving a probability-like encoding.
+    Compute the RBF activation matrix.
 
     Uses the identity  ||a-b||² = ||a||² - 2a·b + ||b||²  to compute all
     pairwise distances via matrix multiplication, avoiding the O(N·K·D)
@@ -47,10 +43,18 @@ def rbf_activations(features, centers, radii):
         Place cell centroids in feature space.
     radii    : np.ndarray, shape (K,)
         RBF sigma (receptive field width) per cell.
+    normalize : {'row', 'minmax', None}
+        How to normalise the raw RBF response.
+        - 'row'    : each row sums to 1 (population code — default).
+        - 'minmax' : per-cell min-max along the column so each cell's peak
+                     response across the batch → 1 and its minimum → 0.
+                     Only meaningful when features covers a range of
+                     observations (e.g. a whole trajectory or arena sweep).
+        - None     : raw Gaussian response in (0, 1].
 
     Returns
     -------
-    np.ndarray, shape (N, K)  —  row-normalised activations in [0, 1].
+    np.ndarray, shape (N, K)
     """
     features = np.atleast_2d(features)
     f_sq     = np.sum(features ** 2, axis=1, keepdims=True)   # (N, 1)
@@ -58,8 +62,18 @@ def rbf_activations(features, centers, radii):
     fc       = features @ centers.T                             # (N, K)
     dist_sq  = np.maximum(f_sq - 2 * fc + c_sq, 0)            # (N, K)
     raw      = np.exp(-dist_sq / (2 * radii ** 2))             # (N, K)
-    row_sums = raw.sum(axis=1, keepdims=True)
-    return raw / np.where(row_sums == 0, 1, row_sums)
+
+    if normalize == 'row':
+        row_sums = raw.sum(axis=1, keepdims=True)
+        return raw / np.where(row_sums == 0, 1, row_sums)
+    if normalize == 'minmax':
+        col_min = raw.min(axis=0, keepdims=True)
+        col_max = raw.max(axis=0, keepdims=True)
+        span    = col_max - col_min
+        return (raw - col_min) / np.where(span == 0, 1, span)
+    if normalize is None:
+        return raw
+    raise ValueError(f"unknown normalize={normalize!r}; expected 'row', 'minmax', or None")
 
 
 # ---------------------------------------------------------------------------
@@ -94,13 +108,14 @@ class SpatialPlaceCellEnsemble:
     def n_cells(self):
         return len(self.radii)
 
-    def activate(self, positions):
+    def activate(self, positions, normalize='row'):
         """
-        Compute normalised activations for one or more (x, y) positions.
+        Compute activations for one or more (x, y) positions.
 
         Parameters
         ----------
         positions : array-like, shape (N, 2) or (2,)
+        normalize : {'row', 'minmax', None} — see `rbf_activations`.
 
         Returns
         -------
@@ -110,6 +125,7 @@ class SpatialPlaceCellEnsemble:
             np.asarray(positions, dtype=np.float64),
             self.centers,
             self.radii,
+            normalize=normalize,
         )
 
 
@@ -145,13 +161,14 @@ class VisualPlaceCellEnsemble:
     def feature_dim(self):
         return self.centers.shape[1]
 
-    def activate(self, features):
+    def activate(self, features, normalize='row'):
         """
-        Compute normalised activations for one or more feature vectors.
+        Compute activations for one or more feature vectors.
 
         Parameters
         ----------
         features : array-like, shape (N, D) or (D,)
+        normalize : {'row', 'minmax', None} — see `rbf_activations`.
 
         Returns
         -------
@@ -161,4 +178,5 @@ class VisualPlaceCellEnsemble:
             np.asarray(features, dtype=np.float64),
             self.centers,
             self.radii,
+            normalize=normalize,
         )

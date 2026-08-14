@@ -89,6 +89,34 @@ def _save_figure(fig, output_dir, filename):
     print(f"Saved  →  {path}")
 
 
+def _has_orientation(theta_obs):
+    """True if poses carry per-observation heading info (not all-NaN)."""
+    return not np.all(np.isnan(theta_obs))
+
+
+def _quiver_arrow_length(x_obs, y_obs):
+    """Pick an arrow length scaled to the spacing between sampled positions."""
+    x_unique = np.unique(x_obs)
+    spacing = np.median(np.diff(np.sort(x_unique))) if len(x_unique) > 1 else 1.0
+    return 0.4 * spacing
+
+
+def _plot_activation_quiver(ax, x_obs, y_obs, theta_obs, activation, cmap, arrow_length):
+    """
+    Draw one arrow per (x, y, theta) observation, oriented along theta and
+    colored by its activation value. Arrow length is also scaled by
+    activation (relative to this cell's max) so low-activation headings
+    shrink toward a point.
+    """
+    vmax = activation.max()
+    norm = Normalize(vmin=0, vmax=vmax if vmax > 0 else 1.0)
+    magnitude = activation / vmax if vmax > 0 else activation
+    u = magnitude * np.cos(theta_obs) * arrow_length
+    v = magnitude * np.sin(theta_obs) * arrow_length
+    ax.quiver(x_obs, y_obs, u, v, activation, cmap=cmap, norm=norm,
+              angles='xy', scale_units='xy', scale=1, width=0.006, pivot='tail')
+
+
 # rbf_activations is imported from realm_tools.place_cell_lib.place_cells
 # and re-exported here for convenience so callers can import from one place.
 
@@ -109,8 +137,13 @@ def plot_place_cell_activations(
     """
     Plot place cell activation heatmaps on a dark background with maze walls.
 
-    Each subplot shows the interpolated RBF activation of one place cell
-    projected onto the x,y plane, superimposed on the maze boundary.
+    Each subplot shows the activation of one place cell projected onto the
+    x,y plane, superimposed on the maze boundary. If `poses` carries
+    per-observation heading info (theta not all-NaN, i.e. N_COMBINE <
+    n_orientations), activation is shown as a quiver field — one arrow per
+    (x, y, theta) observation, oriented along its heading and colored/sized
+    by activation. Otherwise (one datapoint per location) it falls back to
+    an interpolated heatmap.
 
     Parameters
     ----------
@@ -129,14 +162,18 @@ def plot_place_cell_activations(
 
     fig_w, fig_h, subplot_top, cbar_bot, cbar_h_n, title_y = _layout(nrows, ncols)
 
-    x_obs = poses[:, 0]
-    y_obs = poses[:, 1]
-    Xi, Yi, xi, yi = _interp_grid(x_obs, y_obs)
+    x_obs, y_obs, theta_obs = poses[:, 0], poses[:, 1], poses[:, 2]
+    orientation = _has_orientation(theta_obs)
 
     # Inferno with NaN → white so grid points outside the observation hull
     # don't produce black patches on the white background.
     cmap = plt.get_cmap('inferno').copy()
     cmap.set_bad('white')
+
+    if orientation:
+        arrow_length = _quiver_arrow_length(x_obs, y_obs)
+    else:
+        Xi, Yi, xi, yi = _interp_grid(x_obs, y_obs)
 
     with plt.rc_context({'text.color': 'black', 'axes.labelcolor': 'black',
                          'xtick.color': 'black', 'ytick.color': 'black'}):
@@ -148,11 +185,14 @@ def plot_place_cell_activations(
     for i in range(n_cells):
         ax = axes[i]
         ax.set_facecolor('white')   # override any dark-theme axes default
-        Zi = griddata((x_obs, y_obs), activations[:, i], (Xi, Yi), method='linear')
-        ax.imshow(Zi, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
-                  origin='lower', cmap=cmap,
-                  vmin=0, vmax=activations[:, i].max(),
-                  aspect='equal', interpolation='bilinear')
+        if orientation:
+            _plot_activation_quiver(ax, x_obs, y_obs, theta_obs, activations[:, i], cmap, arrow_length)
+        else:
+            Zi = griddata((x_obs, y_obs), activations[:, i], (Xi, Yi), method='linear')
+            ax.imshow(Zi, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
+                      origin='lower', cmap=cmap,
+                      vmin=0, vmax=activations[:, i].max(),
+                      aspect='equal', interpolation='bilinear')
         _draw_maze(ax, maze_xml)
         ax.set_title(f'Cell {i}', fontsize=39, color='black', pad=4)
         ax.set_xticks([])
@@ -192,7 +232,11 @@ def plot_place_cell_activations_overlay(
     Plot place cell activation heatmaps blended onto a real base figure image.
 
     The heatmap uses per-pixel alpha (alpha = normalised activation), so low-
-    activation regions are transparent and the base image shows through.
+    activation regions are transparent and the base image shows through. If
+    `poses` carries per-observation heading info (theta not all-NaN, i.e.
+    N_COMBINE < n_orientations), activation is instead shown as a quiver
+    field — one arrow per (x, y, theta) observation, oriented along its
+    heading and colored by activation — overlaid on the base image.
 
     Parameters
     ----------
@@ -222,10 +266,14 @@ def plot_place_cell_activations_overlay(
     if flip_base_img:
         base_img = np.flipud(base_img)
 
-    x_obs = poses[:, 0]
-    y_obs = poses[:, 1]
-    Xi, Yi, xi, yi = _interp_grid(x_obs, y_obs)
+    x_obs, y_obs, theta_obs = poses[:, 0], poses[:, 1], poses[:, 2]
+    orientation = _has_orientation(theta_obs)
     cmap = plt.get_cmap('inferno')
+
+    if orientation:
+        arrow_length = _quiver_arrow_length(x_obs, y_obs)
+    else:
+        Xi, Yi, xi, yi = _interp_grid(x_obs, y_obs)
 
     with plt.rc_context({'text.color': 'black', 'axes.labelcolor': 'black',
                          'xtick.color': 'black', 'ytick.color': 'black'}):
@@ -240,15 +288,18 @@ def plot_place_cell_activations_overlay(
         ax.imshow(base_img, extent=base_extent, origin='lower',
                   aspect='equal', zorder=0)
 
-        Zi       = griddata((x_obs, y_obs), activations[:, i], (Xi, Yi), method='linear')
-        Zi_clean = np.nan_to_num(Zi, nan=0.0)
-        peak     = Zi_clean.max()
-        Zi_norm  = Zi_clean / peak if peak > 0 else Zi_clean
-        rgba     = cmap(Zi_norm)
-        rgba[:, :, 3] = Zi_norm
+        if orientation:
+            _plot_activation_quiver(ax, x_obs, y_obs, theta_obs, activations[:, i], cmap, arrow_length)
+        else:
+            Zi       = griddata((x_obs, y_obs), activations[:, i], (Xi, Yi), method='linear')
+            Zi_clean = np.nan_to_num(Zi, nan=0.0)
+            peak     = Zi_clean.max()
+            Zi_norm  = Zi_clean / peak if peak > 0 else Zi_clean
+            rgba     = cmap(Zi_norm)
+            rgba[:, :, 3] = Zi_norm
 
-        ax.imshow(rgba, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
-                  origin='lower', aspect='equal', interpolation='bilinear', zorder=1)
+            ax.imshow(rgba, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
+                      origin='lower', aspect='equal', interpolation='bilinear', zorder=1)
         ax.set_xlim(base_extent[0], base_extent[1])
         ax.set_ylim(base_extent[2], base_extent[3])
         ax.set_title(f'Cell {i}', fontsize=39, color='black', pad=4)
@@ -270,3 +321,105 @@ def plot_place_cell_activations_overlay(
     if save:
         _save_figure(fig2, output_dir,
                      f'{maze}_{method}_K{n_cells}_activations_overlay.png')
+
+
+def plot_place_cell_orientation_activations(
+    activations,
+    poses,
+    maze_xml,
+    maze='',
+    method='',
+    cell_indices=None,
+    n_sample_cells=None,
+    random_state=42,
+    save=False,
+    output_dir='analysis/figures/place_cell_activity_plots/',
+):
+    """
+    Plot per-heading activation heatmaps: one row per place cell, one column
+    per distinct heading. If `poses` has no per-observation heading info
+    (theta all-NaN, i.e. N_COMBINE == n_orientations), each cell gets a
+    single column showing its combined activation.
+
+    Parameters
+    ----------
+    activations    : np.ndarray, shape (N, K) — from rbf_activations()
+    poses          : np.ndarray, shape (N, 3) — columns: x, y, theta
+    maze_xml       : str — path to the maze XML file
+    maze           : str — maze name used in the figure title
+    method         : str — clustering method used in the figure title
+    cell_indices   : sequence[int] or None — specific place cells to plot,
+                     one row each. If None, see n_sample_cells.
+    n_sample_cells : int or None — randomly sample this many cells (without
+                     replacement) when cell_indices is None. If both
+                     cell_indices and n_sample_cells are None, all K cells
+                     are plotted.
+    random_state   : int — seed used when sampling cells
+    save           : bool — if True, save the figure to output_dir
+    output_dir     : str  — directory for saved figures
+    """
+    n_cells_total = activations.shape[1]
+
+    if cell_indices is None:
+        if n_sample_cells is not None:
+            rng = np.random.default_rng(random_state)
+            n_sample = min(n_sample_cells, n_cells_total)
+            cell_indices = np.sort(rng.choice(n_cells_total, size=n_sample, replace=False))
+        else:
+            cell_indices = np.arange(n_cells_total)
+
+    x_obs, y_obs, theta_obs = poses[:, 0], poses[:, 1], poses[:, 2]
+    headings = np.unique(theta_obs[~np.isnan(theta_obs)])
+    if len(headings) == 0:
+        headings = [None]  # N_COMBINE == n_orientations: one combined datapoint per location
+
+    nrows, ncols = len(cell_indices), len(headings)
+    fig_w, fig_h, subplot_top, cbar_bot, cbar_h_n, title_y = _layout(nrows, ncols)
+
+    Xi, Yi, xi, yi = _interp_grid(x_obs, y_obs)
+
+    cmap = plt.get_cmap('inferno').copy()
+    cmap.set_bad('white')
+
+    with plt.rc_context({'text.color': 'black', 'axes.labelcolor': 'black',
+                         'xtick.color': 'black', 'ytick.color': 'black'}):
+        fig, axes = plt.subplots(nrows, ncols,
+                                  figsize=(fig_w, fig_h),
+                                  facecolor='white', squeeze=False)
+
+    for row, cell_idx in enumerate(cell_indices):
+        activation = activations[:, cell_idx]
+        vmax = activation.max()
+        for col, heading in enumerate(headings):
+            ax = axes[row, col]
+            ax.set_facecolor('white')
+            mask = np.ones_like(theta_obs, dtype=bool) if heading is None else (theta_obs == heading)
+            Zi = griddata((x_obs[mask], y_obs[mask]), activation[mask], (Xi, Yi), method='linear')
+            ax.imshow(Zi, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
+                      origin='lower', cmap=cmap,
+                      vmin=0, vmax=vmax,
+                      aspect='equal', interpolation='bilinear')
+            _draw_maze(ax, maze_xml)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_aspect('equal')
+            if row == 0:
+                title = 'All headings' if heading is None else f'{np.degrees(heading):.0f}°'
+                ax.set_title(title, fontsize=28, color='black', pad=4)
+            if col == 0:
+                ax.set_ylabel(f'Cell {cell_idx}', fontsize=28, color='black',
+                               rotation=0, labelpad=45, va='center')
+
+    plt.subplots_adjust(top=subplot_top, bottom=0.01, hspace=0.15, wspace=0.1)
+
+    fig.suptitle(
+        f'Place Cell Activations by Heading — {maze.upper()}  {method.upper()}',
+        fontsize=54, color='black', y=title_y
+    )
+
+    _add_colorbar(fig, cbar_bot, cbar_h_n)
+
+    if save:
+        sample_str = f'_n{len(cell_indices)}' if len(cell_indices) != n_cells_total else ''
+        _save_figure(fig, output_dir,
+                     f'{maze}_{method}_orientation_activations{sample_str}.png')
