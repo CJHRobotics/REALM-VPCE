@@ -30,16 +30,13 @@ cd "$REPO_DIR"
 mkdir -p slurm/logs
 
 # ---- environment ---------------------------------------------------------
-# module load python/3.11        # uncomment + adjust if GAIVI uses modules
-# module load anaconda           # or your preferred toolchain
-
-# Activate the project venv (create it once on GAIVI:
-#   python -m venv realm_venv && source realm_venv/bin/activate
+# GAIVI: activate the conda env (create it once with:
+#   conda create -n realm-vpce python=3.11 -y
+#   conda activate realm-vpce
 #   pip install -r setup/requirements.txt )
-if [[ -f "realm_venv/bin/activate" ]]; then
-    # shellcheck disable=SC1091
-    source realm_venv/bin/activate
-fi
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate realm-vpce
 
 # BLAS thread count — match the SBATCH cpus-per-task
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
