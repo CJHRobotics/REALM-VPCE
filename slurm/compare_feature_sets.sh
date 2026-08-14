@@ -28,8 +28,11 @@ set -euo pipefail
 
 ENV="${1:-circ_lm8_r0}"
 
-# Locate the repo (this script's dir is <repo>/slurm)
-REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# Locate the repo. SLURM copies the batch script to spool before running
+# it, so BASH_SOURCE[0] points into /var/spool/slurm on the compute node.
+# SLURM_SUBMIT_DIR is set to the directory sbatch was called from — our
+# workflow submits from the repo root, so that's the right place to cd.
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$REPO_DIR"
 
 mkdir -p slurm/logs
