@@ -19,15 +19,18 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, '/Users/titonka/REALM-VPCE')
-sys.path.insert(0, os.path.dirname(__file__))
+# Derive repo root from this file's location so imports work on any host
+# (laptop, GAIVI, etc.). This file lives at
+# <repo>/analysis/experiment_feature_selection/compare_feature_sets.py.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from realm_tools.experiment_lib.place_cell_analysis import load_selective_features
 from pipeline import run_place_field_pipeline, build_env
 
 # ------------------------------------------------------------------ CLI / paths
 ENV = sys.argv[1] if len(sys.argv) > 1 else 'circ_lm8_r0'
-REPO       = '/Users/titonka/REALM-VPCE'
 DATA_PATH  = f'{REPO}/data/vpce/collect_data/{ENV}.h5'
 XML_PATH   = f'{REPO}/simulation/worlds/environments/vpce/{ENV}.xml'
 BANK_ROOT  = f'{REPO}/data_cache/feature_selection_bank/{ENV}'

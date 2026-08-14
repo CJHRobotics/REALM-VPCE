@@ -32,7 +32,10 @@ import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import squareform
 
-sys.path.insert(0, '/Users/titonka/REALM-VPCE')
+# Derive repo root from this file's location so imports work on any host.
+# This file lives at <repo>/analysis/experiment_feature_selection/run_place_fields.py.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, REPO)
 from realm_tools.experiment_lib.place_cell_analysis import load_selective_features
 
 import warnings
@@ -62,7 +65,6 @@ FEATURE_FLAGS = dict(
 enabled = [k.replace('use_', '') for k, v in FEATURE_FLAGS.items() if v]
 FEATURE_LABEL = ('+'.join(enabled) if enabled else 'none') + (f'__{args.tag}' if args.tag else '')
 
-REPO       = '/Users/titonka/REALM-VPCE'
 DATA_PATH  = f'{REPO}/data/vpce/collect_data/{ENV}.h5'
 XML_PATH   = f'{REPO}/simulation/worlds/environments/vpce/{ENV}.xml'
 BANK_DIR   = f'{REPO}/data_cache/feature_selection_bank/{ENV}/{FEATURE_LABEL}'
