@@ -7,6 +7,7 @@
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=cmp-feat
+#SBATCH --partition=general
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
@@ -15,15 +16,11 @@
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
-# ---- fill in GAIVI-specific lines before first submission ---------------
-# #SBATCH --partition=<partition>
-# #SBATCH --account=<account>
-# #SBATCH --qos=<qos>
 # --------------------------------------------------------------------------
-# For the rich report (metrics + figures attached), export EMAIL_TO before
-# submitting:  EMAIL_TO=chamilton4@usf.edu sbatch slurm/compare_feature_sets.sh
-# If GAIVI's localhost mail relay refuses, set EMAIL_SMTP / EMAIL_SMTP_USER
-# / EMAIL_SMTP_PASS (see slurm/send_report.py).
+# Rich report (metrics + figures attached) is opt-in via EMAIL_TO. Set the
+# defaults once on GAIVI in ~/.bashrc:
+#   EMAIL_TO=chamilton4@usf.edu  EMAIL_FROM=chamilton4@usf.edu
+#   EMAIL_SMTP=smtp.usf.edu      EMAIL_SMTP_PORT=587  (STARTTLS auto)
 
 set -euo pipefail
 
