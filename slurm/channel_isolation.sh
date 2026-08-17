@@ -82,6 +82,13 @@ echo "Started  : $(date -Is)"
 echo "Git      : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
     || echo "GPU      : none visible (will run on CPU)"
+# A GPU can be allocated while torch is still a CPU-only build, which looks
+# identical in the log until the readout runs slowly. Print the build.
+python - <<'PY' 2>/dev/null || echo "Torch    : import failed"
+import torch
+print(f"Torch    : {torch.__version__}  cuda_build={torch.version.cuda}  "
+      f"available={torch.cuda.is_available()}  devices={torch.cuda.device_count()}")
+PY
 echo "===================================================================="
 
 # `set -e` would abort the script the moment python returned non-zero, so
