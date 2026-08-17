@@ -716,11 +716,28 @@ def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
             split_half_iou=float(sh_iou[k]),
             parent_id=int(parent[nid]), is_leaf=bool(nid < N),
         ))
-    bank_df = pd.DataFrame(rows)
+    # Explicit schema so a channel that admits nothing still writes a
+    # well-formed, readable bank.csv with headers rather than an empty file.
+    BANK_COLUMNS = ['node_id', 'depth', 'n_members', 'sigma_feature',
+                    'area_env_m2', 'radius_env_m', 'semi_major_m', 'semi_minor_m',
+                    'elongation', 'orientation_rad', 'centroid_x', 'centroid_y',
+                    'dist_to_wall_m', 'scale_band', 'cc_frac', 'n_components',
+                    'split_half_iou', 'parent_id', 'is_leaf']
+    bank_df = pd.DataFrame(rows, columns=BANK_COLUMNS)
     kept_mu = (cand_mu[kept] if kept else np.empty((0, D), dtype=np.float32))
+
+    # How tight is a candidate relative to the whole dataset? sigma_ratio
+    # near 1 means a node's members are as spread out in feature space as
+    # two random locations are — the channel carries no usable locality at
+    # that scale, the RBF response is near-flat, and the "field" covers the
+    # arena. This is what separates a channel that fails to localise from
+    # one that merely produces few fields.
+    sigma_ratio = cand_sigma / np.sqrt(max(feat_med, 1e-12))
 
     report = dict(
         funnel=funnel, coverage=coverage,
+        median_sigma_ratio=float(np.median(sigma_ratio)),
+        cand_sigma_ratio=sigma_ratio,
         band_lo=int(band_range[0]), band_hi=int(band_range[1]),
         r_min=float(r_min), r_max=float(r_max),
         area_min=float(area_min), area_max=float(area_max),

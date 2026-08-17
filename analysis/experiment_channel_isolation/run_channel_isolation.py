@@ -61,8 +61,40 @@ def parse_args():
     ap.add_argument('--lidar-max-range', type=float, default=LIDAR_MAX_RANGE)
     ap.add_argument('--no-gpu', action='store_true')
     ap.add_argument('--no-plots', action='store_true')
+    ap.add_argument('--figures-only', action='store_true',
+                    help='rebuild figures from cached banks; no agglomeration')
     ap.add_argument('--seed', type=int, default=0)
     return ap.parse_args()
+
+
+def load_cached(out_root, channel_names, lambdas):
+    """Reload banks, reports and diagnostics written by a previous run.
+
+    Lets figures be iterated on without repeating the agglomeration, which
+    is the expensive part and does not change when only a plot changes.
+    """
+    banks, reports, rows = {}, {}, []
+    for cname in channel_names:
+        for lam in lambdas:
+            d = f'{out_root}/{cname}/lam{lam:g}'
+            if not os.path.exists(f'{d}/bank.csv'):
+                continue
+            try:
+                banks[(cname, lam)] = pd.read_csv(f'{d}/bank.csv')
+            except pd.errors.EmptyDataError:      # bank written before the
+                banks[(cname, lam)] = pd.DataFrame()   # explicit-schema fix
+            rep = {}
+            if os.path.exists(f'{d}/report.json'):
+                with open(f'{d}/report.json') as f:
+                    rep = json.load(f)
+                # json turns the band-keyed coverage map into strings
+                rep['coverage'] = {int(k): v for k, v in rep.get('coverage', {}).items()}
+            if os.path.exists(f'{d}/diagnostics.npz'):
+                rep.update({k: v for k, v in np.load(f'{d}/diagnostics.npz').items()})
+            reports[(cname, lam)] = rep
+            rows.append((cname, lam))
+    print(f'  loaded {len(banks)} cached run(s) from {out_root}')
+    return banks, reports
 
 
 def main():
@@ -84,6 +116,21 @@ def main():
     print(f'  lambdas  : {lambdas}')
     print(f'  lidar    : masked beyond {args.lidar_max_range} m -> {LIDAR_SENTINEL} + in-range flag')
     print('=' * 72)
+
+    if args.figures_only:
+        import plots
+        blocks, xy = ch.load_channel_blocks(
+            data_path, lidar_max_range=args.lidar_max_range,
+            lidar_sentinel=LIDAR_SENTINEL, lidar_mask_channel=True, verbose=False)
+        xml_root = ET.parse(xml_path).getroot() if os.path.exists(xml_path) else None
+        env = R.build_env(xy, xml_root)
+        banks, reports = load_cached(out_root, channel_names, lambdas)
+        metrics_df = (pd.read_csv(f'{out_root}/metrics.csv')
+                      if os.path.exists(f'{out_root}/metrics.csv') else pd.DataFrame())
+        plots.make_all(banks, reports, metrics_df, env, xml_root, fig_dir,
+                       env_name, channel_names, lambdas)
+        print(f'\nFigures -> {fig_dir}')
+        return
 
     # ---------------------------------------------------------------- load
     t_load = time.time()
@@ -162,6 +209,7 @@ def main():
                 cand_pass_size=report['cand_pass_size'],
                 cand_r_eq=report['cand_r_eq'],
                 cand_elongation=report['cand_elongation'],
+                cand_sigma_ratio=report['cand_sigma_ratio'],
             )
             serialisable = {k: v for k, v in report.items()
                             if not isinstance(v, np.ndarray)}
@@ -187,7 +235,8 @@ def main():
                        frac_cand_above_cap=float(
                            (report['cand_r_eq'] > report['r_max']).mean()),
                        frac_cand_below_floor=float(
-                           (report['cand_r_eq'] < report['r_min']).mean()))
+                           (report['cand_r_eq'] < report['r_min']).mean()),
+                       median_sigma_ratio=report['median_sigma_ratio'])
             for name, cnt in report['funnel']:
                 row[f'funnel_{name}'] = cnt
             if len(bank_df):
@@ -218,7 +267,8 @@ def main():
     if len(metrics_df):
         cols = [c for c in ('channel', 'lam', 'n_fields', 'median_radius_m',
                             'median_elongation', 'frag_rate', 'corr_radius_wall',
-                            'runtime_s') if c in metrics_df.columns]
+                            'median_sigma_ratio', 'frac_cand_above_cap',
+                            'band_lo', 'runtime_s') if c in metrics_df.columns]
         # Tagged so slurm/send_report.py keeps these lines in the emailed
         # summary — its filter drops anything it doesn't recognise, and this
         # table is the result.

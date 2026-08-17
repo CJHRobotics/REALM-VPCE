@@ -29,6 +29,19 @@ CHANNEL_COLORS = {
 }
 
 
+def _boxplot(ax, data, labels, **kw):
+    """boxplot across matplotlib versions.
+
+    `labels` was renamed to `tick_labels` in matplotlib 3.9 and the
+    compatibility shim is gone in newer releases, so probe rather than
+    assume — this call is what killed the first GAIVI run.
+    """
+    try:
+        return ax.boxplot(data, tick_labels=labels, **kw)
+    except TypeError:
+        return ax.boxplot(data, labels=labels, **kw)
+
+
 def _save(fig, path):
     fig.savefig(path, dpi=140, bbox_inches='tight', facecolor='white')
     plt.close(fig)
@@ -111,7 +124,8 @@ def f2_lambda_curves(metrics, fig_dir, env_name):
               ('median_elongation', 'median elongation (a/b)'),
               ('frag_rate', 'Rule 1 rejection rate (fragmented)'),
               ('median_split_half_iou', 'median split-half IoU'),
-              ('corr_radius_wall', 'corr(radius, wall distance)')]
+              ('corr_radius_wall', 'corr(radius, wall distance)'),
+              ('band_lo', 'finest scale band admitted (Rule 12)')]
     panels = [(c, l) for c, l in panels if c in metrics.columns]
     ncol = 3
     nrow = int(np.ceil(len(panels) / ncol))
@@ -192,7 +206,7 @@ def f3_anisotropy(banks, env, fig_dir, env_name, channels, lam_ref):
             data.append(b['elongation'].to_numpy()); labels.append(cn)
             colors.append(CHANNEL_COLORS.get(cn, 'gray'))
     if data:
-        bp = ax.boxplot(data, labels=labels, patch_artist=True, showfliers=False)
+        bp = _boxplot(ax, data, labels, patch_artist=True, showfliers=False)
         for patch, c in zip(bp['boxes'], colors):
             patch.set_facecolor(c); patch.set_alpha(0.5)
     ax.axhline(1.0, color='black', ls=':', lw=1)
@@ -377,7 +391,7 @@ def f7_size_vs_wall(banks, env, fig_dir, env_name, channels, lam_ref):
             data.append(b['radius_env_m'].to_numpy()); labels.append(cn)
             colors.append(CHANNEL_COLORS.get(cn, 'gray'))
     if data:
-        bp = ax.boxplot(data, labels=labels, patch_artist=True, showfliers=False)
+        bp = _boxplot(ax, data, labels, patch_artist=True, showfliers=False)
         for patch, c in zip(bp['boxes'], colors):
             patch.set_facecolor(c); patch.set_alpha(0.5)
     ax.set_ylabel('field radius (m)')
@@ -398,11 +412,34 @@ def make_all(banks, reports, metrics, env, xml_root, fig_dir, env_name,
     channels = [c for c in channels if any(k[0] == c for k in banks)]
     lam_ref = 0.0 if 0.0 in lambdas else lambdas[0]
     print('  figures:')
-    f1_field_maps(banks, env, xml_root, fig_dir, env_name, channels, lambdas)
+    jobs = [('F1', f1_field_maps, (banks, env, xml_root, fig_dir, env_name,
+                                   channels, lambdas))]
     if len(metrics):
-        f2_lambda_curves(metrics, fig_dir, env_name)
-        f4_contiguity(reports, metrics, fig_dir, env_name, channels, lam_ref)
-        f5_reliability(reports, metrics, fig_dir, env_name, channels, lam_ref)
-        f6_funnel_coverage(reports, metrics, fig_dir, env_name, channels, lam_ref)
-    f3_anisotropy(banks, env, fig_dir, env_name, channels, lam_ref)
-    f7_size_vs_wall(banks, env, fig_dir, env_name, channels, lam_ref)
+        jobs += [
+            ('F2', f2_lambda_curves, (metrics, fig_dir, env_name)),
+            ('F4', f4_contiguity, (reports, metrics, fig_dir, env_name,
+                                   channels, lam_ref)),
+            ('F5', f5_reliability, (reports, metrics, fig_dir, env_name,
+                                    channels, lam_ref)),
+            ('F6', f6_funnel_coverage, (reports, metrics, fig_dir, env_name,
+                                        channels, lam_ref)),
+        ]
+    jobs += [
+        ('F3', f3_anisotropy, (banks, env, fig_dir, env_name, channels, lam_ref)),
+        ('F7', f7_size_vs_wall, (banks, env, fig_dir, env_name, channels, lam_ref)),
+    ]
+    # A figure that fails must not cost a multi-hour run its remaining
+    # figures or its exit status; the banks are already on disk regardless.
+    failed = []
+    for name, fn, args in jobs:
+        try:
+            fn(*args)
+        except Exception:
+            import traceback
+            failed.append(name)
+            print(f'    !! {name} failed:')
+            traceback.print_exc()
+            plt.close('all')
+    if failed:
+        print(f'  figures failed: {", ".join(failed)} '
+              f'(banks and metrics are unaffected)')
