@@ -121,13 +121,20 @@ def resolve_cfg(cfg=None):
 
 def pick_device(use_gpu=True, verbose=True):
     if _HAS_TORCH and use_gpu and torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True       # ~8x on Ampere+
+        # TF32 needs Ampere (sm_80+). On the cluster's 1080 Ti (sm_61) and
+        # Titan RTX (sm_75) this flag does nothing and matmuls run in true
+        # fp32 — correct, just without the Ampere speedup. Request an A40
+        # (--gres=gpu:a40:1) to get both TF32 and 48 GB of VRAM.
+        cap = torch.cuda.get_device_capability(0)
+        torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         dev = torch.device('cuda')
         if verbose:
             name = torch.cuda.get_device_name(0)
             mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-            print(f'  device: cuda ({name}, {mem:.0f} GB)')
+            tf32 = 'active' if cap[0] >= 8 else 'unavailable (pre-Ampere)'
+            print(f'  device: cuda ({name}, {mem:.1f} GB, sm_{cap[0]}{cap[1]}, '
+                  f'tf32 {tf32})')
         return dev
     if verbose:
         print('  device: cpu' + ('' if _HAS_TORCH else ' (torch unavailable)'))
@@ -173,6 +180,20 @@ def wall_distance(cx, cy, env):
 
 # ---------------------------------------------------------------- distances
 
+def _fits_on_gpu(X, device, headroom=1.35):
+    """Will the feature matrix plus working space fit in free VRAM?
+
+    A live question on the smaller cards: the widest configuration is
+    7.2 GB against the 11 GB of a 1080 Ti. Checking up front and falling
+    back to the CPU beats an OOM part-way through a long run.
+    """
+    try:
+        free, _ = torch.cuda.mem_get_info(device)
+    except Exception:
+        return True
+    return X.nbytes * headroom < free
+
+
 def _row_sqnorm(X, chunk=2048):
     """Row-wise squared norms, accumulated in float64 a chunk at a time.
 
@@ -202,6 +223,12 @@ def feature_sq_distances(X, device=None, chunk=2048, verbose=True):
     """
     N = X.shape[0]
     t0 = time.time()
+
+    if device is not None and device.type == 'cuda' and not _fits_on_gpu(X, device):
+        if verbose:
+            print(f'  feature matrix {X.nbytes/1e9:.1f} GB exceeds free VRAM '
+                  f'— computing distances on CPU')
+        device = None
 
     if device is not None and device.type == 'cuda':
         Xg = torch.from_numpy(np.ascontiguousarray(X)).to(device, non_blocking=True)
@@ -347,7 +374,9 @@ def environment_readout(X, xy, cand_mu, cand_sigma, G, C, device, half_id, verbo
     out_b   = np.zeros((n_cand, n_bins), dtype=np.float32)
     t0 = time.time()
 
-    on_gpu = device is not None and device.type == 'cuda'
+    on_gpu = device is not None and device.type == 'cuda' and _fits_on_gpu(X, device)
+    if device is not None and device.type == 'cuda' and not on_gpu and verbose:
+        print('  readout: feature matrix exceeds free VRAM — using CPU')
     if on_gpu:
         Xg    = torch.from_numpy(np.ascontiguousarray(X)).to(device)
         Xsq   = _row_sqnorm(Xg)

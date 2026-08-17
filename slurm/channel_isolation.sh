@@ -21,6 +21,12 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --gres=gpu:1
+# The `general` partition mixes card types: GPU6 has 1080 Ti (11 GB, sm_61,
+# no TF32), GPU42 Titan RTX (24 GB, sm_75, no TF32), GPU43/44 A40 (48 GB,
+# sm_86, TF32). The widest feature matrix here is 7.2 GB, which is tight on
+# an 11 GB card. Prefer an A40 by overriding at submit time:
+#     sbatch --gres=gpu:a40:1 slurm/channel_isolation.sh circ_lm8_r0
+# Confirm the exact gres type string first with:  sinfo -p general -N -o "%N %G" 
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 # Note: this SLURM does NOT substitute %h. Path is repo-relative, so run
