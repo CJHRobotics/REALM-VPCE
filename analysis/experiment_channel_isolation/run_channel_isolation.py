@@ -119,9 +119,14 @@ def main():
 
     if args.figures_only:
         import plots
-        blocks, xy = ch.load_channel_blocks(
-            data_path, lidar_max_range=args.lidar_max_range,
-            lidar_sentinel=LIDAR_SENTINEL, lidar_mask_channel=True, verbose=False)
+        import h5py
+        # Only positions are needed to rebuild figures; loading the feature
+        # blocks would pull 7 GB for nothing.
+        with h5py.File(data_path, 'r') as f:
+            xs, ys = f['x'][:], f['y'][:]
+        n_loc = len(xs) // 8
+        xy = np.stack([xs.reshape(n_loc, 8)[:, 0],
+                       ys.reshape(n_loc, 8)[:, 0]], axis=1).astype(np.float32)
         xml_root = ET.parse(xml_path).getroot() if os.path.exists(xml_path) else None
         env = R.build_env(xy, xml_root)
         banks, reports = load_cached(out_root, channel_names, lambdas)
