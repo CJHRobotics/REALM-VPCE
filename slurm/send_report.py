@@ -32,6 +32,10 @@ INTERESTING = (
     'linkage', 'candidates', 'funnel', 'after ',
     'Bank saved', 'Comparison plot', 'Plot ->', 'Plot ',
     'Started', 'Finished', 'Git',
+    # channel_isolation: the run summary, the result table, and the
+    # environment/device banner.
+    'Metrics ->', 'Figures ->', 'coverage', 'device:', 'feature matrix',
+    'environment:', 'locations:',
 )
 
 

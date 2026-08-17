@@ -68,8 +68,13 @@ echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
 
+# `set -e` would abort the script the moment python returned non-zero, so
+# the report below would never be sent for exactly the runs you most want
+# to see. Disable it around the call and capture the status by hand.
+set +e
 python analysis/experiment_feature_selection/compare_feature_sets.py "${ENV}"
 STATUS=$?
+set -e
 
 echo "Finished: $(date -Is)  (exit ${STATUS})"
 

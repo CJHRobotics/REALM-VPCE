@@ -23,10 +23,14 @@ submission, then keep it consistent across jobs. Common lines:
 #SBATCH --error=logs/%x-%j.err
 ```
 
-The current CPU-only pipeline benefits from many cores (numpy BLAS
-parallelises well) and lots of RAM (~20 GB for the full 30 k-position
-run) — no GPU needed until we port pairwise distance + Ward to
-`torch.cdist` + a GPU clustering library.
+`compare_feature_sets.sh` is CPU-only: it benefits from many cores (numpy
+BLAS parallelises well) and lots of RAM (~20 GB for the full 30 k-position
+run).
+
+`channel_isolation.sh` uses a GPU for the two dominant steps — the N × N
+feature Gram matrix and the environment readout — and falls back to CPU
+automatically if none is visible, at roughly 20× the wall time. Ward linkage
+is sequential and stays on the CPU either way.
 
 ## Submit
 
@@ -41,3 +45,8 @@ Logs go to `slurm/logs/` (git-ignored via the top-level rule).
 | script | what it runs |
 |---|---|
 | `compare_feature_sets.sh` | three-way comparison (full / lidar / visual) via `analysis/experiment_feature_selection/compare_feature_sets.py` |
+| `channel_isolation.sh` | per-channel isolation (hog / color / spatial / lidar / visual / all) × spatial-weighting sweep, under the agglomeration rules, via `analysis/experiment_channel_isolation/run_channel_isolation.py` |
+
+```bash
+sbatch slurm/channel_isolation.sh circ_lm8_r0
+```
