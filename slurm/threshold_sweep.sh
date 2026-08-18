@@ -7,11 +7,12 @@
 # 0.50 differs from the 0.20 used throughout the ephys literature.
 #
 # Usage:
-#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh [env_name] [extra args...]
+#   sbatch slurm/threshold_sweep.sh [env_name] [extra args...]
 #
 # Examples:
-#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0
-#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0 --thresholds 0.2,0.5
+#   sbatch slurm/threshold_sweep.sh circ_lm8_r0
+#   sbatch slurm/threshold_sweep.sh circ_lm8_r0 --thresholds 0.2,0.5
+#   sbatch --gres=gpu:1 slurm/threshold_sweep.sh circ_lm8_r0   # any free GPU
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=thresh-sweep
@@ -20,12 +21,15 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --gres=gpu:1
-# `general` mixes card types — 1080 Ti (11 GB, no TF32) on GPU6, Titan RTX on
-# GPU42, A40 (48 GB, TF32) on GPU43/44. The widest feature matrix is 7.2 GB,
-# tight on 11 GB. Prefer an A40 by overriding at submit time:
-#     sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0
-# Check the exact gres string first:  sinfo -p general -N -o "%N %G"
+#SBATCH --gres=gpu:A40:1
+# GPU types on `general` (exact GRES strings, from `sinfo -p general -N -o "%N %G"`):
+#   GPU6   gpu:1080Ti:4    11 GB, sm_61, no TF32
+#   GPU42  gpu:TitanRTX:4  24 GB, sm_75, no TF32
+#   GPU43  gpu:A40:4       48 GB, sm_86, TF32
+#   GPU44  gpu:A40:4       48 GB, sm_86, TF32
+# The widest feature matrix here is 7.2 GB, tight on an 11 GB 1080 Ti, so we
+# request an A40. Type strings are case-sensitive: `A40`, not `a40`.
+# Override with a plain `--gres=gpu:1` to take whatever is free.
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL

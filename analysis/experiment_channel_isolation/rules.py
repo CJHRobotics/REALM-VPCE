@@ -127,10 +127,10 @@ def resolve_cfg(cfg=None):
 
 def pick_device(use_gpu=True, verbose=True):
     if _HAS_TORCH and use_gpu and torch.cuda.is_available():
-        # TF32 needs Ampere (sm_80+). On the cluster's 1080 Ti (sm_61) and
-        # Titan RTX (sm_75) this flag does nothing and matmuls run in true
+        # TF32 needs Ampere (sm_80+). On the cluster's 1080Ti (sm_61) and
+        # TitanRTX (sm_75) this flag does nothing and matmuls run in true
         # fp32 — correct, just without the Ampere speedup. Request an A40
-        # (--gres=gpu:a40:1) to get both TF32 and 48 GB of VRAM.
+        # (--gres=gpu:A40:1, case-sensitive) for both TF32 and 48 GB VRAM.
         cap = torch.cuda.get_device_capability(0)
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
