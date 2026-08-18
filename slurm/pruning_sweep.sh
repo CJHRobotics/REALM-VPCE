@@ -1,0 +1,114 @@
+#!/bin/bash
+#
+# Competition x coverage pruning sweep on GAIVI.
+#
+# Sweeps the two pruning rules that decide how many fields survive:
+# competition separation (which removes 90-96% of candidates) and the
+# coverage a scale band must reach to be kept. Both act only in admit_fields,
+# so one tree and one readout per channel serve the entire grid — every cell
+# is scored against identical candidate groups.
+#
+# Usage:
+#   sbatch slurm/pruning_sweep.sh [env_name] [extra args...]
+#
+# Examples:
+#   sbatch slurm/pruning_sweep.sh circ_lm8_r0
+#   sbatch slurm/pruning_sweep.sh circ_lm8_r0 --separations 0.25,0.5
+#   sbatch --gres=gpu:1 slurm/pruning_sweep.sh circ_lm8_r0   # any free GPU
+#
+# ------------------------------------------------------------- SLURM header
+#SBATCH --job-name=prune-sweep
+#SBATCH --partition=general
+#SBATCH --time=06:00:00
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --gres=gpu:A40:1
+# GPU types on `general` (exact GRES strings, from `sinfo -p general -N -o "%N %G"`):
+#   GPU6   gpu:1080Ti:4    11 GB, sm_61, no TF32
+#   GPU42  gpu:TitanRTX:4  24 GB, sm_75, no TF32
+#   GPU43  gpu:A40:4       48 GB, sm_86, TF32
+#   GPU44  gpu:A40:4       48 GB, sm_86, TF32
+# The widest feature matrix here is 7.2 GB, tight on an 11 GB 1080 Ti, so we
+# request an A40. Type strings are case-sensitive: `A40`, not `a40`.
+# Override with a plain `--gres=gpu:1` to take whatever is free.
+#SBATCH --output=slurm/logs/%x-%j.out
+#SBATCH --error=slurm/logs/%x-%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=chamilton4@usf.edu
+# --------------------------------------------------------------------------
+# The rich report (summary + figures + metrics.csv) is sent by the experiment
+# itself through realm_tools.experiment_lib.reporting, not by this script.
+# It needs EMAIL_TO exported; set the defaults once in ~/.bashrc on GAIVI:
+#   export EMAIL_TO=chamilton4@usf.edu EMAIL_FROM=chamilton4@usf.edu
+#   export EMAIL_SMTP=smtp.usf.edu EMAIL_SMTP_PORT=587
+# Without EMAIL_TO the send is a silent no-op and the job still succeeds.
+
+set -euo pipefail
+
+ENV="${1:-circ_lm8_r0}"
+shift || true
+EXTRA_ARGS=("$@")
+
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO_DIR"
+mkdir -p slurm/logs
+
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate realm-vpce
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export PYTHONUNBUFFERED=1
+
+JOB_ID="${SLURM_JOB_ID:-local}"
+
+echo "===================================================================="
+echo "Job      : ${JOB_ID}"
+echo "Env      : ${ENV}"
+echo "Extra    : ${EXTRA_ARGS[*]:-(none)}"
+echo "Started  : $(date -Is)"
+echo "Git      : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
+    || echo "GPU      : none visible (will run on CPU)"
+python - <<'PY' 2>/dev/null || echo "Torch    : import failed"
+import torch
+print(f"Torch    : {torch.__version__}  cuda_build={torch.version.cuda}  "
+      f"available={torch.cuda.is_available()}  devices={torch.cuda.device_count()}")
+PY
+echo "===================================================================="
+
+# `set -e` would abort before the report could be sent for a failing run —
+# exactly the run worth hearing about. Capture the status by hand instead.
+set +e
+python analysis/experiment_channel_isolation/run_pruning_sweep.py \
+    "${ENV}" "${EXTRA_ARGS[@]}"
+STATUS=$?
+set -e
+
+echo "Finished : $(date -Is)  (exit ${STATUS})"
+
+# The experiment mails its own report on success. If it died before reaching
+# that point, send a bare failure notice with the log so the failure is not
+# silent.
+if [[ ${STATUS} -ne 0 && -n "${EMAIL_TO:-}" ]]; then
+    python - "${ENV}" "${JOB_ID}" "${STATUS}" \
+             "slurm/logs/${SLURM_JOB_NAME:-prune-sweep}-${JOB_ID}.out" <<'PY' \
+        || echo "(failure mailer failed — job status unchanged)"
+import sys
+from realm_tools.experiment_lib.reporting import send_email
+env, job, status, log = sys.argv[1:5]
+try:
+    tail = ''.join(open(log, errors='replace').readlines()[-60:])
+except OSError:
+    tail = '(log unavailable)'
+send_email(f'[REALM-VPCE] {env} pruning-sweep FAILED (exit {status}, job {job})',
+           f'The run exited {status} before it could report.\n\n'
+           f'Last 60 log lines:\n\n{tail}',
+           attachments=[log])
+PY
+fi
+
+exit ${STATUS}

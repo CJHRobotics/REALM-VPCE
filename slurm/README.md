@@ -47,6 +47,7 @@ Logs go to `slurm/logs/` (git-ignored via the top-level rule).
 | `compare_feature_sets.sh` | three-way comparison (full / lidar / visual) via `analysis/experiment_feature_selection/compare_feature_sets.py` |
 | `channel_isolation.sh` | per-channel isolation (hog / color / spatial / lidar / visual / all) × spatial-weighting sweep, under the agglomeration rules, via `analysis/experiment_channel_isolation/run_channel_isolation.py` |
 | `threshold_sweep.sh` | response-threshold sweep (0.20 ephys convention vs our 0.50) via `analysis/experiment_channel_isolation/run_threshold_sweep.py` |
+| `pruning_sweep.sh` | competition separation × coverage requirement grid via `analysis/experiment_channel_isolation/run_pruning_sweep.py` |
 
 ## Emailed reports
 
@@ -62,6 +63,10 @@ sbatch slurm/channel_isolation.sh circ_lm8_r0
 
 ```bash
 sbatch slurm/threshold_sweep.sh circ_lm8_r0
+```
+
+```bash
+sbatch slurm/pruning_sweep.sh circ_lm8_r0
 ```
 
 ## GPU selection
