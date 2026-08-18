@@ -30,7 +30,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
-from realm_tools.image_lib.image_feature_lib import feature_block_sizes
+# NOTE: feature_block_sizes lives in realm_tools.image_lib.image_feature_lib,
+# which imports cv2 at module level. It is only needed for datasets in the
+# legacy single-'multimodal_features' layout, so it is imported lazily inside
+# that branch. Importing it here would make every run of this analysis depend
+# on a working OpenCV build — which is how a NumPy upgrade that broke cv2's
+# ABI took down a run that never touches an image.
 
 
 VISUAL_KEYS = ('hog', 'color_hist', 'spatial')
@@ -110,6 +115,7 @@ def load_channel_blocks(data_path,
                           for k in VISUAL_KEYS if k in keys}
         elif 'multimodal_features' in keys:
             # Legacy layout: one concatenated vector, split by known widths.
+            from realm_tools.image_lib.image_feature_lib import feature_block_sizes
             combined_all = np.asarray(f['multimodal_features'][:], dtype=np.float32)
             sizes, offset = feature_block_sizes(), 0
             raw_visual = {}
