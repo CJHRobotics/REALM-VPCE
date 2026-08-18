@@ -5,7 +5,7 @@ experiment. Every rule is a separate, named, individually reportable stage
 so the funnel can be inspected and no rule is doing hidden work.
 
     Rule 1  contiguity        a field is one connected patch of floor
-    Rule 2  reliability       a field must reproduce across split halves
+    (Rule 2  reliability      DROPPED — still measured, no longer filters)
     Rule 4  spatial weighting merge cost = feature distance + lambda * space
     Rule 7  anisotropy        fields described by two axes + orientation
     Rule 8  size floor        nothing smaller than the smallest measured field
@@ -13,7 +13,11 @@ so the funnel can be inspected and no rule is doing hidden work.
     Rule 11 competition       same-scale neighbours compete; nesting allowed
     Rule 12 tiling stop       drop scale bands that can no longer cover the floor
 
-Rules 3, 5, 6 and 10 are deliberately not implemented here.
+Rules 3, 5, 6 and 10 are deliberately not implemented here. Rule 2 was
+dropped after the first full run: it rejected at most 1% of candidates in any
+configuration, and the within-session split-half form we used is the one
+criterion not tied to a specific source. Split-half agreement is still
+computed and written to the bank as a reported property of each field.
 
 Deliberately excluded from the model: distance-to-the-wall never enters any
 merge or admission decision. It is computed only as a reported measurement,
@@ -75,8 +79,10 @@ DEFAULT_CFG = dict(
     # --- Rule 1 -----------------------------------------------------------
     CC_FRAC_MIN      = 0.80,       # largest connected component / mask area
 
-    # --- Rule 2 -----------------------------------------------------------
-    SPLIT_HALF_IOU_MIN = 0.40,     # mask agreement between independent halves
+    # --- Rule 2 (dropped) -------------------------------------------------
+    # None = measure split-half agreement and record it, but do not reject on
+    # it. Set a float to re-enable the filter.
+    SPLIT_HALF_IOU_MIN = None,
 
     # --- Rules 8 / 9 ------------------------------------------------------
     # Both expressed as a fraction of environment area. The floor is
@@ -604,15 +610,18 @@ def rule12_tiling(kept, band, masks, G, C):
 
 # ---------------------------------------------------------------- pipeline
 
-def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
-               device=None, tag='', verbose=True):
-    """Run the rule-governed pipeline for one (channel, lambda) configuration.
+def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
+                       device=None, tag='', verbose=True):
+    """Everything up to, but not including, the admission rules.
 
-    Returns
-    -------
-    bank_df : one row per surviving field
-    kept_mu : (n_fields, D) feature-space centres, aligned to bank_df
-    report  : funnel counts, band coverage, and per-rule diagnostics
+    Builds the tree, selects candidate nodes, measures each one's centre and
+    width, and evaluates its response across the environment. None of this
+    depends on the response threshold or on any admission parameter, so the
+    result can be reused across a sweep of those — which makes such a sweep
+    both cheaper and provably like-for-like, since every setting is then
+    scored against an identical tree and identical candidates.
+
+    Returns a context dict for `admit_fields`.
     """
     C = resolve_cfg(cfg)
     rng = np.random.default_rng(C['RANDOM_SEED'])
@@ -669,6 +678,36 @@ def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
     resp_all, resp_a, resp_b = environment_readout(
         X, xy, cand_mu, cand_sigma, G, C, device, half_id, verbose=verbose)
 
+    return dict(G=G, occupied=occupied, env=env, N=N, D=D, tag=tag,
+                feat_med=feat_med,
+                cand=cand, cand_mu=cand_mu, cand_sigma=cand_sigma,
+                parent=parent, children=children, depth=depth, count=count,
+                resp_all=resp_all, resp_a=resp_a, resp_b=resp_b,
+                area_min=area_min, area_max=area_max, r_min=r_min, r_max=r_max,
+                min_members=min_members, max_members=max_members)
+
+
+def admit_fields(ctx, cfg=None, verbose=True):
+    """Apply the response threshold and the admission rules to a context.
+
+    Returns
+    -------
+    bank_df : one row per surviving field
+    kept_mu : (n_fields, D) feature-space centres, aligned to bank_df
+    report  : funnel counts, band coverage, and per-rule diagnostics
+    """
+    C = resolve_cfg(cfg)
+    G, occupied, env = ctx['G'], ctx['occupied'], ctx['env']
+    N, D, tag = ctx['N'], ctx['D'], ctx['tag']
+    cand, cand_mu, cand_sigma = ctx['cand'], ctx['cand_mu'], ctx['cand_sigma']
+    parent, children, depth, count = (ctx['parent'], ctx['children'],
+                                      ctx['depth'], ctx['count'])
+    resp_all, resp_a, resp_b = ctx['resp_all'], ctx['resp_a'], ctx['resp_b']
+    feat_med = ctx['feat_med']
+    area_min, area_max = ctx['area_min'], ctx['area_max']
+    r_min, r_max = ctx['r_min'], ctx['r_max']
+    min_members, max_members = ctx['min_members'], ctx['max_members']
+
     # --- per-candidate masks, shapes, rule tests --------------------------
     n_cand = len(cand)
     masks = [None] * n_cand
@@ -702,8 +741,11 @@ def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
     pass_cc = pass_size & (cc_frac >= C['CC_FRAC_MIN'])                # Rule 1
     funnel.append(('rule_1_contiguity', int(pass_cc.sum())))
 
-    pass_rel = pass_cc & (sh_iou >= C['SPLIT_HALF_IOU_MIN'])           # Rule 2
-    funnel.append(('rule_2_reliability', int(pass_rel.sum())))
+    if C['SPLIT_HALF_IOU_MIN'] is not None:                            # Rule 2
+        pass_rel = pass_cc & (sh_iou >= C['SPLIT_HALF_IOU_MIN'])
+        funnel.append(('rule_2_reliability', int(pass_rel.sum())))
+    else:
+        pass_rel = pass_cc
 
     surviving = np.flatnonzero(pass_rel)
     r_mean = 0.5 * (a_ax + b_ax)
@@ -764,6 +806,7 @@ def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
     sigma_ratio = cand_sigma / np.sqrt(max(feat_med, 1e-12))
 
     report = dict(
+        act_thresh=float(C['ACT_THRESH']),
         funnel=funnel, coverage=coverage,
         median_sigma_ratio=float(np.median(sigma_ratio)),
         cand_sigma_ratio=sigma_ratio,
@@ -776,10 +819,23 @@ def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
         # so the rejection rates are reported and not merely applied.
         frag_rate=float((cc_frac[pass_size] < C['CC_FRAC_MIN']).mean()) if pass_size.any() else 0.0,
         median_cc_frac=float(np.median(cc_frac[pass_size])) if pass_size.any() else 0.0,
-        unreliable_rate=float((sh_iou[pass_cc] < C['SPLIT_HALF_IOU_MIN']).mean()) if pass_cc.any() else 0.0,
+        unreliable_rate=(float((sh_iou[pass_cc] < C['SPLIT_HALF_IOU_MIN']).mean())
+                         if pass_cc.any() and C['SPLIT_HALF_IOU_MIN'] is not None else 0.0),
         median_split_half_iou=float(np.median(sh_iou[pass_cc])) if pass_cc.any() else 0.0,
         cand_cc_frac=cc_frac, cand_split_half_iou=sh_iou,
         cand_pass_size=pass_size, cand_r_eq=r_eq, cand_elongation=elong,
         grid=dict(gx=G['gx'], gy=G['gy'], bin_area=G['bin_area']),
     )
     return bank_df, kept_mu, report
+
+
+def build_bank(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
+               device=None, tag='', verbose=True):
+    """Prepare candidates and admit fields in one call.
+
+    Thin wrapper over `prepare_candidates` + `admit_fields`, kept because
+    most callers run a single configuration and do not need the split.
+    """
+    ctx = prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med,
+                             cfg=cfg, device=device, tag=tag, verbose=verbose)
+    return admit_fields(ctx, cfg=cfg, verbose=verbose)

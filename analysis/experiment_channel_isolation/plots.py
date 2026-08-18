@@ -7,7 +7,7 @@ rather than only in the code:
     F2  lambda effect curves               Rule 4
     F3  anisotropy vs wall distance        Rule 7
     F4  fragmentation diagnostics          Rule 1
-    F5  split-half reliability             Rule 2
+    F5  split-half reliability             diagnostic (Rule 2 dropped)
     F6  funnel and band coverage           Rules 8, 9, 11, 12
     F7  field size vs wall distance        the Paper 1 measurement
 
@@ -269,7 +269,8 @@ def f5_reliability(reports, metrics, fig_dir, env_name, channels, lam_ref):
         if len(v):
             ax.hist(v, bins=np.linspace(0, 1, 26), histtype='step', lw=2,
                     density=True, color=CHANNEL_COLORS.get(cn), label=cn)
-    ax.axvline(0.40, color='red', ls='--', lw=1.4, label='Rule 2 threshold')
+    ax.axvline(0.40, color='gray', ls='--', lw=1.4,
+               label='former Rule 2 threshold (dropped)')
     ax.set_xlabel('split-half mask IoU'); ax.set_ylabel('density')
     ax.set_title(f'(a) reliability ($\\lambda$={lam_ref:g})')
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
@@ -279,12 +280,12 @@ def f5_reliability(reports, metrics, fig_dir, env_name, channels, lam_ref):
         g = grp.sort_values('lam')
         ax.plot(g['lam'], g['median_split_half_iou'], marker='o', ms=5,
                 color=CHANNEL_COLORS.get(cn), label=cn)
-    ax.axhline(0.40, color='red', ls='--', lw=1.2)
+    ax.axhline(0.40, color='gray', ls='--', lw=1.2)
     ax.set_xlabel('$\\lambda$'); ax.set_ylabel('median split-half IoU')
     ax.set_title('(b) reliability vs positional weight')
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
 
-    fig.suptitle(f'F5  {env_name} | Rule 2: a field has to show up twice',
+    fig.suptitle(f'F5  {env_name} | split-half agreement (measured, no longer a filter)',
                  y=1.02, fontsize=13)
     fig.tight_layout()
     _save(fig, f'{fig_dir}/F5_reliability.png')

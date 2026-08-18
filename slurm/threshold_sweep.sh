@@ -1,0 +1,108 @@
+#!/bin/bash
+#
+# Response-threshold sweep on GAIVI.
+#
+# Tests whether the field boundary threshold (fraction of a group's own peak
+# response) is what sets the smallest field we can find, and by how much our
+# 0.50 differs from the 0.20 used throughout the ephys literature.
+#
+# Usage:
+#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh [env_name] [extra args...]
+#
+# Examples:
+#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0
+#   sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0 --thresholds 0.2,0.5
+#
+# ------------------------------------------------------------- SLURM header
+#SBATCH --job-name=thresh-sweep
+#SBATCH --partition=general
+#SBATCH --time=08:00:00
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --gres=gpu:1
+# `general` mixes card types — 1080 Ti (11 GB, no TF32) on GPU6, Titan RTX on
+# GPU42, A40 (48 GB, TF32) on GPU43/44. The widest feature matrix is 7.2 GB,
+# tight on 11 GB. Prefer an A40 by overriding at submit time:
+#     sbatch --gres=gpu:a40:1 slurm/threshold_sweep.sh circ_lm8_r0
+# Check the exact gres string first:  sinfo -p general -N -o "%N %G"
+#SBATCH --output=slurm/logs/%x-%j.out
+#SBATCH --error=slurm/logs/%x-%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=chamilton4@usf.edu
+# --------------------------------------------------------------------------
+# The rich report (summary + figures + metrics.csv) is sent by the experiment
+# itself through realm_tools.experiment_lib.reporting, not by this script.
+# It needs EMAIL_TO exported; set the defaults once in ~/.bashrc on GAIVI:
+#   export EMAIL_TO=chamilton4@usf.edu EMAIL_FROM=chamilton4@usf.edu
+#   export EMAIL_SMTP=smtp.usf.edu EMAIL_SMTP_PORT=587
+# Without EMAIL_TO the send is a silent no-op and the job still succeeds.
+
+set -euo pipefail
+
+ENV="${1:-circ_lm8_r0}"
+shift || true
+EXTRA_ARGS=("$@")
+
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO_DIR"
+mkdir -p slurm/logs
+
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate realm-vpce
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export PYTHONUNBUFFERED=1
+
+JOB_ID="${SLURM_JOB_ID:-local}"
+
+echo "===================================================================="
+echo "Job      : ${JOB_ID}"
+echo "Env      : ${ENV}"
+echo "Extra    : ${EXTRA_ARGS[*]:-(none)}"
+echo "Started  : $(date -Is)"
+echo "Git      : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
+    || echo "GPU      : none visible (will run on CPU)"
+python - <<'PY' 2>/dev/null || echo "Torch    : import failed"
+import torch
+print(f"Torch    : {torch.__version__}  cuda_build={torch.version.cuda}  "
+      f"available={torch.cuda.is_available()}  devices={torch.cuda.device_count()}")
+PY
+echo "===================================================================="
+
+# `set -e` would abort before the report could be sent for a failing run —
+# exactly the run worth hearing about. Capture the status by hand instead.
+set +e
+python analysis/experiment_channel_isolation/run_threshold_sweep.py \
+    "${ENV}" "${EXTRA_ARGS[@]}"
+STATUS=$?
+set -e
+
+echo "Finished : $(date -Is)  (exit ${STATUS})"
+
+# The experiment mails its own report on success. If it died before reaching
+# that point, send a bare failure notice with the log so the failure is not
+# silent.
+if [[ ${STATUS} -ne 0 && -n "${EMAIL_TO:-}" ]]; then
+    python - "${ENV}" "${JOB_ID}" "${STATUS}" \
+             "slurm/logs/${SLURM_JOB_NAME:-thresh-sweep}-${JOB_ID}.out" <<'PY' \
+        || echo "(failure mailer failed — job status unchanged)"
+import sys
+from realm_tools.experiment_lib.reporting import send_email
+env, job, status, log = sys.argv[1:5]
+try:
+    tail = ''.join(open(log, errors='replace').readlines()[-60:])
+except OSError:
+    tail = '(log unavailable)'
+send_email(f'[REALM-VPCE] {env} threshold-sweep FAILED (exit {status}, job {job})',
+           f'The run exited {status} before it could report.\n\n'
+           f'Last 60 log lines:\n\n{tail}',
+           attachments=[log])
+PY
+fi
+
+exit ${STATUS}

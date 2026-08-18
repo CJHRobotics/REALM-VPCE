@@ -1,27 +1,31 @@
-"""Email a compact job report + attached figures.
+"""Email a job log summary + attached figures.
 
 Usage:
     python slurm/send_report.py <subject> <log_path> [figure_glob ...]
 
-Env vars:
-    EMAIL_TO           (required) recipient address
-    EMAIL_FROM         optional; defaults to slurm@<hostname>
-    EMAIL_SMTP         optional; defaults to 'localhost'
-    EMAIL_SMTP_PORT    optional; defaults to 25
-    EMAIL_SMTP_USER    optional; if set, triggers STARTTLS + login
-    EMAIL_SMTP_PASS    optional; paired with EMAIL_SMTP_USER
+This is the *legacy* reporter: it scrapes a summary out of the job log with a
+line filter, which is fragile — it has silently dropped a results table
+before. New experiments should subclass
+`realm_tools.experiment_lib.reporting.ExperimentReport` and build their
+report from their own results instead. This script remains for job scripts
+that predate that, and now shares the same SMTP transport so there is only
+one implementation of the mailing itself.
 
-If EMAIL_TO is unset the script exits silently — the job stays green.
+Environment variables are documented in realm_tools/experiment_lib/reporting.py.
+If EMAIL_TO is unset the script exits silently and the job stays green.
 """
 from __future__ import annotations
+
 import glob
-import mimetypes
 import os
-import socket
-import smtplib
 import sys
-from email.message import EmailMessage
 from pathlib import Path
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
+
+from realm_tools.experiment_lib.reporting import send_email  # noqa: E402
 
 
 # Lines matching any of these substrings are kept in the summary body.
@@ -46,67 +50,24 @@ def summarise(text: str) -> str:
 
 
 def main() -> int:
-    to = os.environ.get('EMAIL_TO')
-    if not to:
+    if not os.environ.get('EMAIL_TO'):
         print('EMAIL_TO not set — skipping email.', file=sys.stderr)
         return 0
-
     if len(sys.argv) < 3:
         print('usage: send_report.py <subject> <log_path> [fig_glob ...]',
               file=sys.stderr)
         return 2
 
-    subject   = sys.argv[1]
-    log_path  = sys.argv[2]
-    fig_globs = sys.argv[3:]
+    subject, log_path, fig_globs = sys.argv[1], sys.argv[2], sys.argv[3:]
 
-    body = '(no log file)'
     p = Path(log_path)
-    if p.exists():
-        body = summarise(p.read_text(errors='replace'))
+    body = summarise(p.read_text(errors='replace')) if p.exists() else '(no log file)'
 
-    msg = EmailMessage()
-    msg['From'] = os.environ.get('EMAIL_FROM', f'slurm@{socket.gethostname()}')
-    msg['To']   = to
-    msg['Subject'] = subject
-    msg.set_content(body)
-
-    n_attached = 0
+    attachments = []
     for spec in fig_globs:
-        for path in sorted(glob.glob(spec)):
-            data = Path(path).read_bytes()
-            ctype, _ = mimetypes.guess_type(path)
-            maintype, _, subtype = (ctype or 'application/octet-stream').partition('/')
-            msg.add_attachment(data, maintype=maintype, subtype=subtype or 'octet-stream',
-                               filename=Path(path).name)
-            n_attached += 1
+        attachments.extend(sorted(glob.glob(spec)))
 
-    host    = os.environ.get('EMAIL_SMTP', 'localhost')
-    port    = int(os.environ.get('EMAIL_SMTP_PORT', '25'))
-    user    = os.environ.get('EMAIL_SMTP_USER')
-    pwd     = os.environ.get('EMAIL_SMTP_PASS')
-    tls_env = os.environ.get('EMAIL_SMTP_TLS', '').lower() in ('1', 'true', 'yes')
-    # Auto-upgrade on the standard submission port even if the env var
-    # wasn't set; auth also requires TLS.
-    use_tls = tls_env or port == 587 or bool(user and pwd)
-
-    try:
-        with smtplib.SMTP(host, port, timeout=30) as s:
-            s.ehlo()
-            if use_tls:
-                s.starttls()
-                s.ehlo()
-                print(f'  starttls: on ({host}:{port})', file=sys.stderr)
-            if user and pwd:
-                s.login(user, pwd)
-                print(f'  auth as {user}', file=sys.stderr)
-            s.send_message(msg)
-    except Exception as e:
-        print(f'send failed via {host}:{port} — {e}', file=sys.stderr)
-        return 1
-
-    print(f'sent to {to} via {host}:{port}, {n_attached} attachment(s)')
-    return 0
+    return 0 if send_email(subject, body, attachments) else 1
 
 
 if __name__ == '__main__':
