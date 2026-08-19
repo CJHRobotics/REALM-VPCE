@@ -69,6 +69,50 @@ DEFAULT_CFG = dict(
     SIGMA_PCTL       = 90,
     SIGMA_MAX_MEMBERS = 512,       # subsample cap for the percentile
 
+    # How a node's width becomes a field extent.
+    #
+    #   'pairwise'  sigma = SIGMA_PCTL of within-node pairwise distance, and
+    #               the mask is ACT_THRESH of the node's own peak. This is
+    #               the rule everything published so far was built with.
+    #
+    #   'quantile'  the mask is placed directly at EXTENT_PCTL of the node's
+    #               own centroid-distance distribution, by solving for the
+    #               sigma that puts the ACT_THRESH cut exactly there.
+    #
+    # 'pairwise' fails in a way that is invisible until you test it against a
+    # known answer. The mask sits at d <= sqrt(d_min^2 + 2 sigma^2 ln(1/T)),
+    # where d_min is the closest any location gets to the centroid. As
+    # dimensionality rises, distances concentrate: d_min grows toward the
+    # global mean distance and the spread of d across the arena shrinks, so
+    # that cut engulfs the whole floor unless sigma is far *below* d_min.
+    # No percentile of a within-node distance distribution can deliver that
+    # -- every member is at least d_min from the centroid, so every such
+    # percentile is too large by construction. The statistic is not merely
+    # mistuned; it cannot reach the right value.
+    #
+    # EXTENT_PCTL is PROVISIONAL until run_field_recovery.py has been run
+    # across every channel. What is settled so far, on `color`:
+    #
+    #   - Handed a 1 m disc of floor, 'pairwise' returns 6.85 m and inflates
+    #     area 20-fold; 'quantile' at 50 returns 1.44 m with the area exact
+    #     to within 3% and the centre to 0.18 m.
+    #   - Two criteria disagree about the value. Reconstruction accuracy
+    #     prefers 50, which is also what theory gives: for a 2D Gaussian rate
+    #     map the mass inside the T-of-peak contour is exactly 1-T, so the
+    #     value matching ACT_THRESH is 100(1-T) = 50. But scoring on the rate
+    #     at which real fields are admitted minus the rate at which
+    #     size-matched non-fields are (Youden's J) prefers 80 -- 90% of
+    #     planted fields admitted against 29% of non-fields, J = +0.61,
+    #     versus 83%/53%, J = +0.30, at 50.
+    #   - 80 is what the identity gives for the ephys 0.20 convention rather
+    #     than for our stricter 0.50, which is suggestive but rests on one
+    #     channel so far.
+    #
+    # 80 is taken as the default because admitting non-fields is the more
+    # damaging error, but treat it as unresolved.
+    SIGMA_MODE       = 'pairwise',
+    EXTENT_PCTL      = 80,
+
     # --- Rule 4 -----------------------------------------------------------
     # cost(a,b) = d_feature^2 / med(d_feature^2) + LAMBDA * d_xy^2 / med(d_xy^2)
     # Both terms are normalised to unit median, so LAMBDA is a pure relative
@@ -619,8 +663,27 @@ def rule12_tiling(kept, band, masks, G, C):
 
 # ---------------------------------------------------------------- pipeline
 
+def build_tree(D2_feat, xy, feat_med, xy_med, cfg=None, verbose=True):
+    """The Ward tree alone.
+
+    Depends on LAMBDA and on nothing else — no width statistic, no threshold,
+    no admission parameter — so one tree serves a whole sweep of those. Split
+    out for the same reason prepare_candidates and admit_fields are split: a
+    sweep that rebuilds the tree per setting is both slower and, if anything
+    in the build is stochastic, not strictly like-for-like.
+
+    Reuse is valid only across settings that share LAMBDA.
+    """
+    C = resolve_cfg(cfg)
+    N = len(xy)
+    Z = ward_linkage(D2_feat, xy, C['LAMBDA'], feat_med, xy_med, verbose=verbose)
+    parent, children, depth, count = tree_from_linkage(Z, N)
+    return dict(Z=Z, parent=parent, children=children, depth=depth,
+                count=count, lam=C['LAMBDA'])
+
+
 def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
-                       device=None, tag='', verbose=True):
+                       device=None, tag='', verbose=True, tree=None):
     """Everything up to, but not including, the admission rules.
 
     Builds the tree, selects candidate nodes, measures each one's centre and
@@ -652,8 +715,13 @@ def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
               f'Rule 9 ceiling r <= {r_max:.3f} m')
 
     # --- tree -------------------------------------------------------------
-    Z = ward_linkage(D2_feat, xy, C['LAMBDA'], feat_med, xy_med, verbose=verbose)
-    parent, children, depth, count = tree_from_linkage(Z, N)
+    if tree is None:
+        tree = build_tree(D2_feat, xy, feat_med, xy_med, cfg=C, verbose=verbose)
+    elif tree.get('lam') != C['LAMBDA'] and verbose:
+        print(f'[{tag}] !! reusing a tree built at lambda={tree.get("lam")} '
+              f'under lambda={C["LAMBDA"]}')
+    parent, children, depth, count = (tree['parent'], tree['children'],
+                                      tree['depth'], tree['count'])
 
     # Candidate prefilter. A field at the Rule 8 floor holds about
     # density * area_min locations; require at least half of that so the
@@ -671,6 +739,8 @@ def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
     cand_mu = np.empty((len(cand), D), dtype=np.float32)
     cand_sigma = np.empty(len(cand), dtype=np.float32)
     members_of = []
+    quantile_mode = C['SIGMA_MODE'] == 'quantile'
+    log_inv_t = np.log(1.0 / C['ACT_THRESH'])
     for k, nid in enumerate(cand):
         m = node_members(int(nid), children, N)
         members_of.append(m)
@@ -678,7 +748,20 @@ def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
         s = m if len(m) <= C['SIGMA_MAX_MEMBERS'] else rng.choice(m, C['SIGMA_MAX_MEMBERS'], replace=False)
         sub = D2_feat[np.ix_(s, s)]
         iu = np.triu_indices(len(s), k=1)
-        cand_sigma[k] = np.sqrt(np.percentile(sub[iu], C['SIGMA_PCTL']))
+        if not quantile_mode:
+            cand_sigma[k] = np.sqrt(np.percentile(sub[iu], C['SIGMA_PCTL']))
+            continue
+        # Squared distance of each member to the node centroid, straight from
+        # the pairwise block: ||x_i - mu||^2 = mean_j d2_ij - mean_jk d2_jk / 2.
+        dc2 = sub.mean(axis=1) - 0.5 * sub.mean()
+        np.maximum(dc2, 0, out=dc2)
+        q2 = float(np.percentile(dc2, C['EXTENT_PCTL']))
+        d_min2 = float(dc2.min())
+        # sigma placing the ACT_THRESH cut at that quantile. Degenerate when
+        # the quantile is not above the closest member (identical vectors, as
+        # in lidar's out-of-range centre); sigma = 0 there, and the readout
+        # already treats that as a point response.
+        cand_sigma[k] = np.sqrt((q2 - d_min2) / (2.0 * log_inv_t)) if q2 > d_min2 else 0.0
     if verbose:
         print(f'  centres + widths: {time.time()-t0:.1f}s')
 
@@ -688,7 +771,7 @@ def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
         X, xy, cand_mu, cand_sigma, G, C, device, half_id, verbose=verbose)
 
     return dict(G=G, occupied=occupied, env=env, N=N, D=D, tag=tag,
-                feat_med=feat_med,
+                feat_med=feat_med, tree=tree,
                 cand=cand, cand_mu=cand_mu, cand_sigma=cand_sigma,
                 parent=parent, children=children, depth=depth, count=count,
                 resp_all=resp_all, resp_a=resp_a, resp_b=resp_b,
