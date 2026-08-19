@@ -97,13 +97,22 @@ DEFAULT_CFG = dict(
     # never compete, so a coarse field and the finer field nested inside it
     # both survive.
     #
-    # 0.5 means two equal-sized fields must be at least one radius apart —
-    # substantial overlap is still allowed. Lateral inhibition sparsifies a
+    # 0.35 means two equal-sized fields must be about 0.7 radii apart —
+    # substantial overlap is allowed. Lateral inhibition sparsifies a
     # population; it does not make place fields disjoint, and real fields at
-    # one dorsoventral level overlap heavily. Pushing this toward 1.0 forces
-    # near-disjoint fields, which then cannot tile and get wiped out by
+    # one dorsoventral level overlap heavily. Pushing toward 1.0 forces
+    # near-disjoint fields, which then cannot tile and are wiped out by
     # Rule 12.
-    SAME_SCALE_SEPARATION = 0.50,
+    #
+    # 0.35 rather than the earlier 0.50 because the pruning sweep (job
+    # 446620) showed the smallest admissible field size saturates there:
+    # relaxing 0.50 -> 0.35 drops color's smallest field from 1.48 m to
+    # 0.91 m and admits a whole extra scale band, while 0.35 -> 0.25 -> 0.15
+    # buys no further size reduction at all, only more redundant fields at
+    # the same scales. The saturation point is a measurable stopping place;
+    # it is not, however, a biological measurement, and should be reported
+    # as a data-driven choice.
+    SAME_SCALE_SEPARATION = 0.35,
     # Band edges are geometric with this ratio. Used ONLY to group fields
     # for Rules 11 and 12 — never to admit or reject one, so the ladder
     # spacing is measured rather than imposed (Rule 10 is not in force).
