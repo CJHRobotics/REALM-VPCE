@@ -41,6 +41,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -184,8 +185,9 @@ def make_figures(banks, reports, metrics, env, xml_root, fig_dir,
     # ---- T1 field maps ---------------------------------------------------
     nz = [b for b in banks.values() if len(b)]
     if nz:
-        r_all = np.concatenate([b['radius_env_m'].to_numpy() for b in nz])
-        cmap, norm = plt.get_cmap('plasma'), plt.Normalize(r_all.min(), r_all.max())
+        a_all = np.concatenate([b['area_env_m2'].to_numpy() for b in nz])
+        cmap = plt.get_cmap('plasma')
+        norm = mcolors.LogNorm(max(a_all.min(), 1e-3), a_all.max())
         fig, axes = plt.subplots(len(channels), len(thresholds),
                                  figsize=(3.4 * len(thresholds), 3.4 * len(channels)),
                                  squeeze=False)
@@ -196,7 +198,7 @@ def make_figures(banks, reports, metrics, env, xml_root, fig_dir,
                 b = banks.get((cn, t))
                 if b is not None and len(b):
                     for _, r in b.iterrows():
-                        c = cmap(norm(r['radius_env_m']))
+                        c = cmap(norm(r['area_env_m2']))
                         ax.add_patch(Ellipse(
                             (r['centroid_x'], r['centroid_y']),
                             2 * r['semi_major_m'], 2 * r['semi_minor_m'],
@@ -205,7 +207,7 @@ def make_figures(banks, reports, metrics, env, xml_root, fig_dir,
                 ax.set_title(f'{cn} | thresh={t:g}\n{0 if b is None else len(b)} fields',
                              fontsize=9)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm); sm.set_array([])
-        fig.colorbar(sm, ax=axes, shrink=0.6, pad=0.02).set_label('field radius (m)')
+        fig.colorbar(sm, ax=axes, shrink=0.6, pad=0.02).set_label('field area (m$^2$)')
         fig.suptitle(f'T1  {env_name} | fields by channel and response threshold\n'
                      f'0.20 is the ephys convention; 0.50 is what we have used',
                      y=1.004, fontsize=13)

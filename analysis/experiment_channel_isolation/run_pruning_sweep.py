@@ -48,6 +48,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -61,7 +62,7 @@ import rules as R
 from realm_tools.experiment_lib.reporting import ExperimentReport
 
 LIDAR_MAX_RANGE, LIDAR_SENTINEL = 5.0, -1.0
-DEFAULT_SEP = R.DEFAULT_CFG['SAME_SCALE_SEPARATION']    # 0.50
+DEFAULT_SEP = R.DEFAULT_CFG['SAME_SCALE_SEPARATION']    # 0.35
 DEFAULT_COV = R.DEFAULT_CFG['TILING_FRAC_MIN']          # 0.50
 
 
@@ -242,10 +243,11 @@ def make_figures(banks, metrics, env, xml_root, fig_dir, env_name,
              (seps[-1], covs[0]), (seps[-1], covs[-1])]
     picks = [p for p in picks if (map_channel, p[0], p[1]) in banks]
     if picks:
-        allr = np.concatenate([banks[(map_channel, s, c)]['radius_env_m'].to_numpy()
+        alla = np.concatenate([banks[(map_channel, s, c)]['area_env_m2'].to_numpy()
                                for s, c in picks
                                if len(banks[(map_channel, s, c)])] or [np.array([1.0])])
-        cmap, norm = plt.get_cmap('plasma'), plt.Normalize(allr.min(), allr.max())
+        cmap = plt.get_cmap('plasma')
+        norm = mcolors.LogNorm(max(alla.min(), 1e-3), alla.max())
         fig, axes = plt.subplots(1, len(picks), figsize=(3.6 * len(picks), 4.0),
                                  squeeze=False)
         for k, (s, c) in enumerate(picks):
@@ -256,7 +258,7 @@ def make_figures(banks, metrics, env, xml_root, fig_dir, env_name,
                         color='black', lw=1.5)
             b = banks[(map_channel, s, c)]
             for _, row in b.iterrows():
-                col = cmap(norm(row['radius_env_m']))
+                col = cmap(norm(row['area_env_m2']))
                 ax.add_patch(Ellipse((row['centroid_x'], row['centroid_y']),
                                      2 * row['semi_major_m'], 2 * row['semi_minor_m'],
                                      angle=np.degrees(row['orientation_rad']),
@@ -267,7 +269,7 @@ def make_figures(banks, metrics, env, xml_root, fig_dir, env_name,
             ax.set_ylim(env['y_min'] - .5, env['y_max'] + .5)
             ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm); sm.set_array([])
-        fig.colorbar(sm, ax=axes, shrink=0.75, pad=0.02).set_label('field radius (m)')
+        fig.colorbar(sm, ax=axes, shrink=0.75, pad=0.02).set_label('field area (m$^2$)')
         fig.suptitle(f'S2  {env_name} | {map_channel} fields at the grid corners',
                      y=1.02, fontsize=13)
         fig.savefig(f'{fig_dir}/S2_field_maps.png', dpi=140, bbox_inches='tight',

@@ -21,6 +21,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 
 CHANNEL_COLORS = {
@@ -72,9 +73,15 @@ def _draw_env(ax, env, xml_root):
 
 
 def _draw_fields(ax, bank, cmap, norm):
-    """Rule 7 — fields drawn as ellipses, not discs."""
+    """Rule 7 — fields drawn as ellipses, not discs.
+
+    Coloured by the floor area the field covers, not by an equivalent-disc
+    radius: area is what the field actually occupies, it is the unit the
+    recording literature reports (Harland et al. 2021), and for an elongated
+    field a single radius is a summary of two axes that differ severalfold.
+    """
     for _, r in bank.iterrows():
-        c = cmap(norm(r['radius_env_m']))
+        c = cmap(norm(r['area_env_m2']))
         ax.add_patch(Ellipse((r['centroid_x'], r['centroid_y']),
                              width=2 * r['semi_major_m'], height=2 * r['semi_minor_m'],
                              angle=np.degrees(r['orientation_rad']),
@@ -92,8 +99,9 @@ def f1_field_maps(banks, env, xml_root, fig_dir, env_name, channels, lambdas):
     nz = [b for b in banks.values() if len(b)]
     if not nz:
         return
-    r_all = np.concatenate([b['radius_env_m'].to_numpy() for b in nz])
-    cmap, norm = plt.get_cmap('plasma'), plt.Normalize(r_all.min(), r_all.max())
+    a_all = np.concatenate([b['area_env_m2'].to_numpy() for b in nz])
+    cmap = plt.get_cmap('plasma')
+    norm = mcolors.LogNorm(max(a_all.min(), 1e-3), a_all.max())
 
     nr, nc = len(channels), len(lambdas)
     fig, axes = plt.subplots(nr, nc, figsize=(3.5 * nc, 3.5 * nr), squeeze=False)
@@ -108,7 +116,7 @@ def f1_field_maps(banks, env, xml_root, fig_dir, env_name, channels, lambdas):
             ax.set_title(f'{cn} | $\\lambda$={lam:g}\n{n} fields', fontsize=9)
             ax.set_xticks([]); ax.set_yticks([])
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm); sm.set_array([])
-    fig.colorbar(sm, ax=axes, shrink=0.6, pad=0.02).set_label('field radius (m)')
+    fig.colorbar(sm, ax=axes, shrink=0.6, pad=0.02).set_label('field area (m$^2$)')
     fig.suptitle(f'F1  {env_name} | place fields by channel (rows) and '
                  f'spatial weighting $\\lambda$ (columns)\n'
                  f'Rule 7: fields drawn as ellipses, not discs', y=1.005, fontsize=13)
