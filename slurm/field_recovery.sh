@@ -17,7 +17,7 @@
 #
 # Examples:
 #   sbatch slurm/field_recovery.sh circ_lm8_r0
-#   sbatch slurm/field_recovery.sh circ_lm8_r0 --arms 1,2 --channels color,hog
+#   sbatch slurm/field_recovery.sh circ_lm8_r0 --tests 1,2 --channels color,hog
 #   sbatch slurm/field_recovery.sh circ_lm8_r0 --pctls 50,65,80,90
 #
 # ------------------------------------------------------------- SLURM header

@@ -17,29 +17,29 @@ SIGMA_MODE='quantile' solves for the sigma that puts the cut at a chosen
 quantile of the group's own centroid distances, which makes the cut land where
 it was asked to. This experiment asks whether that is actually better.
 
-Three arms
-----------
-1. **Recovery.** Plant an idealised place cell — a disc of floor of radius r —
-   and compare the field the rule returns against it. Swept over radius, wall
-   distance, channel, rule, and EXTENT_PCTL.
+Three tests
+-----------
+**Test 1 - recovery.** Construct an ideal place cell — a disc of floor of
+radius r — and compare the field the rule returns against it. Swept over
+radius, wall distance, channel, rule, and EXTENT_PCTL.
 
-2. **Discrimination.** The same machinery on inputs that are *not* place
-   fields: positions drawn at random, two discs on opposite walls, a ring, and
-   a disc above the size ceiling. A rule that returns a tidy compact field from
-   any of these is not recovering structure, it is imposing it. Arm 1 means
-   nothing without this.
+**Test 2 - discrimination.** The same machinery on inputs that are *not* place
+fields: two half-size discs a gap apart, a ring, a scattered group, positions
+drawn at random, and a disc above the size ceiling. A rule that returns a tidy
+compact field from any of these is not recovering structure, it is imposing
+it. Test 1 means nothing without this.
 
-3. **Pipeline.** The real tree and the real rules under both settings, to see
-   whether the product improves and whether the published results survive.
+**Test 3 - pipeline.** The real tree and the real rules under both settings,
+to see whether the product improves and whether the key findings survive.
 
 Judged on: recovery IoU and the recovered-vs-true radius transfer; the margin
-between arm 1 and arm 2; split-half reliability, which presupposes no field
+between test 1 and test 2; split-half reliability, which presupposes no field
 size and is the one non-circular metric here; and whether corr(size, wall) and
-elongation hold. A rule that improves arm 1 while also making fields out of
+elongation hold. A rule that improves test 1 while also making fields out of
 shuffled positions is worse, not better.
 
 Usage
-    python run_field_recovery.py [env_name] [--channels ...] [--arms 1,2,3]
+    python run_field_recovery.py [env_name] [--channels ...] [--tests 1,2,3]
                                  [--pctls 20,35,50,65,80,90] [--no-gpu]
                                  [--no-email] [--subsample N]
 """
@@ -73,22 +73,22 @@ CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
 MODE_STYLE = {'pairwise': dict(color='#888888', ls='--', marker='s'),
               'quantile': dict(color='#d62728', ls='-', marker='o')}
 
-TRUE_RADII = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
+IDEAL_RADII = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
 WALL_RINGS = [0.5, 1.0, 2.0, 4.0, 8.0]          # distance from the wall
-N_ANGLES = 4                                     # planted cells per ring
+N_ANGLES = 4                                     # ideal place cells per ring
 
 
 # ----------------------------------------------------------------- planting
 
 def plant_sites(env, wall_rings, n_angles, rng):
-    """Centres for the planted cells, on rings at fixed distance from the wall."""
+    """Centers for the ideal place cells, on rings at fixed distance from the wall."""
     R_arena = np.sqrt(env['env_area'] / np.pi)
     sites = []
     for w in wall_rings:
         rad = R_arena - w
         if rad < 0:
             continue
-        if rad < 1e-6:                            # the centre is a single site
+        if rad < 1e-6:                            # the center is a single site
             sites.append((0.0, 0.0, w))
             continue
         for k in range(n_angles):
@@ -107,7 +107,7 @@ def members_control(kind, xy, env, cx, cy, r, rng):
     Every control except `oversized` is deliberately *size-matched* to a real
     field of radius r. An earlier version used widely separated discs and a
     full-arena ring; those were rejected on size alone, so contiguity was
-    never tested and the arm proved nothing. A control is only informative if
+    never tested and the test proved nothing. A control is only informative if
     the size rule cannot dispose of it, leaving spatial structure as the one
     thing that separates it from a genuine field.
     """
@@ -123,7 +123,7 @@ def members_control(kind, xy, env, cx, cy, r, rng):
         b = members_disc(xy, cx - ux * gap / 2, cy - uy * gap / 2, rr)
         return np.unique(np.concatenate([a, b]))
     if kind == 'ring':
-        # An annulus of the same area, centred on the same place. Spatially
+        # An annulus of the same area, centered on the same place. Spatially
         # coherent but not a disc; the shape should not be filled in.
         d = np.hypot(xy[:, 0] - cx, xy[:, 1] - cy)
         return np.flatnonzero((d >= r) & (d <= r * np.sqrt(2.0)))
@@ -179,8 +179,8 @@ def field_from_members(X, xy, mem, G, occupied, C, mode, rng, chunk=4096):
     return mask, sigma
 
 
-def truth_mask(xy, mem, G, occupied, C):
-    """The planted group rendered on the same grid, for a fair comparison."""
+def ideal_mask(xy, mem, G, occupied, C):
+    """The ideal place cell rendered on the same grid, for a fair comparison."""
     flat = R._bin_indices(xy, G)
     grid = np.zeros(G['gx'] * G['gy'], np.float32)
     np.maximum.at(grid, flat[mem], np.ones(len(mem), np.float32))
@@ -188,30 +188,30 @@ def truth_mask(xy, mem, G, occupied, C):
     return m & G['in_env']
 
 
-def score(mask, tmask, G, C, env, area_min, area_max):
+def score(mask, imask, G, C, env, area_min, area_max):
     """Everything measured about one recovered field."""
     sh = R.field_shape(mask, G)
-    ts = R.field_shape(tmask, G)
+    ts = R.field_shape(imask, G)
     cc, ncomp = R.largest_component_fraction(mask)
-    inter = float((mask & tmask).sum())
-    union = float((mask | tmask).sum())
+    inter = float((mask & imask).sum())
+    union = float((mask | imask).sum())
     bin_area = C['BIN_M'] ** 2
-    rec_area, true_area = sh['area'], ts['area']
+    rec_area, ideal_area = sh['area'], ts['area']
     return dict(
-        rec_area_m2=rec_area, true_area_m2=true_area,
-        rec_r_eq_m=sh['r_eq'], true_r_eq_m=ts['r_eq'],
+        rec_area_m2=rec_area, ideal_area_m2=ideal_area,
+        rec_r_eq_m=sh['r_eq'], ideal_r_eq_m=ts['r_eq'],
         rec_elongation=sh['elongation'], rec_cx=sh['cx'], rec_cy=sh['cy'],
         iou=inter / union if union else 0.0,
-        centre_err_m=float(np.hypot(sh['cx'] - ts['cx'], sh['cy'] - ts['cy'])),
+        center_err_m=float(np.hypot(sh['cx'] - ts['cx'], sh['cy'] - ts['cy'])),
         log2_area_ratio=float(np.log2(max(rec_area, bin_area) /
-                                      max(true_area, bin_area))),
+                                      max(ideal_area, bin_area))),
         cc_frac=cc, n_components=int(ncomp),
         pass_size=bool(area_min <= rec_area <= area_max),
         pass_contiguity=bool(cc >= C['CC_FRAC_MIN']),
     )
 
 
-# ------------------------------------------------------------------ the arms
+# ----------------------------------------------------------------- the tests
 
 def run_recovery(X, xy, env, G, occupied, C, cname, modes, pctls, rng,
                  verbose=True, collect=None, collect_pctl=None):
@@ -225,24 +225,24 @@ def run_recovery(X, xy, env, G, occupied, C, cname, modes, pctls, rng,
             if mode == 'quantile':
                 cfg['EXTENT_PCTL'] = pctl
             for (cx, cy, w) in sites:
-                for r in TRUE_RADII:
+                for r in IDEAL_RADII:
                     mem = members_disc(xy, cx, cy, r)
                     if len(mem) < 12:
                         continue
                     mask, sigma = field_from_members(X, xy, mem, G, occupied,
                                                      cfg, mode, rng)
-                    tm = truth_mask(xy, mem, G, occupied, cfg)
+                    im = ideal_mask(xy, mem, G, occupied, cfg)
                     if collect is not None and r == 1.0 and (
                             mode == 'pairwise' or pctl == collect_pctl):
                         sh = R.field_shape(mask, G)
                         collect.setdefault(mode, {'truth': [], 'fields': []})
                         collect[mode]['truth'].append((cx, cy, r))
                         collect[mode]['fields'].append(sh)
-                    rows.append(dict(arm='recovery', channel=cname, mode=mode,
+                    rows.append(dict(test='recovery', channel=cname, mode=mode,
                                      extent_pctl=pctl, kind='disc',
-                                     true_r_m=r, wall_dist_m=w, cx=cx, cy=cy,
+                                     ideal_r_m=r, wall_dist_m=w, cx=cx, cy=cy,
                                      n_members=len(mem), sigma=sigma,
-                                     **score(mask, tm, G, cfg, env,
+                                     **score(mask, im, G, cfg, env,
                                              area_min, area_max)))
             if verbose:
                 sub = [x for x in rows if x['mode'] == mode
@@ -272,13 +272,13 @@ def run_controls(X, xy, env, G, occupied, C, cname, modes, pctls, rng, verbose=T
                             continue
                         mask, sigma = field_from_members(X, xy, mem, G, occupied,
                                                          cfg, mode, rng)
-                        tm = truth_mask(xy, mem, G, occupied, cfg)
-                        rows.append(dict(arm='control', channel=cname, mode=mode,
+                        im = ideal_mask(xy, mem, G, occupied, cfg)
+                        rows.append(dict(test='control', channel=cname, mode=mode,
                                          extent_pctl=pctl, kind=kind,
-                                         true_r_m=r, wall_dist_m=np.nan,
+                                         ideal_r_m=r, wall_dist_m=np.nan,
                                          cx=cx, cy=cy, n_members=len(mem),
                                          sigma=sigma,
-                                         **score(mask, tm, G, cfg, env,
+                                         **score(mask, im, G, cfg, env,
                                                  area_min, area_max)))
                         if kind == 'oversized':
                             break
@@ -297,7 +297,7 @@ def run_controls(X, xy, env, G, occupied, C, cname, modes, pctls, rng, verbose=T
 
 def run_pipeline(X, xy, env, D2, feat_med, xy_med, C, cname, modes, pctls,
                  device, out_dir, verbose=True):
-    """Arm 3: the real tree and the real rules. One tree serves every setting."""
+    """Test 3: the real tree and the real rules. One tree serves every setting."""
     rows = []
     tree = R.build_tree(D2, xy, feat_med, xy_med, cfg=C, verbose=verbose)
     for mode in modes:
@@ -318,7 +318,7 @@ def run_pipeline(X, xy, env, D2, feat_med, xy_med, C, cname, modes, pctls,
                 json.dump({k: v for k, v in rep.items()
                            if not isinstance(v, np.ndarray)}, f, indent=2,
                           default=float)
-            row = dict(arm='pipeline', channel=cname, mode=mode,
+            row = dict(test='pipeline', channel=cname, mode=mode,
                        extent_pctl=pctl, n_fields=len(bank),
                        band_lo=rep.get('band_lo'), band_hi=rep.get('band_hi'),
                        split_half_iou=rep.get('median_split_half_iou'),
@@ -360,9 +360,9 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
     R_a = np.sqrt(env['env_area'] / np.pi)
     for ax, cn in zip(axes, chans):
         g = rec[rec.channel == cn]
-        lo, hi = 0.3, max(TRUE_RADII) * 1.15
+        lo, hi = 0.3, max(IDEAL_RADII) * 1.15
         ax.plot([lo, hi], [lo, hi], color='0.3', lw=1.0, zorder=1,
-                label='perfect recovery')
+                label='exact recovery')
         ax.axhline(R_a, color='0.75', lw=0.8, ls=':', zorder=0)
         for mode, st in MODE_STYLE.items():
             sub = g[g['mode'] == mode]
@@ -370,18 +370,18 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
                 sub = sub[sub.extent_pctl == best_pctl]
             if not len(sub):
                 continue
-            m = sub.groupby('true_r_m').rec_r_eq_m.median()
-            q1 = sub.groupby('true_r_m').rec_r_eq_m.quantile(0.25)
-            q3 = sub.groupby('true_r_m').rec_r_eq_m.quantile(0.75)
+            m = sub.groupby('ideal_r_m').rec_r_eq_m.median()
+            q1 = sub.groupby('ideal_r_m').rec_r_eq_m.quantile(0.25)
+            q3 = sub.groupby('ideal_r_m').rec_r_eq_m.quantile(0.75)
             ax.fill_between(m.index, q1, q3, color=st['color'], alpha=0.15, lw=0)
             ax.plot(m.index, m.values, **st, ms=4,
                     label=mode if mode == 'pairwise' else f'quantile p{best_pctl:g}')
         ax.set_xscale('log'); ax.set_yscale('log')
         ax.set_title(cn, fontsize=10, color=CHANNEL_COLORS.get(cn, 'k'))
-        ax.set_xlabel('true radius (m)')
-    axes[0].set_ylabel('recovered radius (m)')
+        ax.set_xlabel('ideal field radius (m)')
+    axes[0].set_ylabel('recovered field radius (m)')
     axes[0].legend(fontsize=7, loc='upper left', frameon=False)
-    fig.suptitle('R1  Recovered field radius against the planted truth',
+    fig.suptitle('R1  Recovered field radius against the ideal place cell',
                  fontsize=11)
     fig.tight_layout()
     fig.savefig(f'{fig_dir}/R1_radius_transfer.png', dpi=140,
@@ -389,8 +389,8 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
     plt.close(fig)
 
 
-def fig_planted_maps(X_maps, fig_dir, env, best_pctl):
-    """R2 — what each rule returns for a grid of planted cells."""
+def fig_ideal_maps(X_maps, fig_dir, env, best_pctl):
+    """R2 — what each rule returns for a grid of ideal place cells."""
     if not X_maps:
         return
     modes = list(X_maps.keys())
@@ -399,7 +399,7 @@ def fig_planted_maps(X_maps, fig_dir, env, best_pctl):
     _arena(axes[0], env)
     for (cx, cy, r) in X_maps[modes[0]]['truth']:
         axes[0].add_patch(Circle((cx, cy), r, fc='0.75', ec='0.4', lw=0.6, alpha=0.8))
-    axes[0].set_title('planted truth', fontsize=10)
+    axes[0].set_title('ideal place cells', fontsize=10)
     for ax, mode in zip(axes[1:], modes):
         _arena(ax, env)
         for sh in X_maps[mode]['fields']:
@@ -410,10 +410,10 @@ def fig_planted_maps(X_maps, fig_dir, env, best_pctl):
                                  ec=MODE_STYLE[mode]['color'], lw=0.9, alpha=0.85))
         lab = mode if mode == 'pairwise' else f'quantile p{best_pctl:g}'
         ax.set_title(f'recovered — {lab}', fontsize=10)
-    fig.suptitle('R2  Idealised place cells planted across the arena, '
+    fig.suptitle('R2  Ideal place cells across the arena, '
                  'and what each rule returns', fontsize=11)
     fig.tight_layout()
-    fig.savefig(f'{fig_dir}/R2_planted_maps.png', dpi=140,
+    fig.savefig(f'{fig_dir}/R2_ideal_maps.png', dpi=140,
                 bbox_inches='tight', facecolor='white')
     plt.close(fig)
 
@@ -421,7 +421,7 @@ def fig_planted_maps(X_maps, fig_dir, env, best_pctl):
 def fig_iou(rec, ctl, fig_dir, best_pctl):
     """R3 — recovery quality, with the control band behind it."""
     fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.6))
-    for ax, key, xlab in ((axes[0], 'true_r_m', 'true radius (m)'),
+    for ax, key, xlab in ((axes[0], 'ideal_r_m', 'ideal field radius (m)'),
                           (axes[1], 'wall_dist_m', 'distance to wall (m)')):
         for mode, st in MODE_STYLE.items():
             sub = rec[rec['mode'] == mode]
@@ -440,9 +440,9 @@ def fig_iou(rec, ctl, fig_dir, best_pctl):
                            alpha=0.08, lw=0)
         ax.set_xlabel(xlab); ax.set_ylim(0, 1)
         ax.grid(alpha=0.25, lw=0.5)
-    axes[0].set_ylabel('IoU with planted truth')
+    axes[0].set_ylabel('IoU with ideal place cell')
     axes[0].legend(fontsize=8, frameon=False)
-    fig.suptitle('R3  Recovery against the planted field. Shaded bands are the '
+    fig.suptitle('R3  Recovery of the ideal place cell. Shaded bands are the '
                  '90th percentile of the non-field controls.', fontsize=10)
     fig.tight_layout()
     fig.savefig(f'{fig_dir}/R3_iou.png', dpi=140, bbox_inches='tight',
@@ -461,7 +461,7 @@ def fig_pctl_sweep(rec, ctl, pipe, fig_dir, act_thresh):
     pred = 100.0 * (1.0 - act_thresh)
 
     m = q.groupby('extent_pctl').iou.median()
-    axes[0].plot(m.index, m.values, '-o', color='#d62728', ms=4, label='planted fields')
+    axes[0].plot(m.index, m.values, '-o', color='#d62728', ms=4, label='ideal place cells')
     cq = ctl[ctl['mode'] == 'quantile']
     if len(cq):
         mc = cq.groupby('extent_pctl').iou.median()
@@ -531,7 +531,7 @@ def fig_controls(rec, ctl, fig_dir, best_pctl):
                     color=st['color'], alpha=0.85, label=lab)
 
     axes[0].set_xticks([0, 1])
-    axes[0].set_xticklabels(['planted fields\nadmitted (want high)',
+    axes[0].set_xticklabels(['ideal place cells\nadmitted (want high)',
                              'non-fields\nadmitted (want low)'], fontsize=8)
     axes[0].set_ylabel('% admitted'); axes[0].set_ylim(0, 105)
     axes[0].legend(fontsize=8, frameon=False)
@@ -597,7 +597,7 @@ class FieldRecoveryReport(ExperimentReport):
     def title(self):
         if self.metrics is None or not len(self.metrics):
             return 'no results'
-        rec = self.metrics[self.metrics.arm == 'recovery']
+        rec = self.metrics[self.metrics.test == 'recovery']
         if not len(rec):
             return f'{len(self.metrics)} rows'
         best = self.best_pctl
@@ -605,13 +605,13 @@ class FieldRecoveryReport(ExperimentReport):
         b = rec[(rec['mode'] == 'quantile') &
                 (rec.extent_pctl == best)].iou.median()
         return (f'recovery IoU {a:.2f} -> {b:.2f} at p{best:g}'
-                if np.isfinite(a) and np.isfinite(b) else f'{len(rec)} planted cells')
+                if np.isfinite(a) and np.isfinite(b) else f'{len(rec)} ideal place cells')
 
     def body(self):
         m, out = self.metrics, []
-        rec = m[m.arm == 'recovery']
-        ctl = m[m.arm == 'control']
-        pipe = m[m.arm == 'pipeline']
+        rec = m[m.test == 'recovery']
+        ctl = m[m.test == 'control']
+        pipe = m[m.test == 'pipeline']
         best = self.best_pctl
 
         out.append(self.section(
@@ -634,9 +634,9 @@ class FieldRecoveryReport(ExperimentReport):
                  .groupby(['channel', 'setting'])
                  .agg(median_iou=('iou', 'median'),
                       median_log2_ratio=('log2_area_ratio', 'median'),
-                      median_centre_err=('centre_err_m', 'median'))
+                      median_center_err=('center_err_m', 'median'))
                  .reset_index())
-            out.append(self.section('Arm 1 — recovery of a planted field', self.table(g)))
+            out.append(self.section('Test 1 - recovery of an ideal place cell', self.table(g)))
 
         if len(ctl):
             c = (ctl.assign(setting=np.where(ctl['mode'] == 'pairwise', 'pairwise',
@@ -647,7 +647,7 @@ class FieldRecoveryReport(ExperimentReport):
                       median_iou=('iou', 'median'))
                  .reset_index())
             out.append(self.section(
-                'Arm 2 — non-fields that were wrongly admitted',
+                'Test 2 - non-fields that were wrongly admitted',
                 'Each of these should be rejected. A rule that admits them is\n'
                 'imposing structure, not recovering it.\n\n' + self.table(c)))
 
@@ -672,7 +672,7 @@ class FieldRecoveryReport(ExperimentReport):
                                 'median_radius_m', 'median_elongation',
                                 'corr_size_wall', 'split_half_iou',
                                 'band_lo', 'band_hi') if x in pipe.columns]
-            out.append(self.section('Arm 3 — the real pipeline', self.table(pipe, cols)))
+            out.append(self.section('Test 3 - the real pipeline', self.table(pipe, cols)))
 
         out.append(self.section(
             'Calibration',
@@ -697,7 +697,7 @@ def parse_args():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('env', nargs='?', default='circ_lm8_r0')
     ap.add_argument('--channels', default='hog,color,spatial,lidar,visual,all')
-    ap.add_argument('--arms', default='1,2,3')
+    ap.add_argument('--tests', default='1,2,3')
     ap.add_argument('--pctls', default='20,35,50,65,80,90')
     ap.add_argument('--lam', type=float, default=0.0)
     ap.add_argument('--subsample', type=int, default=0)
@@ -712,7 +712,7 @@ def main():
     args = parse_args()
     env_name = args.env
     channel_names = [c.strip() for c in args.channels.split(',') if c.strip()]
-    arms = {int(a) for a in args.arms.split(',') if a.strip()}
+    tests = {int(a) for a in args.tests.split(',') if a.strip()}
     pctls = [float(p) for p in args.pctls.split(',') if p.strip()]
     rng = np.random.default_rng(args.seed)
 
@@ -726,7 +726,7 @@ def main():
     print('=' * 72)
     print(f'Field recovery | env={env_name}')
     print(f'  channels : {channel_names}')
-    print(f'  arms     : {sorted(arms)}   EXTENT_PCTL: {pctls}')
+    print(f'  tests    : {sorted(tests)}   EXTENT_PCTL: {pctls}')
     print('=' * 72, flush=True)
 
     blocks, xy = ch.load_channel_blocks(data_path)
@@ -747,7 +747,7 @@ def main():
     occupied = occupied.reshape(G['gx'], G['gy'])
     modes = ['pairwise', 'quantile']
 
-    rows, planted_maps = [], {}
+    rows, ideal_maps = [], {}
     d2xy = ((xy[:3000, None, :] - xy[None, :3000, :]) ** 2).sum(-1)
     xy_med = float(np.median(d2xy[np.triu_indices(len(d2xy), 1)]))
     del d2xy
@@ -756,15 +756,15 @@ def main():
         print(f'\n===== {cname} =====', flush=True)
         t0 = time.time()
         X = ch.assemble(blocks, ch.CHANNEL_SETS[cname], normalize=True)
-        if 1 in arms:
-            grab = planted_maps if cname == channel_names[0] else None
+        if 1 in tests:
+            grab = ideal_maps if cname == channel_names[0] else None
             rows += run_recovery(X, xy, env, G, occupied, C, cname, modes,
                                  pctls, rng, collect=grab,
                                  collect_pctl=100.0 * (1.0 - C['ACT_THRESH']))
-        if 2 in arms:
+        if 2 in tests:
             rows += run_controls(X, xy, env, G, occupied, C, cname, modes,
                                  pctls, rng)
-        if 3 in arms:
+        if 3 in tests:
             D2 = R.feature_sq_distances(X, device=device)
             feat_med = R._median_offdiag(D2, rng)
             rows += run_pipeline(X, xy, env, D2, feat_med, xy_med, C, cname,
@@ -779,12 +779,12 @@ def main():
 
     # EXTENT_PCTL is selected on the admission trade-off, not on recovery
     # alone. Recovery IoU on its own prefers a tighter cut, but a cut that
-    # recovers planted fields beautifully while also admitting size-matched
+    # recovers ideal place cells beautifully while also admitting size-matched
     # non-fields has bought nothing. Youden's J -- the rate at which real
     # fields are admitted minus the rate at which non-fields are -- is the
     # standard way to score exactly that trade-off, and it is what decides.
-    rec = metrics[metrics.arm == 'recovery'] if len(metrics) else metrics
-    ctl = metrics[metrics.arm == 'control'] if len(metrics) else metrics
+    rec = metrics[metrics.test == 'recovery'] if len(metrics) else metrics
+    ctl = metrics[metrics.test == 'control'] if len(metrics) else metrics
 
     def admit_rate(df):
         return (df.pass_size & df.pass_contiguity).groupby(df.extent_pctl).mean()
@@ -808,14 +808,14 @@ def main():
               f'the 1-T identity predicts {100*(1-C["ACT_THRESH"]):g})')
 
     with open(f'{out_dir}/config.json', 'w') as f:
-        json.dump(dict(env=env_name, channels=channel_names, arms=sorted(arms),
+        json.dump(dict(env=env_name, channels=channel_names, tests=sorted(tests),
                        pctls=pctls, lam=args.lam, seed=args.seed,
                        act_thresh=C['ACT_THRESH'], sigma_pctl=C['SIGMA_PCTL'],
-                       true_radii=TRUE_RADII, wall_rings=WALL_RINGS,
+                       ideal_radii=IDEAL_RADII, wall_rings=WALL_RINGS,
                        best_pctl=best_pctl), f, indent=2)
 
     if not args.no_plots and len(metrics):
-        pipe = metrics[metrics.arm == 'pipeline']
+        pipe = metrics[metrics.test == 'pipeline']
         if len(rec):
             fig_transfer(rec, fig_dir, env, best_pctl)
             fig_iou(rec, ctl, fig_dir, best_pctl)
@@ -823,8 +823,8 @@ def main():
             fig_controls(rec, ctl, fig_dir, best_pctl)
         fig_pctl_sweep(rec, ctl, pipe, fig_dir, C['ACT_THRESH'])
         fig_pipeline(pipe, fig_dir, best_pctl)
-        if planted_maps:
-            fig_planted_maps(planted_maps, fig_dir, env, best_pctl)
+        if ideal_maps:
+            fig_ideal_maps(ideal_maps, fig_dir, env, best_pctl)
         print(f'Figures -> {fig_dir}')
 
     if not args.no_email:
