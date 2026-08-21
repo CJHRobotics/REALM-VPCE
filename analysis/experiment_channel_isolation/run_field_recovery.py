@@ -202,6 +202,8 @@ def score(mask, imask, G, C, env, area_min, area_max):
         rec_area_m2=rec_area, ideal_area_m2=ideal_area,
         rec_r_eq_m=sh['r_eq'], ideal_r_eq_m=ts['r_eq'],
         rec_elongation=sh['elongation'], rec_cx=sh['cx'], rec_cy=sh['cy'],
+        rec_semi_major_m=sh['a'], rec_semi_minor_m=sh['b'],
+        rec_orientation_rad=sh['theta'],
         iou=inter / union if union else 0.0,
         center_err_m=float(np.hypot(sh['cx'] - ts['cx'], sh['cy'] - ts['cy'])),
         log2_area_ratio=float(np.log2(max(rec_area, bin_area) /
@@ -215,7 +217,7 @@ def score(mask, imask, G, C, env, area_min, area_max):
 # ----------------------------------------------------------------- the tests
 
 def run_recovery(X, xy, env, G, occupied, C, cname, modes, pctls, rng,
-                 verbose=True, collect=None, collect_pctl=None):
+                 verbose=True):
     area_min = C['RULE8_AREA_FRAC'] * env['env_area']
     area_max = C['RULE9_AREA_FRAC'] * env['env_area']
     sites = plant_sites(env, WALL_RINGS, N_ANGLES, rng)
@@ -233,12 +235,6 @@ def run_recovery(X, xy, env, G, occupied, C, cname, modes, pctls, rng,
                     mask, sigma = field_from_members(X, xy, mem, G, occupied,
                                                      cfg, mode, rng)
                     im = ideal_mask(xy, mem, G, occupied, cfg)
-                    if collect is not None and r == 1.0 and (
-                            mode == 'pairwise' or pctl == collect_pctl):
-                        sh = R.field_shape(mask, G)
-                        collect.setdefault(mode, {'truth': [], 'fields': []})
-                        collect[mode]['truth'].append((cx, cy, r))
-                        collect[mode]['fields'].append(sh)
                     rows.append(dict(test='recovery', channel=cname, mode=mode,
                                      extent_pctl=pctl, kind='disc',
                                      ideal_r_m=r, wall_dist_m=w, cx=cx, cy=cy,
@@ -361,7 +357,7 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
     R_a = np.sqrt(env['env_area'] / np.pi)
     for ax, cn in zip(axes, chans):
         g = rec[rec.channel == cn]
-        lo, hi = 0.3, max(IDEAL_RADII) * 1.15
+        lo, hi = 0.0, max(IDEAL_RADII) * 1.15
         ax.plot([lo, hi], [lo, hi], color='0.3', lw=1.0, zorder=1,
                 label='exact recovery')
         ax.axhline(R_a, color='0.75', lw=0.8, ls=':', zorder=0)
@@ -379,12 +375,8 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
             ax.fill_between(m.index, q1, q3, color=st['color'], alpha=0.15, lw=0)
             ax.plot(m.index, m.values, **st, ms=4,
                     label=mode if mode == 'pairwise' else f'quantile p{best_pctl:g}')
-        ax.set_xscale('log'); ax.set_yscale('log')
-        for a in (ax.xaxis, ax.yaxis):
-            a.set_major_formatter(ScalarFormatter())
-            a.set_minor_formatter(NullFormatter())
-        ax.set_xticks([0.5, 1, 2, 3]); ax.set_yticks([0.5, 1, 2, 5, 10])
-        ax.set_xlim(0.38, 4.0); ax.set_ylim(0.38, 13.0)
+        ax.set_xticks([0, 1, 2, 3]); ax.set_yticks([0, 2, 4, 6, 8, 10])
+        ax.set_xlim(0, 3.4); ax.set_ylim(0, 10.8)
         ax.set_title(cn, fontsize=10, color=CHANNEL_COLORS.get(cn, 'k'))
         ax.set_xlabel('ideal field radius (m)')
     axes[0].set_ylabel('recovered field radius (m)')
@@ -398,32 +390,79 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
     plt.close(fig)
 
 
-def fig_ideal_maps(X_maps, fig_dir, env, best_pctl):
-    """R2 — what each rule returns for a grid of ideal place cells."""
-    if not X_maps:
+def fig_ideal_maps(rec, fig_dir, best_pctl, env_area=314.159, channels=None):
+    """R2 — the lead figure. Ideal place cells, and what each rule returns.
+
+    Drawn straight from the recorded ellipses, so it regenerates under
+    --figures-only. The ideal cells are repeated faintly behind every panel so
+    the correspondence, or its absence, is visible without moving your eye.
+    """
+    if not len(rec):
         return
-    modes = list(X_maps.keys())
-    fig, axes = plt.subplots(1, len(modes) + 1,
-                             figsize=(3.1 * (len(modes) + 1), 3.4))
-    _arena(axes[0], env)
-    for (cx, cy, r) in X_maps[modes[0]]['truth']:
-        axes[0].add_patch(Circle((cx, cy), r, fc='0.75', ec='0.4', lw=0.6, alpha=0.8))
-    axes[0].set_title('ideal place cells', fontsize=10)
-    for ax, mode in zip(axes[1:], modes):
-        _arena(ax, env)
-        for sh in X_maps[mode]['fields']:
-            if not np.isfinite(sh['a']) or sh['a'] <= 0:
-                continue
-            ax.add_patch(Ellipse((sh['cx'], sh['cy']), 2 * sh['a'], 2 * sh['b'],
-                                 angle=np.degrees(sh['theta']), fc='none',
-                                 ec=MODE_STYLE[mode]['color'], lw=0.9, alpha=0.85))
-        lab = mode if mode == 'pairwise' else f'quantile p{best_pctl:g}'
-        ax.set_title(f'recovered — {lab}', fontsize=10)
-    fig.suptitle('R2  Ideal place cells across the arena, '
-                 'and what each rule returns', fontsize=11)
+    # only channels whose recovered ellipse geometry was recorded; a merged
+    # metrics file can carry channels from a run that predates those columns
+    if 'rec_semi_major_m' not in rec.columns:
+        return
+    drawn = rec[rec.rec_semi_major_m.notna()]
+    if not len(drawn):
+        return
+    usable = set(drawn.channel)
+    have = [c for c in (channels or []) if c in usable]
+    if not have:
+        have = list(dict.fromkeys(drawn.channel))[:3]
+    rec = drawn
+    modes = [m for m in ('pairwise', 'quantile') if (rec['mode'] == m).any()]
+    R_a = np.sqrt(env_area / np.pi)
+    ncol = 1 + len(modes)
+    fig, axes = plt.subplots(len(have), ncol,
+                             figsize=(3.05 * ncol, 3.05 * len(have)),
+                             squeeze=False)
+
+    # one radius, so the panel is readable rather than a pile of ellipses
+    R_SHOW = 1.0
+
+    def frame(ax):
+        ax.add_patch(Circle((0, 0), R_a, fill=False, ec='0.35', lw=1.0))
+        ax.set_xlim(-R_a * 1.06, R_a * 1.06); ax.set_ylim(-R_a * 1.06, R_a * 1.06)
+        ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+
+    for r, cn in enumerate(have):
+        base = rec[(rec.channel == cn) & (rec.ideal_r_m == R_SHOW)]
+        ideal = base.drop_duplicates(subset=['cx', 'cy'])
+        for c in range(ncol):
+            ax = axes[r][c]
+            frame(ax)
+            for _, q in ideal.iterrows():          # the ideal cells, always shown
+                ax.add_patch(Circle((q.cx, q.cy), R_SHOW, fc='0.82', ec='0.6',
+                                    lw=0.5, alpha=0.85, zorder=1))
+            if c == 0:
+                title = 'ideal place cells'
+            else:
+                mode = modes[c - 1]
+                sub = base[base['mode'] == mode]
+                if mode == 'quantile':
+                    sub = sub[sub.extent_pctl == best_pctl]
+                col = MODE_STYLE[mode]['color']
+                for _, q in sub.iterrows():
+                    if not np.isfinite(q.rec_semi_major_m) or q.rec_semi_major_m <= 0:
+                        continue
+                    ax.add_patch(Ellipse((q.rec_cx, q.rec_cy),
+                                         2 * q.rec_semi_major_m,
+                                         2 * q.rec_semi_minor_m,
+                                         angle=np.degrees(q.rec_orientation_rad),
+                                         fc='none', ec=col, lw=1.1, alpha=0.9,
+                                         zorder=3))
+                title = ('what the old rule returns' if mode == 'pairwise'
+                         else f'what the new rule returns  (q = {best_pctl:g})')
+            if r == 0:
+                ax.set_title(title, fontsize=10)
+            if c == 0:
+                ax.set_ylabel(cn, fontsize=11, color=CHANNEL_COLORS.get(cn, 'k'))
+    fig.suptitle(f'R2  {R_SHOW:g} m place fields of known position, and what the '
+                 f'model reconstructs from their views alone', fontsize=11.5)
     fig.tight_layout()
-    fig.savefig(f'{fig_dir}/R2_ideal_maps.png', dpi=140,
-                bbox_inches='tight', facecolor='white')
+    fig.savefig(f'{fig_dir}/R2_ideal_maps.png', dpi=140, bbox_inches='tight',
+                facecolor='white')
     plt.close(fig)
 
 
@@ -922,6 +961,9 @@ def parse_args():
     ap.add_argument('--channels', default='hog,color,spatial,lidar,visual,all')
     ap.add_argument('--tests', default='1,2,3')
     ap.add_argument('--pctls', default='20,35,50,65,80,90')
+    ap.add_argument('--modes', default='quantile',
+                    help="'quantile' (default), or 'pairwise,quantile' to "
+                         'carry the superseded rule alongside for comparison')
     ap.add_argument('--lam', type=float, default=0.0)
     ap.add_argument('--subsample', type=int, default=0)
     ap.add_argument('--seed', type=int, default=0)
@@ -965,6 +1007,7 @@ def main():
         fig_transfer(rec, fig_dir, R.build_env(
             np.zeros((2, 2)), None) if False else dict(
             env_area=float(cfg.get('env_area', 314.159))), best_pctl)
+        fig_ideal_maps(rec, fig_dir, best_pctl)
         fig_iou(rec, ctl, fig_dir, best_pctl)
         fig_controls(rec, ctl, fig_dir, best_pctl)
         fig_pctl_sweep(rec, ctl, pipe, fig_dir, act)
@@ -999,9 +1042,9 @@ def main():
     occupied = np.zeros(G['gx'] * G['gy'], dtype=bool)
     occupied[R._bin_indices(xy, G)] = True
     occupied = occupied.reshape(G['gx'], G['gy'])
-    modes = ['pairwise', 'quantile']
+    modes = [m.strip() for m in args.modes.split(',') if m.strip()]
 
-    rows, ideal_maps = [], {}
+    rows = []
     d2xy = ((xy[:3000, None, :] - xy[None, :3000, :]) ** 2).sum(-1)
     xy_med = float(np.median(d2xy[np.triu_indices(len(d2xy), 1)]))
     del d2xy
@@ -1011,10 +1054,8 @@ def main():
         t0 = time.time()
         X = ch.assemble(blocks, ch.CHANNEL_SETS[cname], normalize=True)
         if 1 in tests:
-            grab = ideal_maps if cname == channel_names[0] else None
-            rows += run_recovery(X, xy, env, G, occupied, C, cname, modes,
-                                 pctls, rng, collect=grab,
-                                 collect_pctl=100.0 * (1.0 - C['ACT_THRESH']))
+            rows += run_recovery(X, xy, env, G, occupied, C, cname,
+                                 modes, pctls, rng)
         if 2 in tests:
             rows += run_controls(X, xy, env, G, occupied, C, cname, modes,
                                  pctls, rng)
@@ -1093,8 +1134,7 @@ def main():
         _ch = [c for c in channel_names if os.path.exists(f'{out_dir}/pipeline/{c}')]
         fig_channel_maps(out_dir, fig_dir, best_pctl, _ch)
         fig_spatial(out_dir, fig_dir, best_pctl, _ch)
-        if ideal_maps:
-            fig_ideal_maps(ideal_maps, fig_dir, env, best_pctl)
+        fig_ideal_maps(rec, fig_dir, best_pctl)
         print(f'Figures -> {fig_dir}')
 
     if not args.no_email:
