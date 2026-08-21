@@ -23,20 +23,25 @@
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=fieldrec
 #SBATCH --partition=general
-#SBATCH --time=12:00:00
+#SBATCH --time=06:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --gres=gpu:A40:1
-# GPU types on `general` (exact GRES strings, from `sinfo -p general -N -o "%N %G"`):
+#SBATCH --gres=gpu:1
+# Any GPU will do. The wide channels (visual 7.2 GB, all 7.3 GB) do not fit an
+# 11 GB 1080 Ti alongside their working set, but rules.feature_sq_distances and
+# rules.environment_readout both check free VRAM and fall back to the CPU for
+# that stage, so a small card costs time, not correctness. Pinning the GRES to
+# a named type (`gpu:A40:1`) instead sits the job behind whatever is queued for
+# those four nodes, which in practice has cost far more than the CPU fallback
+# ever does. Add `--gres=gpu:A40:1` at submit time if a run needs the speed:
+#   sbatch --gres=gpu:A40:1 slurm/<job>.sh circ_lm8_r0
+# GPU types on `general` (exact strings, from `sinfo -p general -N -o "%N %G"`):
 #   GPU6   gpu:1080Ti:4    11 GB, sm_61, no TF32
 #   GPU42  gpu:TitanRTX:4  24 GB, sm_75, no TF32
 #   GPU43  gpu:A40:4       48 GB, sm_86, TF32
 #   GPU44  gpu:A40:4       48 GB, sm_86, TF32
-# Arm 3 holds a feature matrix and its full pairwise block at once (7.2 GB +
-# 3.6 GB for `all`), so the 11 GB 1080 Ti is not enough. Type strings are
-# case-sensitive: `A40`, not `a40`.
-# Override with a plain `--gres=gpu:1` to take whatever is free.
+# Type strings are case-sensitive: `A40`, not `a40`.
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
