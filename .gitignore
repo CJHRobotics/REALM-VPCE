@@ -248,3 +248,5 @@ analysis/**/figures/
 
 # Webots Stuff
 *.wbproj
+# SLURM job logs — job output, not source
+slurm/logs/
