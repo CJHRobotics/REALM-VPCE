@@ -634,6 +634,119 @@ def fig_ladder(out_dir, fig_dir, best_pctl, channels):
     plt.close(fig)
 
 
+def fig_channel_maps(out_dir, fig_dir, best_pctl, channels, env_area=314.159):
+    """R7 — every field found, by channel, under the new width rule."""
+    import matplotlib.colors as mcolors
+    R_a = np.sqrt(env_area / np.pi)
+    fig, axes = plt.subplots(1, len(channels), figsize=(2.5 * len(channels), 3.1))
+    axes = np.atleast_1d(axes)
+    norm = mcolors.LogNorm(vmin=0.4, vmax=env_area * 0.20)
+    cmap = plt.get_cmap('viridis')
+    for ax, cn in zip(axes, channels):
+        f = f'{out_dir}/pipeline/{cn}/quantile_p{best_pctl:g}/bank.csv'
+        ax.add_patch(Circle((0, 0), R_a, fill=False, ec='0.4', lw=1.0))
+        ax.set_xlim(-R_a * 1.05, R_a * 1.05); ax.set_ylim(-R_a * 1.05, R_a * 1.05)
+        ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+        n = 0
+        if os.path.exists(f):
+            b = pd.read_csv(f); n = len(b)
+            for _, r in b.iterrows():
+                ax.add_patch(Ellipse((r.centroid_x, r.centroid_y),
+                                     2 * r.semi_major_m, 2 * r.semi_minor_m,
+                                     angle=np.degrees(r.orientation_rad),
+                                     fc='none', ec=cmap(norm(r.area_env_m2)),
+                                     lw=0.45, alpha=0.75))
+        ax.set_title(f'{cn}\n{n} fields', fontsize=9.5,
+                     color=CHANNEL_COLORS.get(cn, 'k'))
+    cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
+                      ax=axes, fraction=0.015, pad=0.01)
+    cb.set_label('field area (m²)', fontsize=8)
+    fig.suptitle(f'R7  Every field found, by channel, under the new width rule '
+                 f'(q = {best_pctl:g}, λ = 0). Each ellipse is one place field.',
+                 fontsize=10.5)
+    fig.savefig(f'{fig_dir}/R7_channel_maps.png', dpi=140, bbox_inches='tight',
+                facecolor='white')
+    plt.close(fig)
+
+
+def fig_spatial(out_dir, fig_dir, best_pctl, channels, env_area=314.159):
+    """R8 — the two spatial relationships under the new width rule.
+
+    The size relationship turns out to work through the *composition* of the
+    population rather than through each field growing: within one scale band a
+    field is about the same size wherever it sits, but the coarser bands are
+    only populated away from the wall. Panels (b) and (c) separate those.
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.6))
+    bins = np.array([0, 1, 2, 3, 4, 6, 10.0])
+    mid = 0.5 * (bins[:-1] + bins[1:])
+
+    def load(cn):
+        f = f'{out_dir}/pipeline/{cn}/quantile_p{best_pctl:g}/bank.csv'
+        return pd.read_csv(f) if os.path.exists(f) else None
+
+    def binned(b, col, agg='median'):
+        cats = pd.cut(b.dist_to_wall_m, bins)
+        g = b.groupby(cats, observed=False)[col]
+        v = (g.median() if agg == 'median' else g.mean()).reindex(
+            cats.cat.categories).to_numpy(dtype=float)
+        return np.isfinite(v), v
+
+    # (a) elongation, per channel
+    for cn in channels:
+        b = load(cn)
+        if b is None or not len(b):
+            continue
+        ok, v = binned(b, 'elongation')
+        axes[0].plot(mid[ok], v[ok], '-o', ms=3.5, lw=1.3,
+                     color=CHANNEL_COLORS.get(cn, 'k'), label=cn)
+    axes[0].axhline(1.0, color='0.5', lw=0.8, ls=':')
+    axes[0].set_ylabel('elongation  (long axis / short axis)')
+    axes[0].legend(fontsize=7, frameon=False, ncol=2)
+    axes[0].set_title('(a) fields stretch near the wall, round in the open',
+                      fontsize=9.5)
+
+    # (b) area within each scale band, one representative channel
+    cn = 'color' if 'color' in channels else channels[0]
+    b = load(cn)
+    if b is not None and len(b):
+        cmap = plt.get_cmap('viridis')
+        bandmax = max(b.scale_band.max(), 1)
+        for band, g in b.groupby('scale_band'):
+            if len(g) < 12:
+                continue
+            ok, v = binned(g, 'area_env_m2')
+            axes[1].plot(mid[ok], v[ok], '-o', ms=3.5, lw=1.3,
+                         color=cmap(band / bandmax), label=f'band {int(band)}')
+        axes[1].set_yscale('log')
+        axes[1].legend(fontsize=7, frameon=False)
+    axes[1].set_ylabel('field area (m²)')
+    axes[1].set_title(f'(b) within one scale band, size hardly varies — {cn}',
+                      fontsize=9.5)
+
+    # (c) which scales are populated where
+    for cn_ in channels:
+        b = load(cn_)
+        if b is None or not len(b):
+            continue
+        ok, v = binned(b, 'scale_band', agg='mean')
+        axes[2].plot(mid[ok], v[ok], '-o', ms=3.5, lw=1.3,
+                     color=CHANNEL_COLORS.get(cn_, 'k'), label=cn_)
+    axes[2].set_ylabel('mean scale band of the fields present')
+    axes[2].set_title('(c) coarser scales appear only away from the wall',
+                      fontsize=9.5)
+
+    for ax in axes:
+        ax.set_xlabel('distance from field center to nearest wall (m)')
+        ax.grid(alpha=0.25, lw=0.5)
+    fig.suptitle(f'R8  The two spatial relationships under the new width rule '
+                 f'(q = {best_pctl:g}). Median per distance bin.', fontsize=11)
+    fig.tight_layout()
+    fig.savefig(f'{fig_dir}/R8_spatial.png', dpi=140, bbox_inches='tight',
+                facecolor='white')
+    plt.close(fig)
+
+
 def fig_pipeline(pipe, fig_dir, best_pctl):
     """R6 — do the published results survive the rule change?"""
     if pipe is None or not len(pipe):
@@ -858,6 +971,9 @@ def main():
         fig_ladder(out_dir, fig_dir, best_pctl,
                    [c for c in channel_names
                     if os.path.exists(f'{out_dir}/pipeline/{c}')])
+        _ch = [c for c in channel_names if os.path.exists(f'{out_dir}/pipeline/{c}')]
+        fig_channel_maps(out_dir, fig_dir, best_pctl, _ch)
+        fig_spatial(out_dir, fig_dir, best_pctl, _ch)
         print(f'Figures -> {fig_dir}')
         return
 
@@ -974,6 +1090,9 @@ def main():
         fig_ladder(out_dir, fig_dir, best_pctl,
                    [c for c in channel_names
                     if os.path.exists(f'{out_dir}/pipeline/{c}')])
+        _ch = [c for c in channel_names if os.path.exists(f'{out_dir}/pipeline/{c}')]
+        fig_channel_maps(out_dir, fig_dir, best_pctl, _ch)
+        fig_spatial(out_dir, fig_dir, best_pctl, _ch)
         if ideal_maps:
             fig_ideal_maps(ideal_maps, fig_dir, env, best_pctl)
         print(f'Figures -> {fig_dir}')
