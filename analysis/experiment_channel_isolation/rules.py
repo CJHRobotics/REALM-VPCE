@@ -90,28 +90,29 @@ DEFAULT_CFG = dict(
     # percentile is too large by construction. The statistic is not merely
     # mistuned; it cannot reach the right value.
     #
-    # EXTENT_PCTL is PROVISIONAL until run_field_recovery.py has been run
-    # across every channel. What is settled so far, on `color`:
+    # Measured by run_field_recovery.py across all six channels: construct an
+    # ideal place cell (a disc of floor of known size and position), hand the
+    # model its views, and compare what comes back.
     #
-    #   - Handed a 1 m disc of floor, 'pairwise' returns 6.85 m and inflates
-    #     area 20-fold; 'quantile' at 50 returns 1.44 m with the area exact
-    #     to within 3% and the centre to 0.18 m.
-    #   - Two criteria disagree about the value. Reconstruction accuracy
-    #     prefers 50, which is also what theory gives: for a 2D Gaussian rate
-    #     map the mass inside the T-of-peak contour is exactly 1-T, so the
-    #     value matching ACT_THRESH is 100(1-T) = 50. But scoring on the rate
-    #     at which real fields are admitted minus the rate at which
-    #     size-matched non-fields are (Youden's J) prefers 80 -- 90% of
-    #     planted fields admitted against 29% of non-fields, J = +0.61,
-    #     versus 83%/53%, J = +0.30, at 50.
-    #   - 80 is what the identity gives for the ephys 0.20 convention rather
-    #     than for our stricter 0.50, which is suggestive but rests on one
-    #     channel so far.
+    #   given a 1 m ideal place cell   'pairwise'  6.9 - 10.0 m
+    #                                  'quantile'  0.96 - 1.37 m
+    #   area error, pooled             'pairwise'  x20 to x68
+    #                                  'quantile'  x0.82 to x1.52
+    #   ideal cells admitted           'pairwise'  0 - 20%
+    #                                  'quantile'  75 - 100%
     #
-    # 80 is taken as the default because admitting non-fields is the more
-    # damaging error, but treat it as unresolved.
-    SIGMA_MODE       = 'pairwise',
-    EXTENT_PCTL      = 80,
+    # EXTENT_PCTL = 65 selected on ideal cells admitted minus non-fields
+    # admitted, which saturates between 65 and 80; 65 matches 80 there to
+    # within noise while reconstructing the field substantially more
+    # accurately (IoU 0.545 against 0.462).
+    #
+    # Non-fields excluded from that count are `split` and `ring`: a cluster
+    # described by one centroid cannot represent a two-lobed response -- the
+    # centroid sits between the lobes, so the field fills the gap -- and no
+    # EXTENT_PCTL repairs it. That is a limit of the single-centroid
+    # description, and the route past it is multi-field place cells.
+    SIGMA_MODE       = 'quantile',
+    EXTENT_PCTL      = 65,
 
     # --- Rule 4 -----------------------------------------------------------
     # cost(a,b) = d_feature^2 / med(d_feature^2) + LAMBDA * d_xy^2 / med(d_xy^2)

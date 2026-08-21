@@ -57,6 +57,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse, Circle
+from matplotlib.ticker import ScalarFormatter, NullFormatter
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -364,6 +365,8 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
         ax.plot([lo, hi], [lo, hi], color='0.3', lw=1.0, zorder=1,
                 label='exact recovery')
         ax.axhline(R_a, color='0.75', lw=0.8, ls=':', zorder=0)
+        ax.text(0.98, 0.985, 'arena radius', fontsize=6.5, color='0.55',
+                ha='right', va='top', transform=ax.transAxes)
         for mode, st in MODE_STYLE.items():
             sub = g[g['mode'] == mode]
             if mode == 'quantile':
@@ -377,12 +380,18 @@ def fig_transfer(rec, fig_dir, env, best_pctl):
             ax.plot(m.index, m.values, **st, ms=4,
                     label=mode if mode == 'pairwise' else f'quantile p{best_pctl:g}')
         ax.set_xscale('log'); ax.set_yscale('log')
+        for a in (ax.xaxis, ax.yaxis):
+            a.set_major_formatter(ScalarFormatter())
+            a.set_minor_formatter(NullFormatter())
+        ax.set_xticks([0.5, 1, 2, 3]); ax.set_yticks([0.5, 1, 2, 5, 10])
+        ax.set_xlim(0.38, 4.0); ax.set_ylim(0.38, 13.0)
         ax.set_title(cn, fontsize=10, color=CHANNEL_COLORS.get(cn, 'k'))
         ax.set_xlabel('ideal field radius (m)')
     axes[0].set_ylabel('recovered field radius (m)')
-    axes[0].legend(fontsize=7, loc='upper left', frameon=False)
-    fig.suptitle('R1  Recovered field radius against the ideal place cell',
-                 fontsize=11)
+    axes[0].legend(fontsize=7, loc='lower right', frameon=False)
+    fig.suptitle('R1  Give the model a place field of known size; measure what it '
+                 'hands back.\nThe diagonal is a perfect answer. Grey saturates at '
+                 'the arena whatever it is given.', fontsize=10.5)
     fig.tight_layout()
     fig.savefig(f'{fig_dir}/R1_radius_transfer.png', dpi=140,
                 bbox_inches='tight', facecolor='white')
@@ -551,6 +560,80 @@ def fig_controls(rec, ctl, fig_dir, best_pctl):
     plt.close(fig)
 
 
+def fig_ladder(out_dir, fig_dir, best_pctl, channels):
+    """R6 — what the field library looks like under each rule.
+
+    The case for the new width rule in the two terms that matter for a place
+    cell population: how big the fields are, and how many there are at each
+    scale. Kjelstrup found a full population at every dorsoventral level and
+    Jung found the coarse levels thinner than the fine ones, so a healthy
+    ladder spans a wide range of sizes and thins as it climbs.
+    """
+    import glob
+    def bank(cn, st):
+        f = f'{out_dir}/pipeline/{cn}/{st}/bank.csv'
+        return pd.read_csv(f) if os.path.exists(f) else None
+
+    qdir = f'quantile_p{best_pctl:g}'
+    fig, axes = plt.subplots(1, 3, figsize=(13.0, 3.7))
+
+    # (a) size distribution, pooled
+    for lab, st, col in (('current rule', 'pairwise', '#888888'),
+                         (f'new rule (p{best_pctl:g})', qdir, '#d62728')):
+        r = np.concatenate([b.radius_env_m.values for cn in channels
+                            if (b := bank(cn, st)) is not None and len(b)] or [np.array([])])
+        if len(r):
+            # as a fraction of each library, since the two differ ~10x in count
+            # and the comparison here is of shape and range, not of size
+            axes[0].hist(r, bins=np.logspace(np.log10(0.3), np.log10(5), 26),
+                         weights=np.full(len(r), 1.0 / len(r)), color=col,
+                         alpha=0.55, label=f'{lab}  (n={len(r)})')
+    axes[0].set_xscale('log')
+    axes[0].xaxis.set_major_formatter(ScalarFormatter())
+    axes[0].xaxis.set_minor_formatter(NullFormatter())
+    axes[0].set_xticks([0.5, 1, 2, 4])
+    axes[0].set_xlabel('field radius (m)')
+    axes[0].set_ylabel('fraction of library')
+    axes[0].legend(fontsize=7.5, frameon=False)
+    axes[0].set_title('(a) field size distribution, all channels pooled',
+                      fontsize=9.5)
+
+    # (b) the scale ladder for one representative channel
+    cn = 'color' if 'color' in channels else channels[0]
+    w = 0.38
+    for i, (lab, st, col) in enumerate((('current rule', 'pairwise', '#888888'),
+                                        (f'new rule (p{best_pctl:g})', qdir, '#d62728'))):
+        b = bank(cn, st)
+        if b is None or not len(b):
+            continue
+        vc = b.scale_band.value_counts().sort_index()
+        axes[1].bar(vc.index + (i - 0.5) * w, vc.values, width=w, color=col,
+                    alpha=0.85, label=lab)
+    axes[1].set_yscale('log')
+    axes[1].set_xlabel('scale band  (coarser to the right)')
+    axes[1].set_ylabel('fields in band')
+    axes[1].legend(fontsize=7.5, frameon=False)
+    axes[1].set_title(f'(b) the scale ladder — {cn}', fontsize=9.5)
+
+    # (c) how many fields each channel yields
+    xs = np.arange(len(channels))
+    for i, (lab, st, col) in enumerate((('current rule', 'pairwise', '#888888'),
+                                        (f'new rule (p{best_pctl:g})', qdir, '#d62728'))):
+        vals = [len(b) if (b := bank(cn_, st)) is not None else 0 for cn_ in channels]
+        axes[2].bar(xs + (i - 0.5) * w, vals, width=w, color=col, alpha=0.85, label=lab)
+    axes[2].set_xticks(xs); axes[2].set_xticklabels(channels, rotation=30, ha='right')
+    axes[2].set_ylabel('fields in library')
+    axes[2].set_title('(c) library size by channel', fontsize=9.5)
+    for ax in axes:
+        ax.grid(alpha=0.25, lw=0.5, axis='y')
+    fig.suptitle('R6  The field library under each rule: smaller, more numerous '
+                 'fields spanning a wider range of scales', fontsize=11)
+    fig.tight_layout()
+    fig.savefig(f'{fig_dir}/R6_library.png', dpi=140, bbox_inches='tight',
+                facecolor='white')
+    plt.close(fig)
+
+
 def fig_pipeline(pipe, fig_dir, best_pctl):
     """R6 — do the published results survive the rule change?"""
     if pipe is None or not len(pipe):
@@ -692,6 +775,33 @@ class FieldRecoveryReport(ExperimentReport):
 
 # --------------------------------------------------------------------- main
 
+
+def select_pctl(rec, ctl, convex, tol=0.05):
+    """Choose EXTENT_PCTL: best discrimination, ties broken on reconstruction.
+
+    Youden's J -- ideal place cells admitted minus non-fields admitted -- is
+    the primary criterion, but it saturates: several settings sit within noise
+    of the best. Taking a bare argmax lets a 0.02 difference in J outweigh a
+    large difference in how accurately the field is reconstructed. So among
+    settings whose J is within `tol` of the maximum, take the one with the
+    highest recovery IoU.
+    """
+    adm = lambda d: (d.pass_size & d.pass_contiguity)
+    rq = rec[rec['mode'] == 'quantile']
+    cq = ctl[(ctl['mode'] == 'quantile') & ctl.kind.isin(convex)]
+    if not len(rq):
+        return None, None
+    tpr = adm(rq).groupby(rq.extent_pctl).mean()
+    fpr = (adm(cq).groupby(cq.extent_pctl).mean().reindex(tpr.index).fillna(0.0)
+           if len(cq) else 0.0)
+    J = tpr - fpr
+    iou = rq.groupby('extent_pctl').iou.median()
+    near = J[J >= J.max() - tol].index
+    best = float(iou.reindex(near).idxmax())
+    return best, pd.DataFrame({'admitted': tpr, 'false_pos': fpr, 'J': J,
+                               'iou': iou.reindex(J.index)})
+
+
 def parse_args():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -705,6 +815,8 @@ def parse_args():
     ap.add_argument('--no-gpu', action='store_true')
     ap.add_argument('--no-email', action='store_true')
     ap.add_argument('--no-plots', action='store_true')
+    ap.add_argument('--figures-only', action='store_true',
+                    help='replot from a saved metrics.csv; runs no tests')
     return ap.parse_args()
 
 
@@ -722,6 +834,32 @@ def main():
     fig_dir = f'{HERE}/figures/field_recovery/{env_name}'
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
+
+    if args.figures_only:
+        metrics = pd.read_csv(f'{out_dir}/metrics.csv').rename(columns={
+            'arm': 'test', 'true_r_m': 'ideal_r_m', 'true_area_m2': 'ideal_area_m2',
+            'true_r_eq_m': 'ideal_r_eq_m', 'centre_err_m': 'center_err_m'})
+        cfg = json.load(open(f'{out_dir}/config.json'))
+        rec = metrics[metrics.test == 'recovery']
+        ctl = metrics[metrics.test == 'control']
+        pipe = metrics[metrics.test == 'pipeline']
+        CONVEX = ('scattered', 'shuffled', 'oversized')
+        best_pctl, table = select_pctl(rec, ctl, CONVEX)
+        print(table.round(3).to_string())
+        act = cfg.get('act_thresh', 0.5)
+        print(f'replotting from {out_dir}/metrics.csv  '
+              f'({len(metrics)} rows), EXTENT_PCTL = {best_pctl:g}')
+        fig_transfer(rec, fig_dir, R.build_env(
+            np.zeros((2, 2)), None) if False else dict(
+            env_area=float(cfg.get('env_area', 314.159))), best_pctl)
+        fig_iou(rec, ctl, fig_dir, best_pctl)
+        fig_controls(rec, ctl, fig_dir, best_pctl)
+        fig_pctl_sweep(rec, ctl, pipe, fig_dir, act)
+        fig_ladder(out_dir, fig_dir, best_pctl,
+                   [c for c in channel_names
+                    if os.path.exists(f'{out_dir}/pipeline/{c}')])
+        print(f'Figures -> {fig_dir}')
+        return
 
     print('=' * 72)
     print(f'Field recovery | env={env_name}')
@@ -786,17 +924,27 @@ def main():
     rec = metrics[metrics.test == 'recovery'] if len(metrics) else metrics
     ctl = metrics[metrics.test == 'control'] if len(metrics) else metrics
 
+    # `split` and `ring` are non-convex. A cluster summarised by one centroid
+    # cannot represent either -- the centroid of a two-lobed cluster sits
+    # between the lobes, so the field fills the gap -- and no choice of
+    # EXTENT_PCTL repairs that: they leak at every setting, 48% even at p90.
+    # They measure the single-centroid representation, not the width rule, so
+    # scoring the width rule on them would pick a value for the wrong reason.
+    # Selection therefore uses the convex controls, which the width rule is
+    # genuinely responsible for.
+    CONVEX_CONTROLS = ('scattered', 'shuffled', 'oversized')
+
     def admit_rate(df):
         return (df.pass_size & df.pass_contiguity).groupby(df.extent_pctl).mean()
 
     best_pctl, jj = pctls[0], None
     if len(rec) and (rec['mode'] == 'quantile').any():
+        best_pctl, _tbl = select_pctl(rec, ctl, CONVEX_CONTROLS)
         tpr = admit_rate(rec[rec['mode'] == 'quantile'])
-        fpr = (admit_rate(ctl[ctl['mode'] == 'quantile'])
-               if len(ctl) and (ctl['mode'] == 'quantile').any() else 0.0)
+        cq = ctl[(ctl['mode'] == 'quantile') & ctl.kind.isin(CONVEX_CONTROLS)]
+        fpr = admit_rate(cq) if len(cq) else 0.0
         jj = tpr - (fpr.reindex(tpr.index).fillna(0.0)
                     if hasattr(fpr, 'reindex') else fpr)
-        best_pctl = float(jj.idxmax())
         iou_pick = float(rec[rec['mode'] == 'quantile']
                          .groupby('extent_pctl').iou.median().idxmax())
         print(f'\n  EXTENT_PCTL   admitted: fields / non-fields    J')
@@ -823,6 +971,9 @@ def main():
             fig_controls(rec, ctl, fig_dir, best_pctl)
         fig_pctl_sweep(rec, ctl, pipe, fig_dir, C['ACT_THRESH'])
         fig_pipeline(pipe, fig_dir, best_pctl)
+        fig_ladder(out_dir, fig_dir, best_pctl,
+                   [c for c in channel_names
+                    if os.path.exists(f'{out_dir}/pipeline/{c}')])
         if ideal_maps:
             fig_ideal_maps(ideal_maps, fig_dir, env, best_pctl)
         print(f'Figures -> {fig_dir}')
