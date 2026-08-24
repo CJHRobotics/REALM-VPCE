@@ -14,7 +14,8 @@
 # schedule far faster than gpu ones. If this passes, the render path works
 # and the remaining work is all repo-side.
 #
-#   sbatch slurm/webots_smoke.sh /path/to/webots_r2025a.sif
+#   sbatch slurm/webots_smoke.sh                     # uses the default below
+#   sbatch slurm/webots_smoke.sh /path/to/other.sif   # or override it
 #
 # Escalation if it fails: read the .err first. A Qt/xcb "could not connect
 # to display" means Xvfb never came up; a GLX/GL version error means
@@ -22,7 +23,12 @@
 
 set -euo pipefail
 
-SIF="${1:?usage: sbatch slurm/webots_smoke.sh <path-to-webots.sif>}"
+SIF="${1:-/home/c/chamilton4/REALM-VPCE/webots_r2025a.sif}"
+if [[ ! -f "$SIF" ]]; then
+    echo "ERROR: image not found: $SIF" >&2
+    exit 1
+fi
+echo "=== image: $SIF ==="
 SINGULARITY=/apps/singularity/bin/singularity
 
 echo "=== node: $(hostname)  cpus: ${SLURM_CPUS_PER_TASK:-?} ==="
