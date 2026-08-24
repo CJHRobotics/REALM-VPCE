@@ -41,6 +41,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Registries require lowercase repository names, and the owner here
+      # is `CJHRobotics`. Lowercase it rather than hardcoding the org, so
+      # a fork under a different owner still builds.
+      - name: Lowercase the image owner
+        id: owner
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       # provenance/sbom are disabled on purpose: they turn the result into
       # a multi-arch OCI index, and singularity 3.6.3 (2020) chokes on
       # those. This must stay a plain single-arch manifest.
@@ -52,4 +59,4 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          tags: ghcr.io/${{ github.repository_owner }}/realm-webots:${{ inputs.tag }}
+          tags: ghcr.io/${{ steps.owner.outputs.value }}/realm-webots:${{ inputs.tag }}
