@@ -29,13 +29,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Xvfb supplies the X display Webots' Qt front end expects; the mesa
 # packages supply the llvmpipe software rasterizer behind it.
+# Webots R2025a ships Qt 6.5+, which made xcb-cursor a HARD requirement of
+# the xcb platform plugin -- without libxcb-cursor0 the plugin refuses to
+# load and webots aborts before it ever reaches the display. The rest of
+# the libxcb-* set are the plugin's long-standing dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb xauth \
         libgl1-mesa-dri libgl1-mesa-glx libglu1-mesa mesa-utils \
-        libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+        libxkbcommon-x11-0 \
+        libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xkb1 \
+        libxcb-shape0 libxcb-sync1 libxcb-xfixes0 libxcb-glx0 libxcb-util1 \
         libdbus-1-3 libnss3 libasound2 \
+        locales \
     && rm -rf /var/lib/apt/lists/*
+
+# Qt warns and falls back when the locale is plain "C"; set a UTF-8 one so
+# the logs stay clean and string handling is predictable.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 # Webots R2025a. `apt-get install ./file.deb` resolves the .deb's own
 # dependency tree, which is long and version-specific -- do not replace
