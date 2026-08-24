@@ -34,8 +34,20 @@ SINGULARITY=/apps/singularity/bin/singularity
 echo "=== node: $(hostname)  cpus: ${SLURM_CPUS_PER_TASK:-?} ==="
 
 # --- 1. Does the image run, and is Webots the version we pinned? ---
+# Even `--version` initialises Qt, which needs a display -- so this runs
+# under xvfb-run like everything else. `|| true` keeps a failure here from
+# aborting the whole script under `set -e`, since stages 2 and 3 localise
+# the cause far better than this one does.
 echo "=== [1/3] webots --version ==="
-"$SINGULARITY" exec "$SIF" webots --version
+"$SINGULARITY" exec "$SIF" xvfb-run -a webots --version || \
+    echo "WARN: webots --version failed; see stages 2-3 for why"
+
+# Which libraries made it into the image? A missing Qt xcb dependency is
+# the single most likely cause of a startup abort, and this names it
+# instead of leaving you to infer it from a Qt error.
+echo "=== [1b/3] Qt xcb deps present in image ==="
+"$SINGULARITY" exec "$SIF" bash -c \
+    'dpkg -l | grep -E "libxcb-cursor0|libxcb-xinerama0|libxkbcommon-x11" | awk "{print \$2, \$3}"' || true
 
 # --- 2. Is there a working software GL stack behind Xvfb? ---
 # glxinfo failing here localises the problem to rendering rather than to
