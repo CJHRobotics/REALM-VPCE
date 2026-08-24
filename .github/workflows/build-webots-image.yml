@@ -1,0 +1,55 @@
+# Builds the Webots container on GitHub's x86_64 runners and pushes it to
+# GHCR, where GAIVI can `singularity pull` it.
+#
+# This exists because GAIVI's own container build service
+# (eregion.cse.usf.edu) is unreachable, and singularity 3.6.3 there cannot
+# build unprivileged. Pulling a prebuilt image needs no privileges, so the
+# build just has to happen somewhere else -- and it has to happen on
+# x86_64, which rules out building locally on an Apple Silicon Mac.
+#
+# Manual trigger only; this image changes rarely and a push-triggered
+# rebuild would waste minutes on every unrelated commit.
+#
+# After the first successful run, make the package public in the repo's
+# Packages settings -- otherwise `singularity pull` on GAIVI needs
+# credentials, which is a needless complication for an image with nothing
+# secret in it.
+
+name: build-webots-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag'
+        required: true
+        default: 'r2025a'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # provenance/sbom are disabled on purpose: they turn the result into
+      # a multi-arch OCI index, and singularity 3.6.3 (2020) chokes on
+      # those. This must stay a plain single-arch manifest.
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./container
+          file: ./container/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ghcr.io/${{ github.repository_owner }}/realm-webots:${{ inputs.tag }}
