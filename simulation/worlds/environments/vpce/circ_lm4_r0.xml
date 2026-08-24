@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<!-- Circular arena.  XML `radius` = inner (walkable) radius; the wall
+     material extends outward by `thickness`. Walkable interior is a disc
+     of radius 10 m. Landmarks sit on the inner face (r = 10) and are
+     0.75 m x 0.75 m. subdivision needs to satisfy Webots' SolidPipe
+     constraint  thickness > 2*pi*outer_radius / subdivision. With
+     outer_radius = 10.1 and thickness = 0.1 that means subdivision > 635.
+     4 landmarks evenly spaced around the wall, offset by half a spacing
+     so the layout matches the circ_lm8_r0 convention. -->
+
+<world>
+	<circular_wall radius="10.0" height="0.5" thickness="0.5" subdivision="128"/>
+
+    <landmark type="panel" x=" 7.0711" y=" 7.0711" theta="-2.356" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_0.png"
+              red="1.00" green="0.00" blue="0.00"/>
+    <landmark type="panel" x="-7.0711" y=" 7.0711" theta="-0.785" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_1.png"
+              red="0.00" green="1.00" blue="0.00"/>
+    <landmark type="panel" x="-7.0711" y="-7.0711" theta=" 0.785" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_2.png"
+              red="0.00" green="0.00" blue="1.00"/>
+    <landmark type="panel" x=" 7.0711" y="-7.0711" theta=" 2.356" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_3.png"
+              red="1.00" green="1.00" blue="0.00"/>
+
+    <train_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+</world>

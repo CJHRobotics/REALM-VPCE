@@ -14,11 +14,16 @@ from realm_tools.image_lib.image_feature_lib import extract_feature_dict
 
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
-maze_files = ['circ_lm8_r0']
+# Landmark-count sweep. The arena is identical in all four worlds (disc of
+# radius 10); only the number of panels on the wall changes, so they all
+# share the circ_lm8_r0 position grid. circ_lm8_r0 is already collected --
+# add it back to this list to regenerate it.
+maze_files = ['circ_lm4_r0', 'circ_lm6_r0', 'circ_lm10_r0']
 
 # Positions file per maze. Falls back to this literal name if the per-maze
-# CSV is missing (matches the older circular-arena convention).
-POSITIONS_FILE_FALLBACK = 'circ_lm8_positions.csv'
+# CSV is missing (matches the older circular-arena convention). The
+# circ_lm* worlds have no per-maze CSV of their own and land here.
+POSITIONS_FILE_FALLBACK = 'circ_lm8_r0_positions.csv'
 
 
 
@@ -67,17 +72,26 @@ def flush_batch(images, meta, dataset):
         dataset.add_observation(**kwargs)
 
 
+# True once an environment has been loaded into Webots. Tracked separately
+# from the loop index because a maze can be skipped as already-collected,
+# and reset_environment() is only valid after something has been loaded.
+env_loaded = False
+
 for maze_index, maze in enumerate(maze_files):
     print(f"\n{'='*50}")
     print(f"Collecting data: {maze}  ({maze_index + 1}/{len(maze_files)})")
     print(f"{'='*50}")
 
+    out_path = 'data/vpce/collect_data/' + maze
+    if os.path.exists(out_path + '.h5'):
+        print(f"Already collected, skipping: {out_path}.h5")
+        continue
+
     # Load (or reload) the environment for this maze
-    if maze_index == 0:
-        robot.load_environment(maze_file_dir + maze + '.xml', floor_texture='carpet')
-    else:
+    if env_loaded:
         robot.reset_environment()
-        robot.load_environment(maze_file_dir + maze + '.xml', floor_texture='carpet')
+    robot.load_environment(maze_file_dir + maze + '.xml', floor_texture='carpet')
+    env_loaded = True
 
     positions_path = maze_file_dir + 'positions/' + maze + '_positions.csv'
     if not os.path.exists(positions_path):
@@ -113,7 +127,7 @@ for maze_index, maze in enumerate(maze_files):
     if batch_images:
         flush_batch(batch_images, batch_meta, dataset)
 
-    dataset.save_dataset('data/vpce/collect_data/' + maze)
-    print(f"Saved: data/vpce/collect_data/{maze}")
+    dataset.save_dataset(out_path)
+    print(f"Saved: {out_path}")
 
 robot.experiment_supervisor.simulationReset()
