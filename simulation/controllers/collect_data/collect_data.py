@@ -14,11 +14,13 @@ from realm_tools.image_lib.image_feature_lib import extract_feature_dict
 
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
-# Landmark-count sweep. The arena is identical in all four worlds (disc of
-# radius 10); only the number of panels on the wall changes, so they all
-# share the circ_lm8_r0 position grid. circ_lm8_r0 is already collected --
-# add it back to this list to regenerate it.
-maze_files = ['circ_lm4_r0', 'circ_lm6_r0', 'circ_lm10_r0']
+# Geometry sweep. Area is held at ~314 m^2 and landmark count at 8, so
+# shape is the only thing that varies: disc (aspect 1.0), rectangle
+# (1.27:1), corridor (10:1). Each has its own position grid.
+#
+# The landmark-count sweep -- circ_lm4/6/8/10_r0, all on the circ_lm8_r0
+# grid -- is already collected. Add those names back to regenerate them.
+maze_files = ['rect_lm8_r0', 'corr_lm8_r0']
 
 # Positions file per maze. Falls back to this literal name if the per-maze
 # CSV is missing (matches the older circular-arena convention). The

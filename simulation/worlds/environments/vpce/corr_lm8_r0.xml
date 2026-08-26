@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<!-- Corridor 56 m x 5.6 m: same area as circ_lm8_r0 to within 0.2%, at aspect 10:1. The elongated extreme of the geometry sweep. -->
+<!-- x in [-28, 28] (long axis); y in [-2.8, 2.8] (short axis).  Area 313.60 m^2. -->
+<!-- Landmark theta = angle of the inward-facing surface normal. -->
+<!-- 8 landmarks at equal arc length around the perimeter, offset by half a spacing. -->
+
+<world>
+    <wall x1=" 28.0000" y1="-2.8000" x2=" 28.0000" y2=" 2.8000" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 28.0000" y1=" 2.8000" x2="-28.0000" y2=" 2.8000" type="boundary" height="0.5" width="0.012"/>
+    <wall x1="-28.0000" y1=" 2.8000" x2="-28.0000" y2="-2.8000" type="boundary" height="0.5" width="0.012"/>
+    <wall x1="-28.0000" y1="-2.8000" x2=" 28.0000" y2="-2.8000" type="boundary" height="0.5" width="0.012"/>
+
+    <landmark type="panel" x=" 23.1000" y=" 2.8000" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_0.png"
+              red="1.00" green="0.00" blue="0.00"/>
+    <landmark type="panel" x=" 7.7000" y=" 2.8000" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_1.png"
+              red="0.00" green="1.00" blue="0.00"/>
+    <landmark type="panel" x="-7.7000" y=" 2.8000" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_2.png"
+              red="0.00" green="0.00" blue="1.00"/>
+    <landmark type="panel" x="-23.1000" y=" 2.8000" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_3.png"
+              red="1.00" green="1.00" blue="0.00"/>
+    <landmark type="panel" x="-23.1000" y="-2.8000" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_4.png"
+              red="0.00" green="1.00" blue="1.00"/>
+    <landmark type="panel" x="-7.7000" y="-2.8000" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_5.png"
+              red="1.00" green="0.50" blue="0.00"/>
+    <landmark type="panel" x=" 7.7000" y="-2.8000" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_6.png"
+              red="0.50" green="0.00" blue="0.50"/>
+    <landmark type="panel" x=" 23.1000" y="-2.8000" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_7.png"
+              red="0.00" green="0.50" blue="0.50"/>
+
+    <train_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+</world>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<!-- Rectangular arena 20 m x 15.708 m: same area as circ_lm8_r0 (314.16 m^2) and the same long dimension (20 m = the disc diameter), so shape is the only difference. -->
+<!-- x in [-10, 10] (long axis); y in [-7.85398, 7.85398] (short axis).  Area 314.16 m^2. -->
+<!-- Landmark theta = angle of the inward-facing surface normal. -->
+<!-- 8 landmarks at equal arc length around the perimeter, offset by half a spacing. -->
+
+<world>
+    <wall x1=" 10.0000" y1="-7.8540" x2=" 10.0000" y2=" 7.8540" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 10.0000" y1=" 7.8540" x2="-10.0000" y2=" 7.8540" type="boundary" height="0.5" width="0.012"/>
+    <wall x1="-10.0000" y1=" 7.8540" x2="-10.0000" y2="-7.8540" type="boundary" height="0.5" width="0.012"/>
+    <wall x1="-10.0000" y1="-7.8540" x2=" 10.0000" y2="-7.8540" type="boundary" height="0.5" width="0.012"/>
+
+    <landmark type="panel" x=" 10.0000" y=" 4.4635" theta=" 3.141593" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_0.png"
+              red="1.00" green="0.00" blue="0.00"/>
+    <landmark type="panel" x=" 4.4635" y=" 7.8540" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_1.png"
+              red="0.00" green="1.00" blue="0.00"/>
+    <landmark type="panel" x="-4.4635" y=" 7.8540" theta="-1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_2.png"
+              red="0.00" green="0.00" blue="1.00"/>
+    <landmark type="panel" x="-10.0000" y=" 4.4635" theta=" 0.000000" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_3.png"
+              red="1.00" green="1.00" blue="0.00"/>
+    <landmark type="panel" x="-10.0000" y="-4.4635" theta=" 0.000000" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_4.png"
+              red="0.00" green="1.00" blue="1.00"/>
+    <landmark type="panel" x="-4.4635" y="-7.8540" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_5.png"
+              red="1.00" green="0.50" blue="0.00"/>
+    <landmark type="panel" x=" 4.4635" y="-7.8540" theta=" 1.570796" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_6.png"
+              red="0.50" green="0.00" blue="0.50"/>
+    <landmark type="panel" x=" 10.0000" y="-4.4635" theta=" 3.141593" height="0.75" width="0.75"
+              texture="../protos/world_objects/textures/flags/flag_7.png"
+              red="0.00" green="0.50" blue="0.50"/>
+
+    <train_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+</world>
