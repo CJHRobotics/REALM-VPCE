@@ -219,11 +219,65 @@ def build_env(xy, xml_tree_root=None):
         env['long_dim'] = 2 * env['env_R']
     else:
         env['is_circular'] = False
-        env['x_min'], env['x_max'] = float(xy[:, 0].min()), float(xy[:, 0].max())
-        env['y_min'], env['y_max'] = float(xy[:, 1].min()), float(xy[:, 1].max())
+        # Prefer the declared boundary walls over the extent of the sampled
+        # positions. The two differ by the collection grid's keep-out margin
+        # (0.2 m), which understates a rectangular arena's area by 5-8% and
+        # puts every wall_distance 0.2 m short. The circular branch above
+        # already takes its radius from the XML rather than from the data, so
+        # reading the walls here is what makes the two branches consistent.
+        #
+        # Assumes an axis-aligned rectangular boundary: for any other wall
+        # layout this is the bounding box, which overestimates the area.
+        bw = [w for w in (xml_tree_root.findall('wall')
+                          if xml_tree_root is not None else [])
+              if w.get('type') == 'boundary']
+        if bw:
+            xs = [float(w.get(k)) for w in bw for k in ('x1', 'x2')]
+            ys = [float(w.get(k)) for w in bw for k in ('y1', 'y2')]
+            env['x_min'], env['x_max'] = min(xs), max(xs)
+            env['y_min'], env['y_max'] = min(ys), max(ys)
+            env['from_walls'] = True
+        else:
+            env['x_min'], env['x_max'] = float(xy[:, 0].min()), float(xy[:, 0].max())
+            env['y_min'], env['y_max'] = float(xy[:, 1].min()), float(xy[:, 1].max())
+            env['from_walls'] = False
         env['env_area'] = (env['x_max'] - env['x_min']) * (env['y_max'] - env['y_min'])
         env['long_dim'] = max(env['x_max'] - env['x_min'], env['y_max'] - env['y_min'])
     return env
+
+
+def plant_sites_by_wall(xy, env, wall_dists, n_sites, rng, tol=0.15):
+    """Ideal-place-cell centers at chosen distances from the nearest wall.
+
+    Geometry-agnostic, unlike planting on rings of a nominal arena radius:
+    it selects from the sampled positions by their actual `wall_distance`,
+    so it behaves the same in a disc, a rectangle and a corridor. Sites on
+    one contour are chosen by farthest-point sampling, which spreads them
+    over whatever shape that contour happens to be -- a circle in the disc,
+    a rounded rectangle in the room, two long lines in the corridor.
+
+    Target distances with too few candidate positions are skipped, so an
+    environment simply contributes fewer contours rather than silently
+    planting cells outside its own floor. A corridor 5.6 m wide has no
+    position 4 m from a wall, and should report none.
+
+    Returns [(x, y, target_w, actual_w), ...].
+    """
+    d = wall_distance(xy[:, 0], xy[:, 1], env)
+    sites = []
+    for w in wall_dists:
+        cand = np.flatnonzero(np.abs(d - w) <= tol)
+        if len(cand) < n_sites:
+            continue
+        P = xy[cand]
+        picked = [int(rng.integers(len(cand)))]
+        while len(picked) < n_sites:
+            far = ((P[:, None, :] - P[picked][None]) ** 2).sum(-1).min(axis=1)
+            picked.append(int(np.argmax(far)))
+        for i in picked:
+            j = cand[i]
+            sites.append((float(xy[j, 0]), float(xy[j, 1]), float(w), float(d[j])))
+    return sites
 
 
 def wall_distance(cx, cy, env):
