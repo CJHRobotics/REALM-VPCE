@@ -148,7 +148,11 @@ def build_grid(name, hx, hy):
     xs = np.round(np.arange(-nx, nx + 1) * GRID_STEP, 4)
     ys = np.round(np.arange(-ny, ny + 1) * GRID_STEP, 4)
     X, Y = np.meshgrid(xs, ys, indexing='ij')
-    path = os.path.join(HERE, 'positions', name + '_positions.csv')
+    # positions/ is gitignored in its entirety, so a fresh clone does not
+    # have the directory at all -- create it rather than assuming it.
+    out_dir = os.path.join(HERE, 'positions')
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, name + '_positions.csv')
     with open(path, 'w') as f:
         f.write('x,y,theta\n')
         for x, y in zip(X.ravel(), Y.ravel()):
