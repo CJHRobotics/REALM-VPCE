@@ -116,6 +116,82 @@ gpu_args() {
 }
 
 gl_info() {
+    # One glxinfo call, not two. The previous version ran it twice on the same
+    # display number, and `xvfb-run -n` fails outright if that display is
+    # still held -- unlike `-a`, which probes. The second call therefore
+    # returned nothing and the guard reported a broken GL stack on a machine
+    # whose GL was fine.
+    local out r
+    echo "--- GL renderer actually in use ---"
+    out="$("$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
+        "$SIF" xvfb-run -n "$(( 500 + (${SLURM_JOB_ID:-0} % 400) ))" \
+        -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" glxinfo -B 2>&1 || true)"
+    echo "$out" | grep -Ei 'vendor|renderer|version|error' | head -8 \
+        || echo "  (no glxinfo output)"
+
+    [[ "${USE_GPU:-0}" == "1" ]] || return 0
+
+    "$SINGULARITY" exec "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" "$SIF" \
+        nvidia-smi --query-gpu=name,driver_version --format=csv,noheader \
+        2>&1 | head -3 || echo "  (no nvidia-smi in image)"
+
+    r="$(echo "$out" | grep -i 'OpenGL renderer' || true)"
+    if [[ -z "$r" ]]; then
+        # No renderer at all means the GL stack is broken, not merely slow.
+        # Webots dies later with "could not initialize the rendering system",
+        # which reads as a driver problem rather than the configuration fault
+        # it usually is.
+        echo "ERROR: glxinfo returned no renderer -- the GL stack is broken." >&2
+        echo "       XVFB_SCREEN=${XVFB_SCREEN:-unset}; see the X error above." >&2
+        return 1
+    fi
+    if [[ "$r" == *llvmpipe* || "$r" == *softpipe* || "$r" == *swrast* ]]; then
+        echo "ERROR: USE_GPU=1 but GL fell back to software: $r" >&2
+        echo "       Set USE_GPU=0 to run on llvmpipe deliberately." >&2
+        return 1
+    fi
+    echo "  hardware GL confirmed:$r"
+    return 0
+}
+
+
+write_runtime_ini() {
+    # Webots launches the controller itself and takes the interpreter from
+    # here, so a stale path fails looking like a Webots fault. Rewritten every
+    # run; the file is gitignored and machine specific.
+    local d
+    for d in simulation/controllers/*/; do
+        printf '[python]\nCOMMAND = %s\n' "$PYTHON_BIN" > "$d/runtime.ini"
+    done
+    echo "runtime.ini -> $PYTHON_BIN"
+}
+
+
+# --- optional GPU passthrough --------------------------------------------
+# `--nv` binds the host NVIDIA driver into the image. On its own that is not
+# enough here for two reasons, and both are worth knowing before reading the
+# result:
+#
+#   1. The image pins LIBGL_ALWAYS_SOFTWARE=1 and GALLIUM_DRIVER=llvmpipe at
+#      build time, so GL stays software unless those are overridden.
+#   2. Webots renders through GLX, and GLX acceleration comes from the X
+#      server. Xvfb is a software X server with no NVIDIA GLX extension, so
+#      the vendor dispatch is expected to land back on Mesa regardless.
+#
+# The honest expectation is therefore "no change, or a GL error". gl_info()
+# prints the renderer actually in use, which settles it in one line rather
+# than by inference from a timing.
+gpu_args() {
+    GPU_ARGS=()
+    [[ "${USE_GPU:-0}" == "1" ]] || return 0
+    GPU_ARGS=(--nv
+              --env LIBGL_ALWAYS_SOFTWARE=0
+              --env GALLIUM_DRIVER=
+              --env __GLX_VENDOR_LIBRARY_NAME=nvidia)
+    return 0
+}
+
+gl_info() {
     echo "--- GL renderer actually in use ---"
     "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
         "$SIF" xvfb-run -n "$(( 500 + (${SLURM_JOB_ID:-0} % 400) ))" \
