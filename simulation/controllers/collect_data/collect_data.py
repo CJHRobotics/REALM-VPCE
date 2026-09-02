@@ -16,9 +16,10 @@ if REPO not in sys.path:
 print(f"repo root: {REPO}", flush=True)
 
 import pandas as pd
+import math
+import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from tqdm import tqdm
 
 from realm_tools.robot_lib.my_robot import MyRobot
 from realm_tools.experiment_lib.loggers.visual_data_set import PovDataset
@@ -78,6 +79,65 @@ _extractor = partial(extract_feature_dict,
 robot = MyRobot(enable_cnn_features=False, cnn_extractor_model='mobilenetv3')
 
 
+PROGRESS_EVERY_S = 30.0
+PROGRESS_DIR = 'data_cache/collect_progress'
+
+
+class Progress:
+    """Plain periodic progress, written for a log file rather than a terminal.
+
+    tqdm redraws with carriage returns, which in a SLURM log collapses into
+    one unreadable line. This prints a whole line on a time interval instead,
+    so `cat` and `tail -f` both read naturally, and mirrors the latest line to
+    a single-line status file so `cat` of that shows current state without
+    scrolling through a run's worth of history.
+
+    Time-gated rather than count-gated: the rate varies by two orders of
+    magnitude between the GPU and software paths, so any fixed count is
+    either far too chatty or far too quiet on one of them.
+    """
+
+    def __init__(self, total, label, every=PROGRESS_EVERY_S):
+        self.total, self.label, self.every = total, label, every
+        self.t0 = self.last = time.time()
+        self.n = 0
+        os.makedirs(PROGRESS_DIR, exist_ok=True)
+        self.path = os.path.join(PROGRESS_DIR, f'{label}.txt')
+        self._emit(force=True)
+
+    def update(self, k=1):
+        self.n += k
+        if time.time() - self.last >= self.every:
+            self._emit()
+
+    def _emit(self, force=False):
+        now = time.time()
+        self.last = now
+        el = now - self.t0
+        rate = self.n / el if el > 0 and self.n else 0.0
+        eta = (self.total - self.n) / rate if rate > 0 else float('nan')
+        pct = 100.0 * self.n / max(self.total, 1)
+        line = (f'[{self.label}] {self.n:,}/{self.total:,} ({pct:5.1f}%)  '
+                f'elapsed {self._hms(el)}  rate {rate:6.2f} pos/s  '
+                f'eta {self._hms(eta)}')
+        print(line, flush=True)
+        try:
+            with open(self.path, 'w') as f:
+                f.write(line + '\n')
+        except OSError:
+            pass                       # progress must never break collection
+
+    def done(self):
+        self._emit(force=True)
+
+    @staticmethod
+    def _hms(sec):
+        if not math.isfinite(sec):
+            return '--:--:--'
+        sec = int(sec)
+        return f'{sec // 3600:d}:{(sec % 3600) // 60:02d}:{sec % 60:02d}'
+
+
 def flush_batch(images, meta, dataset):
     """Extract features for all images in the batch in parallel and log each as an observation.
 
@@ -130,26 +190,27 @@ for maze_index, maze in enumerate(maze_files):
     batch_images = []
     batch_meta   = []  # (x, y, theta, landmark_mask, landmark_azimuths) per image, parallel to batch_images
 
-    with tqdm(total=len(positions), desc=maze) as pbar:
-        for _, pos in positions.iterrows():
-            robot.teleport_robot(x=pos.x, y=pos.y, theta=pos.theta)
-            images, landmark_masks, landmark_azimuths, lidar_scan = robot.capture_pov_images(thetas)
-            batch_images.extend(images)
-            # Attach the lidar scan only to the first (north-facing) heading
-            # row per position; every other row carries None so the lidar
-            # field ends up with exactly one entry per location.
-            batch_meta.extend(
-                (pos.x, pos.y, theta, mask, azimuths,
-                 lidar_scan if i == 0 else None)
-                for i, (theta, mask, azimuths) in enumerate(
-                    zip(thetas, landmark_masks, landmark_azimuths))
-            )
+    pbar = Progress(len(positions), maze)
+    for _, pos in positions.iterrows():
+        robot.teleport_robot(x=pos.x, y=pos.y, theta=pos.theta)
+        images, landmark_masks, landmark_azimuths, lidar_scan = robot.capture_pov_images(thetas)
+        batch_images.extend(images)
+        # Attach the lidar scan only to the first (north-facing) heading
+        # row per position; every other row carries None so the lidar
+        # field ends up with exactly one entry per location.
+        batch_meta.extend(
+            (pos.x, pos.y, theta, mask, azimuths,
+             lidar_scan if i == 0 else None)
+            for i, (theta, mask, azimuths) in enumerate(
+                zip(thetas, landmark_masks, landmark_azimuths))
+        )
 
-            if len(batch_meta) >= BATCH_SIZE * len(thetas):
-                flush_batch(batch_images, batch_meta, dataset)
-                batch_images, batch_meta = [], []
+        if len(batch_meta) >= BATCH_SIZE * len(thetas):
+            flush_batch(batch_images, batch_meta, dataset)
+            batch_images, batch_meta = [], []
 
-            pbar.update(1)
+        pbar.update(1)
+    pbar.done()
 
     if batch_images:
         flush_batch(batch_images, batch_meta, dataset)
