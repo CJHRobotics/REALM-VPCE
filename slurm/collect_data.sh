@@ -102,8 +102,24 @@ write_runtime_ini
 # not the camera, is the bulk of every step under llvmpipe. Shrinking the
 # virtual screen costs nothing and is one of two ways to find out; passing
 # --no-rendering to Webots is the other.
-XVFB_SCREEN="${XVFB_SCREEN:-320x240x24}"
+# 1280x1024, not the 320x240 that helped llvmpipe: at that size NVIDIA GLX
+# fails outright ("BadValue (integer parameter out of range)" from glxinfo,
+# then "Webots could not initialize the rendering system"). The small screen
+# was a software-rendering optimisation and is obsolete on the GPU path --
+# set XVFB_SCREEN explicitly if running with USE_GPU=0.
+XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
 echo "xvfb screen: $XVFB_SCREEN"
+# Webots binds a control port, default 1234, and several of these land on the
+# same node. It auto-increments on a clash, but that is a race between
+# concurrent starts rather than a fix, so give each job its own.
+WEBOTS_PORT=$(( 10000 + (${SLURM_JOB_ID:-0} % 20000) ))
+# `xvfb-run -a` probes for a free display and races when several jobs start
+# together on one node: two can pick the same number, and the loser fails
+# with "BadValue (integer parameter out of range)" from GLX, which reads as a
+# driver fault rather than a collision. Job ids are unique, so derive the
+# display from one instead of probing.
+XVFB_DISPLAY=$(( 100 + (${SLURM_JOB_ID:-0} % 400) ))
+echo "webots port: $WEBOTS_PORT   xvfb display: :$XVFB_DISPLAY"
 export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1
 echo "llvmpipe threads: $LP_NUM_THREADS (of ${SLURM_CPUS_PER_TASK:-?} allocated CPUs)"
@@ -119,7 +135,7 @@ set +e
 timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
 "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" --env REALM_MAZES="${REALM_MAZES:-}" --env LP_NUM_THREADS="$LP_NUM_THREADS" \
     "$SIF" \
-    xvfb-run -a -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
+    xvfb-run -n "$XVFB_DISPLAY" -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize --port "$WEBOTS_PORT" "$WORLD"
 STATUS=$?
 set -e
 [[ ${STATUS} -eq 124 ]] && echo "TIMED OUT after ${WEBOTS_TIMEOUT}s -- Webots does not quit on a controller crash; check for a traceback above."

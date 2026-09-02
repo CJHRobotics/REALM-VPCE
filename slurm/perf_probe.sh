@@ -73,6 +73,17 @@ container_binds || exit 1
 gpu_args
 XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
 echo "xvfb screen: $XVFB_SCREEN"
+# Webots binds a control port, default 1234, and several of these land on the
+# same node. It auto-increments on a clash, but that is a race between
+# concurrent starts rather than a fix, so give each job its own.
+WEBOTS_PORT=$(( 10000 + (${SLURM_JOB_ID:-0} % 20000) ))
+# `xvfb-run -a` probes for a free display and races when several jobs start
+# together on one node: two can pick the same number, and the loser fails
+# with "BadValue (integer parameter out of range)" from GLX, which reads as a
+# driver fault rather than a collision. Job ids are unique, so derive the
+# display from one instead of probing.
+XVFB_DISPLAY=$(( 100 + (${SLURM_JOB_ID:-0} % 400) ))
+echo "webots port: $WEBOTS_PORT   xvfb display: :$XVFB_DISPLAY"
 echo "gpu passthrough: ${USE_GPU:-0}  args [${GPU_ARGS[*]+${GPU_ARGS[*]}}]"
 
 WORLD="$REPO_DIR/simulation/worlds/perf_probe.wbt"
@@ -129,7 +140,7 @@ timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
     --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
     --env LP_NUM_THREADS="$LP_NUM_THREADS" --env XVFB_SCREEN="$XVFB_SCREEN" \
     "$SIF" \
-    xvfb-run -a -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize \
+    xvfb-run -n "$XVFB_DISPLAY" -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize --port "$WEBOTS_PORT" \
         "${WEBOTS_EXTRA[@]+"${WEBOTS_EXTRA[@]}"}" "$WORLD"
 STATUS=$?
 set -e

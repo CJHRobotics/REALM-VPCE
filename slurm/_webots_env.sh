@@ -118,8 +118,8 @@ gpu_args() {
 gl_info() {
     echo "--- GL renderer actually in use ---"
     "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
-        "$SIF" xvfb-run -a -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" \
-        glxinfo -B 2>&1 | grep -Ei 'vendor|renderer|version|error' | head -8 \
+        "$SIF" xvfb-run -n "$(( 500 + (${SLURM_JOB_ID:-0} % 400) ))" \
+        -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" glxinfo -B 2>&1 | grep -Ei 'vendor|renderer|version|error' | head -8 \
         || echo "  (glxinfo failed)"
     if [[ "${USE_GPU:-0}" == "1" ]]; then
         "$SINGULARITY" exec "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" "$SIF" \
@@ -131,13 +131,24 @@ gl_info() {
         # like nothing but a slow run.
         local r
         r="$("$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
-            "$SIF" xvfb-run -a -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" \
-            glxinfo -B 2>/dev/null | grep -i 'OpenGL renderer' || true)"
+            "$SIF" xvfb-run -n "$(( 500 + (${SLURM_JOB_ID:-0} % 400) ))" \
+            -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" glxinfo -B 2>/dev/null | grep -i 'OpenGL renderer' || true)"
+        if [[ -z "$r" ]]; then
+            # No renderer at all means the GL stack is broken, not merely
+            # slow -- Webots dies later with "could not initialize the
+            # rendering system", which reads as a driver problem rather than
+            # as the configuration fault it usually is. A 320x240 Xvfb screen
+            # does exactly this to NVIDIA GLX.
+            echo "ERROR: glxinfo returned no renderer -- the GL stack is broken." >&2
+            echo "       Check the X error above; XVFB_SCREEN=$XVFB_SCREEN" >&2
+            return 1
+        fi
         if [[ "$r" == *llvmpipe* || "$r" == *softpipe* || "$r" == *swrast* ]]; then
             echo "ERROR: USE_GPU=1 but GL fell back to software: $r" >&2
             echo "       Set USE_GPU=0 to run on llvmpipe deliberately." >&2
             return 1
         fi
+        echo "  hardware GL confirmed: $r"
     fi
     return 0
 }
