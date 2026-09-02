@@ -51,7 +51,7 @@ SINGULARITY=/apps/singularity/bin/singularity
 # shellcheck disable=SC1091
 source "$REPO_DIR/slurm/_webots_env.sh"
 resolve_python
-mapfile -t BINDS < <(container_binds)
+container_binds || exit 1
 WORLD="$REPO_DIR/simulation/worlds/collect_data.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -62,6 +62,7 @@ echo "Job     : ${SLURM_JOB_ID:-local}   node $(hostname)"
 echo "Mazes   : ${MAZES:-(controller default)}"
 echo "Image   : $SIF"
 echo "Python  : $PYTHON_BIN"
+echo "Binds   : ${BINDS[*]+${BINDS[*]}}${BINDS[0]:-(none needed - auto-mounted)}"
 echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
@@ -74,7 +75,7 @@ export PYTHONUNBUFFERED=1
 [[ -n "$MAZES" ]] && export REALM_MAZES="$MAZES"
 
 set +e
-"$SINGULARITY" exec "${BINDS[@]}" --env REALM_MAZES="${REALM_MAZES:-}" "$SIF" \
+"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" --env REALM_MAZES="${REALM_MAZES:-}" "$SIF" \
     xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
 STATUS=$?
 set -e
@@ -86,7 +87,7 @@ ls -lh data/vpce/collect_data/ || true
 # would be the right size with every feature identical, and nothing else in
 # the pipeline would notice.
 if [[ ${STATUS} -eq 0 ]]; then
-    "$SINGULARITY" exec "${BINDS[@]}" "$SIF" "$PYTHON_BIN" slurm/check_dataset.py \
+    "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "$SIF" "$PYTHON_BIN" slurm/check_dataset.py \
         || { echo "SANITY CHECK FAILED - see above"; exit 1; }
 fi
 

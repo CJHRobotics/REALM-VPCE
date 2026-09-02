@@ -28,14 +28,29 @@ resolve_python() {
 }
 
 # Singularity auto-mounts $HOME, $PWD and /tmp but nothing else, so a conda
-# environment living under /apps is invisible inside the image unless bound.
+# environment living under, say, /apps is invisible inside the image unless
+# bound. Only ever bind a NON-system top-level directory: binding /usr or
+# /lib mounts the host's system tree over the container's own and destroys
+# it -- the visible symptom is singularity failing to open /bin/sh.
+SYSTEM_DIRS=" /usr /bin /sbin /lib /lib64 /etc /var /proc /sys /dev / "
+
 container_binds() {
-    local binds=()
+    BINDS=()
+    local top
+    top="/$(printf '%s' "${PYTHON_BIN#/}" | cut -d/ -f1)"
     case "$PYTHON_BIN" in
-        "$HOME"/*) ;;                       # already visible
-        *) binds+=(--bind "$(echo "$PYTHON_BIN" | cut -d/ -f1-2)") ;;
+        "$HOME"/*|/tmp/*|"$REPO_DIR"/*)
+            return 0 ;;                     # auto-mounted already
     esac
-    printf '%s\n' "${binds[@]:-}"
+    if [[ " $SYSTEM_DIRS " == *" $top "* ]]; then
+        echo "ERROR: $PYTHON_BIN lives under the system directory $top." >&2
+        echo "       Binding that into the image would overwrite the" >&2
+        echo "       container's own system tree. Point REALM_PY at a conda" >&2
+        echo "       environment instead." >&2
+        return 1
+    fi
+    BINDS=(--bind "$top")
+    return 0
 }
 
 # Fail here, clearly, rather than inside Webots. A missing interpreter or an
@@ -43,7 +58,7 @@ container_binds() {
 # immediately with no useful message.
 preflight() {
     echo "--- preflight: $PYTHON_BIN inside the image ---"
-    "$SINGULARITY" exec "${BINDS[@]}" "$SIF" "$PYTHON_BIN" - <<'PYCHK'
+    "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "$SIF" "$PYTHON_BIN" - <<'PYCHK'
 import sys
 print('  python', sys.version.split()[0], 'at', sys.executable)
 missing = []

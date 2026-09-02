@@ -54,7 +54,7 @@ SINGULARITY=/apps/singularity/bin/singularity
 # shellcheck disable=SC1091
 source "$REPO_DIR/slurm/_webots_env.sh"
 resolve_python
-mapfile -t BINDS < <(container_binds)
+container_binds || exit 1
 WORLD="$REPO_DIR/simulation/worlds/render_check.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -66,6 +66,7 @@ echo "Maze    : ${MAZE}"
 echo "Email   : ${EMAIL_TO:-(EMAIL_TO unset - files written, no send)}"
 echo "Image   : $SIF"
 echo "Python  : $PYTHON_BIN"
+echo "Binds   : ${BINDS[*]+${BINDS[*]}}${BINDS[0]:-(none needed - auto-mounted)}"
 echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
@@ -78,7 +79,7 @@ export PYTHONUNBUFFERED=1
 export REALM_MAZE="$MAZE"
 
 set +e
-"$SINGULARITY" exec "${BINDS[@]}" \
+"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
     --env REALM_MAZE="$MAZE" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \
     --env EMAIL_SMTP="${EMAIL_SMTP:-}" --env EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-}" \
