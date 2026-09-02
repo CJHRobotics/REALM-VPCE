@@ -116,6 +116,95 @@ gpu_args() {
 }
 
 gl_info() {
+    # Reports the renderer actually in use and, when hardware GL was asked for
+    # but is not available, FALLS BACK to software rather than failing the job.
+    #
+    # This used to abort, on the reasoning that a silent fallback turns a
+    # 12-minute arena into as much as ten hours. That reasoning is sound and
+    # the guard was still wrong: it blocked collection entirely on a cluster
+    # where software rendering demonstrably works, twice, for a GPU path that
+    # is an optimisation rather than a requirement. A loud warning in the log
+    # and in the mailed report carries the same information without costing a
+    # day. Set STRICT_GPU=1 to abort instead.
+    local out r
+    echo "--- GL renderer actually in use ---"
+    echo "  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
+    if [[ "${USE_GPU:-0}" == "1" ]]; then
+        "$SINGULARITY" exec "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" "$SIF" \
+            nvidia-smi -L 2>&1 | head -5 || echo "  (no nvidia-smi in image)"
+    fi
+
+    # One call, not two: `xvfb-run -n` fails when the display is still held,
+    # so a second call on the same number returns nothing and looks like a
+    # broken GL stack.
+    out="$("$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
+        "$SIF" xvfb-run -n "$(( 500 + (${SLURM_JOB_ID:-0} % 400) ))" \
+        -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" glxinfo -B 2>&1 || true)"
+    echo "$out" | grep -Ei 'vendor|renderer|version|error' | head -8 \
+        || echo "  (no glxinfo output)"
+
+    [[ "${USE_GPU:-0}" == "1" ]] || return 0
+
+    r="$(echo "$out" | grep -i 'OpenGL renderer' || true)"
+    if [[ -n "$r" && "$r" != *llvmpipe* && "$r" != *softpipe* && "$r" != *swrast* ]]; then
+        echo "  hardware GL confirmed:$r"
+        return 0
+    fi
+
+    echo "WARNING: hardware GL unavailable (${r:-glxinfo returned no renderer})." >&2
+    echo "         Falling back to software rendering: expect roughly 2.5-10 h" >&2
+    echo "         per arena instead of 0.2 h, depending on the node." >&2
+    if [[ "${STRICT_GPU:-0}" == "1" ]]; then
+        echo "         STRICT_GPU=1 set -- aborting instead." >&2
+        return 1
+    fi
+    GPU_ARGS=()
+    USE_GPU=0
+    # The small screen is worth ~2.4x under llvmpipe on the slow nodes and
+    # nothing on fast ones, so it is only applied on this path.
+    XVFB_SCREEN="320x240x24"
+    echo "         XVFB_SCREEN set to $XVFB_SCREEN for the software path." >&2
+    return 0
+}
+
+
+write_runtime_ini() {
+    # Webots launches the controller itself and takes the interpreter from
+    # here, so a stale path fails looking like a Webots fault. Rewritten every
+    # run; the file is gitignored and machine specific.
+    local d
+    for d in simulation/controllers/*/; do
+        printf '[python]\nCOMMAND = %s\n' "$PYTHON_BIN" > "$d/runtime.ini"
+    done
+    echo "runtime.ini -> $PYTHON_BIN"
+}
+
+
+# --- optional GPU passthrough --------------------------------------------
+# `--nv` binds the host NVIDIA driver into the image. On its own that is not
+# enough here for two reasons, and both are worth knowing before reading the
+# result:
+#
+#   1. The image pins LIBGL_ALWAYS_SOFTWARE=1 and GALLIUM_DRIVER=llvmpipe at
+#      build time, so GL stays software unless those are overridden.
+#   2. Webots renders through GLX, and GLX acceleration comes from the X
+#      server. Xvfb is a software X server with no NVIDIA GLX extension, so
+#      the vendor dispatch is expected to land back on Mesa regardless.
+#
+# The honest expectation is therefore "no change, or a GL error". gl_info()
+# prints the renderer actually in use, which settles it in one line rather
+# than by inference from a timing.
+gpu_args() {
+    GPU_ARGS=()
+    [[ "${USE_GPU:-0}" == "1" ]] || return 0
+    GPU_ARGS=(--nv
+              --env LIBGL_ALWAYS_SOFTWARE=0
+              --env GALLIUM_DRIVER=
+              --env __GLX_VENDOR_LIBRARY_NAME=nvidia)
+    return 0
+}
+
+gl_info() {
     # One glxinfo call, not two. The previous version ran it twice on the same
     # display number, and `xvfb-run -n` fails outright if that display is
     # still held -- unlike `-a`, which probes. The second call therefore

@@ -18,9 +18,9 @@
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=collect
 #SBATCH --partition=general
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --output=slurm/logs/%x-%j.out
