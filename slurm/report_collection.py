@@ -49,8 +49,18 @@ def arena(maze):
             f'{", ".join(sorted("x".join(s) for s in sizes))} m')
 
 
+# Mirrors the fallback in collect_data.py: the landmark-count arenas
+# (circ_lm4/6/10_r0) share the circ_lm8_r0 grid rather than carrying one
+# each, since they differ only in the number of panels on the wall.
+POSITIONS_FALLBACK = 'circ_lm8_r0_positions.csv'
+
+
 def grid(maze):
     csv = f'{ENVS}/positions/{maze}_positions.csv'
+    shared = ''
+    if not os.path.exists(csv):
+        csv = f'{ENVS}/positions/{POSITIONS_FALLBACK}'
+        shared = f'  (shared: {POSITIONS_FALLBACK})'
     if not os.path.exists(csv):
         return '  (position grid not found)'
     import pandas as pd
@@ -59,7 +69,7 @@ def grid(maze):
     dd = np.diff(u)
     dd = dd[dd > 1e-9]
     s = float(np.median(dd)) if len(dd) else float('nan')
-    return f'  grid      {len(d):,} positions, spacing {s:.4f} m'
+    return f'  grid      {len(d):,} positions, spacing {s:.4f} m{shared}'
 
 
 def main():
