@@ -70,6 +70,11 @@ SINGULARITY=/apps/singularity/bin/singularity
 source "$REPO_DIR/slurm/_webots_env.sh"
 resolve_python
 container_binds || exit 1
+gpu_args
+XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
+echo "xvfb screen: $XVFB_SCREEN"
+echo "gpu passthrough: ${USE_GPU:-0}  args [${GPU_ARGS[*]+${GPU_ARGS[*]}}]"
+
 WORLD="$REPO_DIR/simulation/worlds/perf_probe.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -87,6 +92,8 @@ echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
 
+gl_info
+
 preflight || { echo 'PREFLIGHT FAILED - not launching Webots' >&2; exit 1; }
 write_runtime_ini
 
@@ -100,8 +107,6 @@ write_runtime_ini
 # not the camera, is the bulk of every step under llvmpipe. Shrinking the
 # virtual screen costs nothing and is one of two ways to find out; passing
 # --no-rendering to Webots is the other.
-XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
-echo "xvfb screen: $XVFB_SCREEN"
 export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1
 echo "llvmpipe threads: $LP_NUM_THREADS (of ${SLURM_CPUS_PER_TASK:-?} allocated CPUs)"
@@ -116,7 +121,7 @@ WEBOTS_TIMEOUT="${WEBOTS_TIMEOUT:-900}"
 
 set +e
 timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
-"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
+"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
     --env REALM_MAZE="$MAZE" --env REALM_RUN_TAG="$RUN_TAG" \
     --env REALM_PROBE_N="${REALM_PROBE_N:-10}" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \

@@ -89,3 +89,41 @@ write_runtime_ini() {
     done
     echo "runtime.ini -> $PYTHON_BIN"
 }
+
+
+# --- optional GPU passthrough --------------------------------------------
+# `--nv` binds the host NVIDIA driver into the image. On its own that is not
+# enough here for two reasons, and both are worth knowing before reading the
+# result:
+#
+#   1. The image pins LIBGL_ALWAYS_SOFTWARE=1 and GALLIUM_DRIVER=llvmpipe at
+#      build time, so GL stays software unless those are overridden.
+#   2. Webots renders through GLX, and GLX acceleration comes from the X
+#      server. Xvfb is a software X server with no NVIDIA GLX extension, so
+#      the vendor dispatch is expected to land back on Mesa regardless.
+#
+# The honest expectation is therefore "no change, or a GL error". gl_info()
+# prints the renderer actually in use, which settles it in one line rather
+# than by inference from a timing.
+gpu_args() {
+    GPU_ARGS=()
+    [[ "${USE_GPU:-0}" == "1" ]] || return 0
+    GPU_ARGS=(--nv
+              --env LIBGL_ALWAYS_SOFTWARE=0
+              --env GALLIUM_DRIVER=
+              --env __GLX_VENDOR_LIBRARY_NAME=nvidia)
+    return 0
+}
+
+gl_info() {
+    echo "--- GL renderer actually in use ---"
+    "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
+        "$SIF" xvfb-run -a -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" \
+        glxinfo -B 2>&1 | grep -Ei 'vendor|renderer|version|error' | head -8 \
+        || echo "  (glxinfo failed)"
+    if [[ "${USE_GPU:-0}" == "1" ]]; then
+        "$SINGULARITY" exec "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" "$SIF" \
+            nvidia-smi --query-gpu=name,driver_version --format=csv,noheader \
+            2>&1 | head -3 || echo "  (no nvidia-smi in image)"
+    fi
+}
