@@ -1,6 +1,19 @@
 import os
-os.chdir("../../..")
-print(os.getcwd())
+import sys
+
+# Webots launches this from the controller's own directory, so the repo is
+# neither the working directory nor on sys.path. chdir alone is not enough:
+# sys.path[0] is the controller directory, and `realm_tools` lives at the
+# repo root. Resolve from __file__ rather than a relative chdir so the two
+# cannot disagree, and add the root explicitly -- the Mac venv gets this
+# from a .pth that realm_install.py writes, which a conda environment on the
+# cluster does not have.
+REPO = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
+os.chdir(REPO)
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
+print(f"repo root: {REPO}", flush=True)
 
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor

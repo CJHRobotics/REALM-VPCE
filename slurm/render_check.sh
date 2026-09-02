@@ -78,7 +78,14 @@ write_runtime_ini
 export PYTHONUNBUFFERED=1
 export REALM_MAZE="$MAZE"
 
+# Webots does not exit when a controller dies -- it keeps the simulation
+# running, so a crashed controller would sit here until the walltime expires.
+# Cap it: the controllers call simulationQuit(0) on success, so hitting this
+# timeout always means something went wrong, and the log above says what.
+WEBOTS_TIMEOUT="${WEBOTS_TIMEOUT:-900}"
+
 set +e
+timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
 "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
     --env REALM_MAZE="$MAZE" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \
@@ -88,6 +95,7 @@ set +e
     xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
 STATUS=$?
 set -e
+[[ ${STATUS} -eq 124 ]] && echo "TIMED OUT after ${WEBOTS_TIMEOUT}s -- Webots does not quit on a controller crash; check for a traceback above."
 
 echo "Finished : $(date -Is)  (exit ${STATUS})"
 
