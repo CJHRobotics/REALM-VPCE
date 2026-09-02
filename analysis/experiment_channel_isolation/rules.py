@@ -60,6 +60,15 @@ DEFAULT_CFG = dict(
     # needs that: a mask riddled with empty bins fragments under connected-
     # component analysis and every field would fail contiguity spuriously.
     BIN_M            = 0.25,
+    # Place bin CENTRES on the collection lattice instead of spanning the
+    # arena with linspace. Only meaningful when BIN_M equals the lattice
+    # spacing, and then it is essential: with linspace edges every sampled
+    # position falls exactly ON a bin boundary, so floating point scatters
+    # neighbours into the same bin and leaves others empty -- a checkerboard
+    # of holes that fails contiguity everywhere. Off by default; the
+    # environment-size sweep turns it on because holding bins equal to
+    # samples is what makes arenas of different area comparable.
+    BIN_ALIGN_TO_LATTICE = False,
     # Field boundary as a fraction of the field's own peak response. The
     # ephys convention; commonly 0.2 of peak, 0.5 is the stricter reading.
     ACT_THRESH       = 0.50,
@@ -449,11 +458,37 @@ def node_members(nid, children, N):
 
 # ---------------------------------------------------------------- readout
 
+def _lattice_edges(lo, hi, s):
+    """Bin edges at (k + 1/2)*s, so multiples of s land on bin centres."""
+    k0 = int(np.floor(lo / s + 0.5))
+    k1 = int(np.ceil(hi / s - 0.5))
+    return (np.arange(k0, k1 + 2) - 0.5) * s
+
+
+def lattice_spacing(xy, axis=0):
+    """Spacing of the collection lattice, for use as BIN_M.
+
+    Positions are generated on a regular grid, so the spacing is the smallest
+    non-zero gap between distinct coordinates on an axis. Taken from the
+    coordinates rather than assumed, because the environment-size sweep uses
+    a different spacing in every arena.
+    """
+    u = np.unique(np.round(np.asarray(xy)[:, axis], 6))
+    d = np.diff(u)
+    d = d[d > 1e-9]
+    return float(np.median(d)) if len(d) else 1.0
+
+
 def _grid_setup(env, C):
-    gx = max(2, int(np.ceil((env['x_max'] - env['x_min']) / C['BIN_M'])))
-    gy = max(2, int(np.ceil((env['y_max'] - env['y_min']) / C['BIN_M'])))
-    x_edges = np.linspace(env['x_min'], env['x_max'], gx + 1)
-    y_edges = np.linspace(env['y_min'], env['y_max'], gy + 1)
+    if C.get('BIN_ALIGN_TO_LATTICE'):
+        x_edges = _lattice_edges(env['x_min'], env['x_max'], C['BIN_M'])
+        y_edges = _lattice_edges(env['y_min'], env['y_max'], C['BIN_M'])
+        gx, gy = len(x_edges) - 1, len(y_edges) - 1
+    else:
+        gx = max(2, int(np.ceil((env['x_max'] - env['x_min']) / C['BIN_M'])))
+        gy = max(2, int(np.ceil((env['y_max'] - env['y_min']) / C['BIN_M'])))
+        x_edges = np.linspace(env['x_min'], env['x_max'], gx + 1)
+        y_edges = np.linspace(env['y_min'], env['y_max'], gy + 1)
     xc = 0.5 * (x_edges[:-1] + x_edges[1:])
     yc = 0.5 * (y_edges[:-1] + y_edges[1:])
     bin_area = (x_edges[1] - x_edges[0]) * (y_edges[1] - y_edges[0])
