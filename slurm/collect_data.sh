@@ -47,7 +47,11 @@ mkdir -p slurm/logs data/vpce/collect_data
 
 SIF="${WEBOTS_SIF:-$REPO_DIR/webots_r2025a.sif}"
 SINGULARITY=/apps/singularity/bin/singularity
-VENV="${REALM_VENV:-$REPO_DIR/realm_venv_gaivi}"
+
+# shellcheck disable=SC1091
+source "$REPO_DIR/slurm/_webots_env.sh"
+resolve_python
+mapfile -t BINDS < <(container_binds)
 WORLD="$REPO_DIR/simulation/worlds/collect_data.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -57,43 +61,20 @@ echo "===================================================================="
 echo "Job     : ${SLURM_JOB_ID:-local}   node $(hostname)"
 echo "Mazes   : ${MAZES:-(controller default)}"
 echo "Image   : $SIF"
-echo "Venv    : $VENV"
+echo "Python  : $PYTHON_BIN"
 echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
 
-# --- venv, built inside the container -------------------------------------
-# It lives on the host filesystem but is created by the container's Python,
-# so every wheel links against the container's libraries rather than
-# GAIVI's. Idempotent: only built the first time.
-if [[ ! -x "$VENV/bin/python" ]]; then
-    echo "building venv at $VENV (first run only)"
-    "$SINGULARITY" exec "$SIF" python3.11 -m venv "$VENV"
-    "$SINGULARITY" exec "$SIF" "$VENV/bin/pip" install --upgrade pip
-    "$SINGULARITY" exec "$SIF" "$VENV/bin/pip" install -r setup/requirements.txt
-    # opencv needs libGL at import; the image has Mesa, but headless wheels
-    # avoid pulling a second GUI stack into the venv.
-    "$SINGULARITY" exec "$SIF" "$VENV/bin/pip" install --force-reinstall \
-        "opencv-python-headless<=4.9.0.80"
-    echo "$REPO_DIR" > "$VENV/lib/python3.11/site-packages/realm_repo.pth"
-fi
-
-# --- runtime.ini ----------------------------------------------------------
-# Webots launches the controller itself and reads the interpreter from here,
-# so it must name the container-side venv rather than whatever built the
-# repo on a laptop. Rewritten every run: the file is gitignored and machine
-# specific, and a stale one fails in a way that looks like a Webots problem.
-for d in simulation/controllers/*/; do
-    printf '[python]\nCOMMAND = %s/bin/python3\n' "$VENV" > "$d/runtime.ini"
-done
-echo "runtime.ini -> $VENV/bin/python3"
+preflight || { echo 'PREFLIGHT FAILED - not launching Webots' >&2; exit 1; }
+write_runtime_ini
 
 # --- run ------------------------------------------------------------------
 export PYTHONUNBUFFERED=1
 [[ -n "$MAZES" ]] && export REALM_MAZES="$MAZES"
 
 set +e
-"$SINGULARITY" exec --env REALM_MAZES="${REALM_MAZES:-}" "$SIF" \
+"$SINGULARITY" exec "${BINDS[@]}" --env REALM_MAZES="${REALM_MAZES:-}" "$SIF" \
     xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
 STATUS=$?
 set -e
@@ -105,7 +86,7 @@ ls -lh data/vpce/collect_data/ || true
 # would be the right size with every feature identical, and nothing else in
 # the pipeline would notice.
 if [[ ${STATUS} -eq 0 ]]; then
-    "$SINGULARITY" exec "$SIF" "$VENV/bin/python3" slurm/check_dataset.py \
+    "$SINGULARITY" exec "${BINDS[@]}" "$SIF" "$PYTHON_BIN" slurm/check_dataset.py \
         || { echo "SANITY CHECK FAILED - see above"; exit 1; }
 fi
 
