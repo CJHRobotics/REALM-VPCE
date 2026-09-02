@@ -9,8 +9,15 @@
 # looking at one picture settles in a glance what no summary statistic does.
 #
 # Usage:
-#   sbatch slurm/render_check.sh                 # circ_lm8_r0
-#   sbatch slurm/render_check.sh rect_lm8_r0
+#   sbatch slurm/render_check.sh                              # baseline
+#   sbatch slurm/render_check.sh circ_lm8_r0 --no-rendering   # test a flag
+#
+# Extra arguments go straight to Webots. The report includes a timing
+# estimate measured on the arena's own collection grid, so two runs can be
+# compared directly -- which is the only way to settle whether a flag that
+# skips the main 3D view also skips the offscreen camera render. Watch the
+# pixel std alongside the timing: a flag that makes capture instant by
+# returning blank frames is not a speedup.
 #
 # Needs EMAIL_TO exported to receive the images; without it they are still
 # written to data_cache/render_check/ and the send is a silent no-op. Set the
@@ -43,6 +50,14 @@
 set -euo pipefail
 
 MAZE="${1:-circ_lm8_r0}"
+shift || true
+# Anything further is passed straight to Webots, so a flag can be tested
+# without editing this script:
+#   sbatch slurm/render_check.sh circ_lm8_r0 --no-rendering
+WEBOTS_EXTRA=("$@")
+# Tags the output files and the mail subject so two configurations can be
+# compared rather than overwriting one another.
+RUN_TAG="${RUN_TAG:-$(printf '%s' "${WEBOTS_EXTRA[*]:-baseline}" | tr -cd '[:alnum:]')}"
 
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$REPO_DIR"
@@ -63,6 +78,7 @@ WORLD="$REPO_DIR/simulation/worlds/render_check.wbt"
 echo "===================================================================="
 echo "Job     : ${SLURM_JOB_ID:-local}   node $(hostname)"
 echo "Maze    : ${MAZE}"
+echo "Webots  : extra flags [${WEBOTS_EXTRA[*]:-none}]   run tag '${RUN_TAG}'"
 echo "Email   : ${EMAIL_TO:-(EMAIL_TO unset - files written, no send)}"
 echo "Image   : $SIF"
 echo "Python  : $PYTHON_BIN"
@@ -77,6 +93,7 @@ write_runtime_ini
 # --- run ------------------------------------------------------------------
 export PYTHONUNBUFFERED=1
 export REALM_MAZE="$MAZE"
+export REALM_RUN_TAG="$RUN_TAG"
 
 # Webots does not exit when a controller dies -- it keeps the simulation
 # running, so a crashed controller would sit here until the walltime expires.
@@ -87,12 +104,14 @@ WEBOTS_TIMEOUT="${WEBOTS_TIMEOUT:-900}"
 set +e
 timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
 "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
-    --env REALM_MAZE="$MAZE" \
+    --env REALM_MAZE="$MAZE" --env REALM_RUN_TAG="$RUN_TAG" \
+    --env REALM_TIMED_N="${REALM_TIMED_N:-20}" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \
     --env EMAIL_SMTP="${EMAIL_SMTP:-}" --env EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-}" \
     --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
     "$SIF" \
-    xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
+    xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize \
+        "${WEBOTS_EXTRA[@]+"${WEBOTS_EXTRA[@]}"}" "$WORLD"
 STATUS=$?
 set -e
 [[ ${STATUS} -eq 124 ]] && echo "TIMED OUT after ${WEBOTS_TIMEOUT}s -- Webots does not quit on a controller crash; check for a traceback above."

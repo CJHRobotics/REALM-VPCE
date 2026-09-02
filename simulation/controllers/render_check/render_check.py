@@ -31,6 +31,8 @@ if REPO not in sys.path:
     sys.path.insert(0, REPO)
 print(f"repo root: {REPO}", flush=True)
 
+import time
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -41,6 +43,13 @@ from realm_tools.robot_lib.my_robot import MyRobot
 from realm_tools.experiment_lib.reporting import send_email
 
 MAZE = os.environ.get('REALM_MAZE', 'circ_lm8_r0')
+# Distinguishes repeated runs, so two configurations can be compared instead
+# of overwriting each other's output.
+TAG = os.environ.get('REALM_RUN_TAG', '')
+SUF = f'_{TAG}' if TAG else ''
+# Captures used for the timing estimate. Three poses is enough to see whether
+# the renderer works and far too few to time it.
+TIMED_N = int(os.environ.get('REALM_TIMED_N', '20'))
 MAZE_FILE = f'simulation/worlds/environments/vpce/{MAZE}.xml'
 OUT_DIR = 'data_cache/render_check'
 
@@ -56,14 +65,15 @@ robot = MyRobot(enable_cnn_features=False)
 robot.load_environment(MAZE_FILE, floor_texture='carpet')
 print(f'loaded {MAZE_FILE}', flush=True)
 
-attachments, lines = [], [f'render check | maze = {MAZE}', '']
+attachments, lines = [], [f'render check | maze = {MAZE}'
+                         + (f' | run = {TAG}' if TAG else ''), '']
 
 for (x, y, theta, tag) in POSES:
     robot.teleport_robot(x=x, y=y, theta=theta)
     images, masks, azimuths, lidar = robot.capture_pov_images([theta])
     img = np.asarray(images[0])
 
-    png = f'{OUT_DIR}/camera_{tag}.png'
+    png = f'{OUT_DIR}/camera_{tag}{SUF}.png'
     Image.fromarray(img.astype(np.uint8)).save(png)
     attachments.append(png)
 
@@ -79,7 +89,7 @@ for (x, y, theta, tag) in POSES:
     if lidar is not None:
         lidar = np.asarray(lidar, dtype=float)
         finite = np.isfinite(lidar)
-        txt = f'{OUT_DIR}/lidar_{tag}.txt'
+        txt = f'{OUT_DIR}/lidar_{tag}{SUF}.txt'
         with open(txt, 'w') as f:
             f.write(f'# lidar at x={x} y={y} theta={theta}\n')
             f.write('# index,angle_rad,range_m\n')
@@ -92,7 +102,7 @@ for (x, y, theta, tag) in POSES:
         ax = fig.add_subplot(111, projection='polar')
         ax.plot(ang[finite], lidar[finite], '.', ms=3)
         ax.set_title(f'lidar — {tag}')
-        plot = f'{OUT_DIR}/lidar_{tag}.png'
+        plot = f'{OUT_DIR}/lidar_{tag}{SUF}.png'
         fig.savefig(plot, dpi=130, bbox_inches='tight')
         plt.close(fig)
         attachments.append(plot)
@@ -104,9 +114,40 @@ for (x, y, theta, tag) in POSES:
     lines.append('')
     print('\n'.join(lines[-6:]), flush=True)
 
+# --- timing --------------------------------------------------------------
+# The question this answers: does a Webots flag that skips the main 3D view
+# also skip the offscreen camera render? If frames stay correct and this
+# number drops, collection gets cheaper by the same factor. If frames go
+# blank, the flag disables the sensor render too and is unusable here.
+rng = np.random.default_rng(0)
+# Time on the arena's own collection grid rather than invented coordinates,
+# so this measures what a collection run would actually do and works for any
+# geometry, corridor included.
+import pandas as pd
+grid = pd.read_csv(f'simulation/worlds/environments/vpce/positions/'
+                   f'{MAZE}_positions.csv')
+sample = grid.sample(n=min(TIMED_N, len(grid)), random_state=0)
+
+robot.capture_pov_images([0.0])                      # warm up
+t0 = time.perf_counter()
+for _, pos in sample.iterrows():
+    a = float(rng.uniform(0, 2 * np.pi))
+    robot.teleport_robot(x=float(pos.x), y=float(pos.y), theta=a)
+    robot.capture_pov_images([a])
+dt = (time.perf_counter() - t0) / len(sample)
+
+lines += ['--- timing ---',
+          f'  {len(sample)} single-heading captures on the real grid, '
+          f'{1000*dt:.1f} ms each',
+          f'  implied per position (8 headings): {8*1000*dt:.0f} ms',
+          f'  implied for this arena ({len(grid):,} positions): '
+          f'{8*dt*len(grid)/3600:.2f} h',
+          '']
+
 body = '\n'.join(lines)
 print(body, flush=True)
-send_email(f'[REALM-VPCE] render check — {MAZE}', body, attachments=attachments)
+send_email(f'[REALM-VPCE] render check — {MAZE}' + (f' [{TAG}]' if TAG else ''),
+           body, attachments=attachments)
 print(f'wrote {len(attachments)} files to {OUT_DIR}', flush=True)
 
 # Quit, not reset: reset restarts the controller and this would run forever.
