@@ -24,6 +24,12 @@ maze_file_dir = 'simulation/worlds/environments/vpce/'
 maze_files = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0',
               'circ_lm8_rad3p5', 'circ_lm8_rad6p0']
 
+# Overridable so one arena can be collected per SLURM job and the sweep run
+# in parallel, instead of serially inside a single long Webots session.
+if os.environ.get('REALM_MAZES'):
+    maze_files = [m.strip() for m in os.environ['REALM_MAZES'].split(',') if m.strip()]
+    print(f'REALM_MAZES override: {maze_files}')
+
 # Already collected, add back to regenerate:
 #   landmark-count sweep  circ_lm4_r0, circ_lm6_r0, circ_lm8_r0, circ_lm10_r0
 #   geometry sweep        rect_lm8_r0, corr_lm8_r0
@@ -138,4 +144,8 @@ for maze_index, maze in enumerate(maze_files):
     dataset.save_dataset(out_path)
     print(f"Saved: {out_path}")
 
-robot.experiment_supervisor.simulationReset()
+# Quit rather than reset. simulationReset() restarts the controllers, which
+# unattended means this script runs again, skips every already-collected
+# maze, and resets once more -- forever. Quitting also lets a batch job
+# finish instead of sitting until its walltime expires.
+robot.experiment_supervisor.simulationQuit(0)

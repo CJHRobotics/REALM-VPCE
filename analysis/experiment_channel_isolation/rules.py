@@ -69,6 +69,13 @@ DEFAULT_CFG = dict(
     # environment-size sweep turns it on because holding bins equal to
     # samples is what makes arenas of different area comparable.
     BIN_ALIGN_TO_LATTICE = False,
+    # Shrink the analysed region by the collection keep-out, so every measure
+    # is taken over floor that was actually visited. The keep-out is absolute
+    # (0.2 m) while arenas vary in size, so at BIN_M = lattice spacing the
+    # unsampled ring is 4% of the r = 10 arena and 23% of the r = 1.25 one --
+    # a scale-dependent slab of interpolated bins sitting directly on
+    # coverage-against-area, which is one of the quantities being measured.
+    IN_ENV_MARGIN_M  = 0.0,
     # Field boundary as a fraction of the field's own peak response. The
     # ephys convention; commonly 0.2 of peak, 0.5 is the stricter reading.
     ACT_THRESH       = 0.50,
@@ -493,10 +500,13 @@ def _grid_setup(env, C):
     yc = 0.5 * (y_edges[:-1] + y_edges[1:])
     bin_area = (x_edges[1] - x_edges[0]) * (y_edges[1] - y_edges[0])
     GX, GY = np.meshgrid(xc, yc, indexing='ij')
+    m = C.get('IN_ENV_MARGIN_M', 0.0)
     if env['is_circular']:
-        in_env = (GX - env['env_cx']) ** 2 + (GY - env['env_cy']) ** 2 <= env['env_R'] ** 2
+        rr = max(env['env_R'] - m, 1e-6)
+        in_env = (GX - env['env_cx']) ** 2 + (GY - env['env_cy']) ** 2 <= rr ** 2
     else:
-        in_env = np.ones((gx, gy), dtype=bool)
+        in_env = ((GX >= env['x_min'] + m) & (GX <= env['x_max'] - m) &
+                  (GY >= env['y_min'] + m) & (GY <= env['y_max'] - m))
     return dict(gx=gx, gy=gy, xc=xc, yc=yc, x_edges=x_edges, y_edges=y_edges,
                 bin_area=bin_area, in_env=in_env, GX=GX, GY=GY)
 
