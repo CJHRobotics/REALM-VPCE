@@ -23,28 +23,57 @@ ALL_KEYS = IMAGE_KEYS + ('lidar',)
 SAMPLE = 4000
 
 
-def check(path):
-    ok = True
+def summarize(path):
+    """Stats for one dataset. Shared with the collection report."""
+    out = dict(path=path, name=os.path.basename(path)[:-3],
+               size_bytes=os.path.getsize(path), blocks={}, blank=[], ok=True)
     with h5py.File(path, 'r') as f:
-        n = f['x'].shape[0] if 'x' in f else -1
-        print(f'{path}  ({n} rows)')
+        out['rows'] = int(f['x'].shape[0]) if 'x' in f else -1
+        if 'x' in f and 'theta' in f:
+            n_theta = len(np.unique(np.round(np.asarray(f['theta'][:200]), 6)))
+            out['headings'] = n_theta
+            out['positions'] = out['rows'] // max(n_theta, 1)
+            xs, ys = np.asarray(f['x'][:]), np.asarray(f['y'][:])
+            out['extent'] = (float(xs.min()), float(xs.max()),
+                             float(ys.min()), float(ys.max()))
         for k in ALL_KEYS:
             if k not in f:
-                print(f'  {k:11s} absent')
                 continue
             a = np.asarray(f[k][: min(SAMPLE, f[k].shape[0])], dtype=np.float32)
             spread = float(a.std(axis=0).mean())
-            finite = float(np.isfinite(a).mean())
-            flag = ''
-            if spread < 1e-8:
-                flag = '   <-- CONSTANT: blank frames'
-                if k in IMAGE_KEYS:
-                    ok = False
-            print(f'  {k:11s} {str(f[k].shape):18s} per-feature std across '
-                  f'positions {spread:.6g}  finite {100*finite:5.1f}%{flag}')
-    print('  OK: image features vary across positions' if ok else
-          '  FAIL: the renderer returned blank frames. Do not use this dataset.')
-    return ok
+            out['blocks'][k] = dict(shape=tuple(int(v) for v in f[k].shape),
+                                    spread=spread,
+                                    finite=float(np.isfinite(a).mean()))
+            # Only image channels gate: a lidar scan can legitimately be
+            # constant in a rotationally symmetric arena, an image cannot.
+            if spread < 1e-8 and k in IMAGE_KEYS:
+                out['blank'].append(k)
+    out['ok'] = not out['blank']
+    return out
+
+
+def format_summary(s):
+    L = [f"{s['name']}   {s['size_bytes']/1e9:.2f} GB",
+         f"  rows {s['rows']:,}"
+         + (f"   positions {s['positions']:,} x {s['headings']} headings"
+            if 'positions' in s else '')]
+    if 'extent' in s:
+        x0, x1, y0, y1 = s['extent']
+        L.append(f"  extent  x [{x0:.2f}, {x1:.2f}]   y [{y0:.2f}, {y1:.2f}]")
+    for k, b in s['blocks'].items():
+        flag = '   <-- CONSTANT: blank frames' if (b['spread'] < 1e-8
+                                                   and k in IMAGE_KEYS) else ''
+        L.append(f"  {k:11s} {str(b['shape']):18s} std across positions "
+                 f"{b['spread']:.6g}  finite {100*b['finite']:5.1f}%{flag}")
+    L.append('  OK: image features vary across positions' if s['ok'] else
+             '  FAIL: renderer returned blank frames. Do not use this dataset.')
+    return '\n'.join(L)
+
+
+def check(path):
+    s = summarize(path)
+    print(format_summary(s))
+    return s['ok']
 
 
 if __name__ == '__main__':

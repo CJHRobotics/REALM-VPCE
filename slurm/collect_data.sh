@@ -63,6 +63,7 @@ echo "Mazes   : ${MAZES:-(controller default)}"
 echo "Image   : $SIF"
 echo "Python  : $PYTHON_BIN"
 echo "Binds   : ${BINDS[*]+${BINDS[*]}}${BINDS[0]:-(none needed - auto-mounted)}"
+T_START=$(date +%s)
 echo "Started : $(date -Is)"
 echo "Git     : $(git rev-parse --short HEAD 2>/dev/null || echo 'no git')"
 echo "===================================================================="
@@ -91,12 +92,35 @@ set -e
 echo "Finished : $(date -Is)  (exit ${STATUS})"
 ls -lh data/vpce/collect_data/ || true
 
-# Guard against a headless renderer that returns blank frames: the dataset
-# would be the right size with every feature identical, and nothing else in
-# the pipeline would notice.
-if [[ ${STATUS} -eq 0 ]]; then
-    "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "$SIF" "$PYTHON_BIN" slurm/check_dataset.py \
-        || { echo "SANITY CHECK FAILED - see above"; exit 1; }
+# Report what was actually collected, by mail. SLURM's own --mail-type=END
+# says the job finished; it does not say whether the datasets are usable.
+# This reports arena geometry, sample counts, feature blocks, and the
+# blank-frame verdict -- the failure that otherwise stays silent, since a
+# headless renderer returning blank frames writes a dataset of exactly the
+# right shape that nothing downstream would question.
+ELAPSED=$(( $(date +%s) - T_START ))
+
+# Which arenas to report on: the explicit list if one was given, otherwise
+# whatever datasets this run actually wrote or refreshed.
+if [[ -n "$MAZES" ]]; then
+    MAZE_LIST="${MAZES//,/ }"
+else
+    MAZE_LIST=$(find data/vpce/collect_data -name '*.h5' -newermt "@$T_START" \
+        -exec basename {} .h5 \; | tr '\n' ' ')
+fi
+
+if [[ -n "${MAZE_LIST// /}" ]]; then
+    # shellcheck disable=SC2086
+    "$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
+        --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \
+        --env EMAIL_SMTP="${EMAIL_SMTP:-}" --env EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-}" \
+        --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
+        --env SLURM_JOB_ID="${SLURM_JOB_ID:-}" --env SLURMD_NODENAME="${SLURMD_NODENAME:-}" \
+        "$SIF" "$PYTHON_BIN" \
+        slurm/report_collection.py $MAZE_LIST --elapsed "$ELAPSED" \
+        || { echo "REPORT FLAGGED A PROBLEM - see above"; exit 1; }
+else
+    echo "no datasets written or updated by this run"
 fi
 
 exit ${STATUS}
