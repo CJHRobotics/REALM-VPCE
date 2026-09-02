@@ -61,6 +61,8 @@ try:
         f'simulation/worlds/environments/vpce/{MAZE}.xml', floor_texture='carpet')
     ts, sup = robot.timestep, robot.experiment_supervisor
     hdr = (f'perf probe | {MAZE} | cpus {os.cpu_count()} | '
+           f'alloc {os.environ.get("SLURM_CPUS_PER_TASK", "?")} | '
+           f'LP_NUM_THREADS {os.environ.get("LP_NUM_THREADS", "unset")} | '
            f'basicTimeStep {ts} ms | {N} reps')
     print(hdr, flush=True)
 

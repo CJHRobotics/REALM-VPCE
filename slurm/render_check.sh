@@ -91,7 +91,13 @@ preflight || { echo 'PREFLIGHT FAILED - not launching Webots' >&2; exit 1; }
 write_runtime_ini
 
 # --- run ------------------------------------------------------------------
+# llvmpipe caps its own worker count (32 in recent Mesa), and without this it
+# picks a number we never see. Setting it explicitly makes the thread count a
+# measured variable rather than an assumption -- and shows in the log whether
+# a larger allocation is actually being used for rasterisation.
+export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1
+echo "llvmpipe threads: $LP_NUM_THREADS (of ${SLURM_CPUS_PER_TASK:-?} allocated CPUs)"
 export REALM_MAZE="$MAZE"
 export REALM_RUN_TAG="$RUN_TAG"
 
@@ -109,6 +115,7 @@ timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \
     --env EMAIL_SMTP="${EMAIL_SMTP:-}" --env EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-}" \
     --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
+    --env LP_NUM_THREADS="$LP_NUM_THREADS" \
     "$SIF" \
     xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize \
         "${WEBOTS_EXTRA[@]+"${WEBOTS_EXTRA[@]}"}" "$WORLD"
