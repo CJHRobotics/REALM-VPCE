@@ -124,9 +124,34 @@ rng = np.random.default_rng(0)
 # so this measures what a collection run would actually do and works for any
 # geometry, corridor included.
 import pandas as pd
-grid = pd.read_csv(f'simulation/worlds/environments/vpce/positions/'
-                   f'{MAZE}_positions.csv')
-sample = grid.sample(n=min(TIMED_N, len(grid)), random_state=0)
+grid_csv = f'simulation/worlds/environments/vpce/positions/{MAZE}_positions.csv'
+if os.path.exists(grid_csv):
+    grid = pd.read_csv(grid_csv)
+    sample = grid.sample(n=min(TIMED_N, len(grid)), random_state=0)
+    n_grid, grid_note = len(grid), ''
+else:
+    # The positions directory is gitignored, so a fresh clone may not have
+    # this grid. Fall back to poses drawn from the world's own geometry: the
+    # timing is what this run exists to measure, and losing it to a missing
+    # CSV would be a poor trade.
+    import xml.etree.ElementTree as _ET
+    _root = _ET.parse(f'simulation/worlds/environments/vpce/{MAZE}.xml').getroot()
+    _cw = _root.findall('circular_wall')
+    if _cw:
+        _R = float(_cw[0].get('radius')) - 0.4
+        _a = rng.uniform(0, 2 * np.pi, TIMED_N)
+        _r = _R * np.sqrt(rng.uniform(size=TIMED_N))
+        sample = pd.DataFrame({'x': _r * np.cos(_a), 'y': _r * np.sin(_a)})
+    else:
+        _w = [w for w in _root.findall('wall') if w.get('type') == 'boundary']
+        _xs = [float(w.get(k)) for w in _w for k in ('x1', 'x2')]
+        _ys = [float(w.get(k)) for w in _w for k in ('y1', 'y2')]
+        sample = pd.DataFrame({
+            'x': rng.uniform(min(_xs) + 0.4, max(_xs) - 0.4, TIMED_N),
+            'y': rng.uniform(min(_ys) + 0.4, max(_ys) - 0.4, TIMED_N)})
+    n_grid, grid_note = len(sample), '  (grid CSV missing - sampled from the world file)'
+    print(f'WARNING: {grid_csv} not found; timing on generated poses',
+          flush=True)
 
 robot.capture_pov_images([0.0])                      # warm up
 t0 = time.perf_counter()
@@ -136,12 +161,11 @@ for _, pos in sample.iterrows():
     robot.capture_pov_images([a])
 dt = (time.perf_counter() - t0) / len(sample)
 
-lines += ['--- timing ---',
-          f'  {len(sample)} single-heading captures on the real grid, '
-          f'{1000*dt:.1f} ms each',
+lines += ['--- timing ---' + grid_note,
+          f'  {len(sample)} single-heading captures, {1000*dt:.1f} ms each',
           f'  implied per position (8 headings): {8*1000*dt:.0f} ms',
-          f'  implied for this arena ({len(grid):,} positions): '
-          f'{8*dt*len(grid)/3600:.2f} h',
+          f'  implied for this arena ({n_grid:,} positions): '
+          f'{8*dt*n_grid/3600:.2f} h',
           '']
 
 body = '\n'.join(lines)
