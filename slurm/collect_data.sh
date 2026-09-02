@@ -20,16 +20,32 @@
 #SBATCH --partition=general
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=64
 #SBATCH --mem=32G
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# No --gres. The camera is 224x224 and the lidar 360x1, so llvmpipe carries
-# the render and a GPU would sit unused -- see container/README.md. CPUs do
-# matter: llvmpipe is threaded, and feature extraction runs a thread pool.
+# No --gres: Webots renders through GLX and Xvfb is a software X server, so a
+# bound GPU sits unused -- see container/README.md.
+#
+# 64 CPUs is not about thread scaling. It is how a fast NODE is selected.
+# Measured per-position cost (perf_probe, circ_lm8_r0):
+#
+#   32-core node (dual Xeon E5-2620 v4)   1154-1168 ms   9.7 h per arena
+#   64-core node (EPYC)                        288 ms    2.4 h per arena
+#
+# A bare simulation step is 158 ms on the old Xeons against 15 ms on EPYC --
+# 10x, from clock and roughly 3x the memory bandwidth, which is what a
+# software rasteriser is bound by. Requesting 64 CPUs excludes the 32-core
+# nodes, which is worth far more than any thread scaling within a node. An
+# earlier reading that "64 cores buys only 1.3x" was confounded: that run
+# landed on a busy 96-core node while its comparison sat on slow 32-core
+# ones.
+#
+# The small Xvfb screen is the same insurance: 2.4x faster on the slow nodes
+# (1154 -> 482 ms), within noise on the fast ones, so it costs nothing.
 #
 # 48 h, against a measured ~9.7 h per arena (perf_probe on 32 CPUs: 1164 ms
 # per position x 30,149 positions). The headroom is deliberate. The same unit
@@ -90,7 +106,7 @@ write_runtime_ini
 # not the camera, is the bulk of every step under llvmpipe. Shrinking the
 # virtual screen costs nothing and is one of two ways to find out; passing
 # --no-rendering to Webots is the other.
-XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
+XVFB_SCREEN="${XVFB_SCREEN:-320x240x24}"
 echo "xvfb screen: $XVFB_SCREEN"
 export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1

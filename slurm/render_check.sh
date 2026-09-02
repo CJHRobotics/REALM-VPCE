@@ -100,7 +100,7 @@ write_runtime_ini
 # not the camera, is the bulk of every step under llvmpipe. Shrinking the
 # virtual screen costs nothing and is one of two ways to find out; passing
 # --no-rendering to Webots is the other.
-XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
+XVFB_SCREEN="${XVFB_SCREEN:-320x240x24}"
 echo "xvfb screen: $XVFB_SCREEN"
 export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1
