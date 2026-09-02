@@ -170,9 +170,15 @@ for maze_index, maze in enumerate(maze_files):
     print(f"{'='*50}")
 
     out_path = 'data/vpce/collect_data/' + maze
-    if os.path.exists(out_path + '.h5'):
+    # The skip is existence-only: it cannot tell a current dataset from one
+    # collected before the landmarks were resized, or from a truncated file
+    # left by a killed job. REALM_FORCE=1 recollects and overwrites.
+    if os.path.exists(out_path + '.h5') and not os.environ.get('REALM_FORCE'):
         print(f"Already collected, skipping: {out_path}.h5")
+        print("  (set REALM_FORCE=1 to recollect and overwrite)")
         continue
+    if os.path.exists(out_path + '.h5'):
+        print(f"REALM_FORCE set -- overwriting {out_path}.h5")
 
     # Load (or reload) the environment for this maze
     if env_loaded:

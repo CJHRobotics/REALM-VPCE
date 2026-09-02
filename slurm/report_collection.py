@@ -10,6 +10,7 @@ judged from the mail rather than by opening files afterwards.
 
 import os
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -72,6 +73,16 @@ def grid(maze):
     return f'  grid      {len(d):,} positions, spacing {s:.4f} m{shared}'
 
 
+def grid_size(maze):
+    csv = f'{ENVS}/positions/{maze}_positions.csv'
+    if not os.path.exists(csv):
+        csv = f'{ENVS}/positions/{POSITIONS_FALLBACK}'
+    if not os.path.exists(csv):
+        return None
+    import pandas as pd
+    return len(pd.read_csv(csv))
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -102,7 +113,21 @@ def main():
         found += 1
         s = summarize(path)
         all_ok &= s['ok']
-        lines += [format_summary(s), '']
+        lines += [format_summary(s)]
+        # Position count against the current grid. The skip check is
+        # existence-only, so a dataset predating a grid or landmark change
+        # looks identical to a fresh one; this is the cheapest signal that
+        # tells them apart.
+        n_grid = grid_size(maze)
+        n_have = s.get('positions')
+        if n_grid and n_have and n_grid != n_have:
+            lines += [f'  STALE: {n_have:,} positions but the current grid '
+                      f'has {n_grid:,} -- collected against a different grid. '
+                      f'Recollect with REALM_FORCE=1.']
+            all_ok = False
+        elif n_grid and n_have:
+            lines += [f'  matches the current grid ({n_grid:,} positions)']
+        lines += ['', f'  file written {time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(path)))}', '']
 
     verdict = ('All datasets look usable.' if all_ok and found else
                'PROBLEMS -- see above. Do not run experiments on these.')
