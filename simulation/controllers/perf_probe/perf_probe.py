@@ -1,23 +1,22 @@
-"""Where does a Webots simulation step actually go?
+"""Where does the cost of a Webots capture actually go?
 
-A single-heading capture measured 15.5 s on GAIVI: two simulation steps, so
-~7.75 s each. That is far too slow to be the 224x224 camera -- 50k pixels
-should rasterise in milliseconds even in software -- so something else per
-step dominates, and guessing which is a poor way to spend twenty hours of
-collection.
+First probe result, 32 CPUs, circ_lm8_r0:
 
-Each sensor can be toggled at runtime, so this times bare steps with
-different subsets enabled and reports the share attributable to each:
+    all on (camera+recognition+lidar)   212.2 ms/step
+    camera + lidar, no recognition      210.2 ms/step
+    camera only                         206.4 ms/step
+    bare physics step                     0.7 ms/step
 
-    camera       224x224 RGB
-    recognition  an extra segmentation pass plus object detection, used only
-                 to fill landmark_mask / landmark_azimuths, which the current
-                 channel-isolation pipeline does not read
-    lidar        360 degrees of field of view at maxRange 40, which Webots
-                 covers with several depth-render passes
+So the camera render is essentially the entire per-step cost, and
+recognition (~2 ms) and lidar (~4 ms) are noise beside it. 206 ms for 50k
+pixels is roughly 200x what hardware GL would cost -- this is the price of
+llvmpipe.
 
-Reports CPU count too, since llvmpipe is threaded and the allocation size is
-one of the levers being considered.
+That leaves a second discrepancy this probe exists to settle. At 212 ms per
+step a capture is two steps, so ~0.42 s; the render check measured 15.5 s.
+Bare step() calls are not what collection does, so this times the real path
+instead -- supervisor field writes, resetPhysics, and the per-heading loop
+-- to find where the other 36x lives.
 """
 
 import os
@@ -31,6 +30,8 @@ if REPO not in sys.path:
 print(f"repo root: {REPO}", flush=True)
 
 import time
+import traceback
+
 import numpy as np
 
 from realm_tools.robot_lib.my_robot import MyRobot
@@ -39,68 +40,100 @@ from realm_tools.experiment_lib.reporting import send_email
 MAZE = os.environ.get('REALM_MAZE', 'circ_lm8_r0')
 N = int(os.environ.get('REALM_PROBE_N', '10'))
 
-robot = MyRobot(enable_cnn_features=False)
-robot.load_environment(
-    f'simulation/worlds/environments/vpce/{MAZE}.xml', floor_texture='carpet')
-ts = robot.timestep
-sup = robot.experiment_supervisor
-print(f'loaded {MAZE}; basicTimeStep {ts} ms; cpus {os.cpu_count()}', flush=True)
+rows = []
+lines = []
 
 
-def time_steps(label, n=N, read_camera=False, read_lidar=False):
-    """Mean wall time of one sim step under the current device configuration."""
-    sup.step(ts)                                        # warm up
+def bench(label, fn, n=N):
+    fn()                                                # warm up
     t0 = time.perf_counter()
     for _ in range(n):
-        sup.step(ts)
-        if read_camera:
-            robot.camera.getImage()
-        if read_lidar:
-            robot.lidar.getRangeImage()
+        fn()
     dt = (time.perf_counter() - t0) / n
-    print(f'  {label:38s} {1000*dt:9.1f} ms/step', flush=True)
+    rows.append((label, dt))
+    print(f'  {label:44s} {1000*dt:9.1f} ms', flush=True)
     return dt
 
 
-rows = []
-print('--- timing ---', flush=True)
+try:
+    robot = MyRobot(enable_cnn_features=False)
+    robot.load_environment(
+        f'simulation/worlds/environments/vpce/{MAZE}.xml', floor_texture='carpet')
+    ts, sup = robot.timestep, robot.experiment_supervisor
+    hdr = (f'perf probe | {MAZE} | cpus {os.cpu_count()} | '
+           f'basicTimeStep {ts} ms | {N} reps')
+    print(hdr, flush=True)
 
-# Everything on, as collection runs today.
-rows.append(('all devices, as collected', time_steps(
-    'all on (camera+recognition+lidar)', read_camera=True, read_lidar=True)))
+    rng = np.random.default_rng(0)
 
-robot.camera.recognitionDisable()
-rows.append(('recognition off', time_steps(
-    'camera + lidar, no recognition', read_camera=True, read_lidar=True)))
+    def rand_xy():
+        a = rng.uniform(0, 2 * np.pi)
+        r = 8.0 * np.sqrt(rng.uniform())
+        return float(r * np.cos(a)), float(r * np.sin(a)), float(a)
 
-robot.lidar.disable()
-rows.append(('recognition + lidar off', time_steps(
-    'camera only', read_camera=True)))
+    print('--- per-step primitives ---', flush=True)
+    bench('bare step()', lambda: sup.step(ts))
+    bench('step() + camera.getImage()',
+          lambda: (sup.step(ts), robot.camera.getImage()))
+    bench('step() + getImage + getRecognitionObjects',
+          lambda: (sup.step(ts), robot.camera.getImage(),
+                   robot.camera.getRecognitionObjects()))
 
-robot.camera.disable()
-rows.append(('all sensors off', time_steps('bare physics step')))
+    print('--- supervisor writes, no step ---', flush=True)
+    bench('setSFRotation only',
+          lambda: robot.robot_rotation_field.setSFRotation([0, 0, 1, 1.0]))
 
-# Put them back and isolate the lidar on its own.
-robot.camera.enable(ts)
-robot.lidar.enable(ts)
-robot.camera.recognitionDisable()
-rows.append(('lidar re-enabled, camera not read', time_steps(
-    'camera enabled but unread + lidar', read_lidar=True)))
+    def _tp_fields():
+        x, y, th = rand_xy()
+        robot.robot_translation_field.setSFVec3f([x, y, 0.09])
+        robot.robot_rotation_field.setSFRotation([0, 0, 1, th])
+    bench('setSFVec3f + setSFRotation', _tp_fields)
+    bench('resetPhysics() only', lambda: robot.robot_node.resetPhysics())
 
-base = rows[0][1]
-lines = [f'perf probe | maze = {MAZE} | cpus = {os.cpu_count()} | '
-         f'basicTimeStep = {ts} ms', '',
-         f'{N} steps per configuration, mean wall time per step:', '']
-for label, dt in rows:
-    lines.append(f'  {label:38s} {1000*dt:9.1f} ms   '
-                 f'({100*dt/base:5.1f}% of full)')
-lines += ['',
-          'Differences between consecutive rows give each device its share.',
-          'A capture is two steps, so full-configuration cost per capture is '
-          f'about {2*1000*base:.0f} ms.']
+    print('--- the real collection path ---', flush=True)
 
-body = '\n'.join(lines)
-print(body, flush=True)
-send_email(f'[REALM-VPCE] perf probe — {MAZE}', body)
+    def _teleport():
+        x, y, th = rand_xy()
+        robot.teleport_robot(x=x, y=y, theta=th)
+    bench('teleport_robot()  [fields + resetPhysics + 1 step]', _teleport)
 
-sup.simulationQuit(0)
+    def _one_heading():
+        robot.capture_pov_images([0.0])
+    bench('capture_pov_images(1 heading)', _one_heading)
+
+    def _teleport_capture_1():
+        x, y, th = rand_xy()
+        robot.teleport_robot(x=x, y=y, theta=th)
+        robot.capture_pov_images([th])
+    bench('teleport + capture 1 heading  [render_check unit]',
+          _teleport_capture_1)
+
+    THETAS = [0.0, 0.7854, 1.5708, 2.3562, 3.1416, 3.9270, 4.7124, 5.4978]
+
+    def _collection_unit():
+        x, y, th = rand_xy()
+        robot.teleport_robot(x=x, y=y, theta=th)
+        robot.capture_pov_images(THETAS)
+    bench('teleport + capture 8 headings [collection unit]',
+          _collection_unit, n=max(3, N // 3))
+
+    unit = dict(rows)['teleport + capture 8 headings [collection unit]']
+    lines = [hdr, '', 'mean wall time:', '']
+    lines += [f'  {k:44s} {1000*v:9.1f} ms' for k, v in rows]
+    lines += ['',
+              f'One collection position costs {1000*unit:.0f} ms.',
+              f'30,149 positions -> {unit*30149/3600:.1f} h per arena.']
+except Exception:
+    tb = traceback.format_exc()
+    print(tb, flush=True)
+    lines = (lines or ['perf probe failed before producing rows']) + ['', tb]
+finally:
+    body = '\n'.join(lines) if lines else 'perf probe produced no output'
+    print(body, flush=True)
+    # Sent from `finally` so a crash still reports: the previous version died
+    # partway and mailed nothing, leaving only the job log.
+    send_email(f'[REALM-VPCE] perf probe — {MAZE}', body)
+    try:
+        robot.experiment_supervisor.simulationQuit(0)
+    except Exception:
+        pass
