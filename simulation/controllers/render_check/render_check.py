@@ -49,7 +49,7 @@ TAG = os.environ.get('REALM_RUN_TAG', '')
 SUF = f'_{TAG}' if TAG else ''
 # Captures used for the timing estimate. Three poses is enough to see whether
 # the renderer works and far too few to time it.
-TIMED_N = int(os.environ.get('REALM_TIMED_N', '20'))
+TIMED_N = int(os.environ.get('REALM_TIMED_N', '10'))
 MAZE_FILE = f'simulation/worlds/environments/vpce/{MAZE}.xml'
 OUT_DIR = 'data_cache/render_check'
 
@@ -153,13 +153,22 @@ else:
     print(f'WARNING: {grid_csv} not found; timing on generated poses',
           flush=True)
 
+print(f'--- timing: {len(sample)} captures (silent stretch, ~1 line each) ---',
+      flush=True)
 robot.capture_pov_images([0.0])                      # warm up
 t0 = time.perf_counter()
-for _, pos in sample.iterrows():
+for i, (_, pos) in enumerate(sample.iterrows(), 1):
     a = float(rng.uniform(0, 2 * np.pi))
+    tc = time.perf_counter()
     robot.teleport_robot(x=float(pos.x), y=float(pos.y), theta=a)
     robot.capture_pov_images([a])
+    # Printed per capture rather than at the end: without it this loop is a
+    # silent stretch that looks indistinguishable from a hang, which is
+    # exactly how it was first read.
+    print(f'  capture {i:3d}/{len(sample)}  {1000*(time.perf_counter()-tc):7.1f} ms'
+          f'  (x={pos.x:7.3f} y={pos.y:7.3f})', flush=True)
 dt = (time.perf_counter() - t0) / len(sample)
+print(f'--- timing done: {1000*dt:.1f} ms per capture ---', flush=True)
 
 lines += ['--- timing ---' + grid_note,
           f'  {len(sample)} single-heading captures, {1000*dt:.1f} ms each',
