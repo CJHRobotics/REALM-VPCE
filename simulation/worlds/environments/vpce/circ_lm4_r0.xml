@@ -12,16 +12,16 @@
 <world>
 	<circular_wall radius="10.0" height="0.5" thickness="0.5" subdivision="128"/>
 
-    <landmark type="panel" x=" 7.0711" y=" 7.0711" theta="-2.356" height="0.75" width="0.75"
+    <landmark type="panel" x=" 7.0711" y=" 7.0711" theta="-2.356" height="0.25" width="0.25"
               texture="../protos/world_objects/textures/flags/flag_0.png"
               red="1.00" green="0.00" blue="0.00"/>
-    <landmark type="panel" x="-7.0711" y=" 7.0711" theta="-0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-7.0711" y=" 7.0711" theta="-0.785" height="0.25" width="0.25"
               texture="../protos/world_objects/textures/flags/flag_1.png"
               red="0.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x="-7.0711" y="-7.0711" theta=" 0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-7.0711" y="-7.0711" theta=" 0.785" height="0.25" width="0.25"
               texture="../protos/world_objects/textures/flags/flag_2.png"
               red="0.00" green="0.00" blue="1.00"/>
-    <landmark type="panel" x=" 7.0711" y="-7.0711" theta=" 2.356" height="0.75" width="0.75"
+    <landmark type="panel" x=" 7.0711" y="-7.0711" theta=" 2.356" height="0.25" width="0.25"
               texture="../protos/world_objects/textures/flags/flag_3.png"
               red="1.00" green="1.00" blue="0.00"/>
 

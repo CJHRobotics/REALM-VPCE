@@ -21,7 +21,8 @@ maze_file_dir = 'simulation/worlds/environments/vpce/'
 # ranged 1,018 to 30,172 and field count would have scaled with area whether
 # or not the model did anything. circ_lm8_r0 is the r = 10 member and is
 # already collected.
-maze_files = ['circ_lm8_rad2p0', 'circ_lm8_rad3p5', 'circ_lm8_rad6p0']
+maze_files = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0',
+              'circ_lm8_rad3p5', 'circ_lm8_rad6p0']
 
 # Already collected, add back to regenerate:
 #   landmark-count sweep  circ_lm4_r0, circ_lm6_r0, circ_lm8_r0, circ_lm10_r0

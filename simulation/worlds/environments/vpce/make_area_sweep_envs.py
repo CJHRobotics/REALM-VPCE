@@ -4,6 +4,7 @@ Replicates Harland et al. 2021's four-environment design -- number of fields,
 summed field area, and fractional coverage against enclosure area -- with the
 landmarks held at a FIXED physical size, as their room cues were.
 
+    circ_lm8_rad1p25    r = 1.25     4.91 m2   12.5 robot lengths across
     circ_lm8_rad2p0     r = 2.0     12.57 m2     20 robot lengths across
     circ_lm8_rad3p5     r = 3.5     38.48 m2     35
     circ_lm8_rad6p0     r = 6.0    113.10 m2     60
@@ -11,12 +12,19 @@ landmarks held at a FIXED physical size, as their room cues were.
 
 Two design constraints set the endpoints, and neither is negotiable.
 
-**The small end is set by the landmarks, not the robot.** Eight 0.75 m panels
-occupy a fixed 6 m of wall. At r = 2.0 that is 48% of the circumference; at
-r = 1.5 it is 64% and at r = 1.0 it is 96% -- the arena stops being a room with
-landmarks in it and becomes a ring of flags, which is a different environment
-rather than a smaller one. r = 2.0 is the smallest radius at which the wall is
-still mostly wall.
+**The small end is set by the robot.** Eight 0.25 m panels occupy 2 m of wall,
+which is 26% of the circumference at r = 1.25 and still only 42% at r = 0.75 --
+so landmark crowding is not the binding constraint. What binds is the robot:
+its circumscribing radius is 0.31 m, and the 0.2 m wall keep-out leaves a
+walkable disc of only 1.05 m radius at r = 1.25. Below that the robot occupies
+an appreciable fraction of the arena it is meant to be mapping.
+
+Note the cost at the other end. A 0.25 m panel seen from across the r = 10
+arena spans roughly 4 px of a 224 px image, against 11 px for the same panel
+at r = 3.5. Landmark visibility therefore falls as the arena grows, and the
+sweep confounds enclosure size with cue salience. That is a genuine property of
+fixed-size cues rather than a defect -- distant cues do subtend less -- but it
+belongs in the interpretation.
 
 **Sampling density must NOT be held constant.** At the usual 0.1 m spacing the
 four arenas would carry 1,018 / 3,421 / 10,568 / 30,172 positions -- a 30-fold
@@ -43,7 +51,7 @@ COLORS = [(1.00, 0.00, 0.00), (0.00, 1.00, 0.00), (0.00, 0.00, 1.00),
           (0.50, 0.00, 0.50), (0.00, 0.50, 0.50)]
 
 N_LANDMARKS = 8
-PANEL = 0.75          # fixed physical size -- the point of this sweep
+PANEL = 0.25          # fixed physical size -- the point of this sweep
 WALL_H = 0.5
 WALL_THICK = 0.5
 SUBDIV = 128
@@ -52,7 +60,8 @@ MARGIN = 0.2          # keep-out from the wall, absolute (a physical robot
 N_TARGET = 30147      # matches circ_lm8_r0, so N is not a variable
 
 # (name, radius). r = 10 is circ_lm8_r0, already built and collected.
-SPECS = [('circ_lm8_rad2p0', 2.0),
+SPECS = [('circ_lm8_rad1p25', 1.25),
+         ('circ_lm8_rad2p0', 2.0),
          ('circ_lm8_rad3p5', 3.5),
          ('circ_lm8_rad6p0', 6.0)]
 
