@@ -63,6 +63,7 @@ try:
     hdr = (f'perf probe | {MAZE} | cpus {os.cpu_count()} | '
            f'alloc {os.environ.get("SLURM_CPUS_PER_TASK", "?")} | '
            f'LP_NUM_THREADS {os.environ.get("LP_NUM_THREADS", "unset")} | '
+           f'xvfb {os.environ.get("XVFB_SCREEN", "?")} | '
            f'basicTimeStep {ts} ms | {N} reps')
     print(hdr, flush=True)
 

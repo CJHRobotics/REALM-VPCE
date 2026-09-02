@@ -95,6 +95,13 @@ write_runtime_ini
 # picks a number we never see. Setting it explicitly makes the thread count a
 # measured variable rather than an assumption -- and shows in the log whether
 # a larger allocation is actually being used for rasterisation.
+# Xvfb's default screen is 1280x1024 -- 1.3 million pixels, 26x the camera's
+# 224x224. If Webots renders its main 3D view at screen size then that view,
+# not the camera, is the bulk of every step under llvmpipe. Shrinking the
+# virtual screen costs nothing and is one of two ways to find out; passing
+# --no-rendering to Webots is the other.
+XVFB_SCREEN="${XVFB_SCREEN:-1280x1024x24}"
+echo "xvfb screen: $XVFB_SCREEN"
 export LP_NUM_THREADS="${LP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
 export PYTHONUNBUFFERED=1
 echo "llvmpipe threads: $LP_NUM_THREADS (of ${SLURM_CPUS_PER_TASK:-?} allocated CPUs)"
@@ -117,7 +124,7 @@ timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
     --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
     --env LP_NUM_THREADS="$LP_NUM_THREADS" \
     "$SIF" \
-    xvfb-run -a webots --batch --stdout --stderr --mode=fast --minimize \
+    xvfb-run -a -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize \
         "${WEBOTS_EXTRA[@]+"${WEBOTS_EXTRA[@]}"}" "$WORLD"
 STATUS=$?
 set -e
