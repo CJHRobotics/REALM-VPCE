@@ -18,7 +18,7 @@
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=collect
 #SBATCH --partition=general
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G
@@ -31,10 +31,19 @@
 # the render and a GPU would sit unused -- see container/README.md. CPUs do
 # matter: llvmpipe is threaded, and feature extraction runs a thread pool.
 #
-# 24 h is a guess for one arena of ~30k positions x 8 headings under software
-# rendering; the Mac took ~2 h with a real GPU. Collection is resumable --
-# an arena whose .h5 already exists is skipped -- so a timeout costs only the
-# arena in flight.
+# 48 h, against a measured ~9.7 h per arena (perf_probe on 32 CPUs: 1164 ms
+# per position x 30,149 positions). The headroom is deliberate. The same unit
+# measured 15.5 s on an 8-CPU allocation, and only 4x of that 15.7x gap is the
+# CPU count -- the rest is node contention, so the estimate is optimistic
+# rather than a floor.
+#
+# Resumability is per arena, not within one: collect_data accumulates the whole
+# dataset in memory and writes the .h5 only at the end, so a timeout loses that
+# arena's entire run rather than part of it. That asymmetry is why the walltime
+# is generous.
+#
+# Memory: ~241k rows x 7,364 float32 features is ~7.1 GB held live, plus the
+# image batch, hence 32G.
 # --------------------------------------------------------------------------
 
 set -euo pipefail
