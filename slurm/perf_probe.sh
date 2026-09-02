@@ -140,7 +140,7 @@ timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
     --env EMAIL_SMTP_USER="${EMAIL_SMTP_USER:-}" --env EMAIL_SMTP_PASS="${EMAIL_SMTP_PASS:-}" \
     --env LP_NUM_THREADS="$LP_NUM_THREADS" --env XVFB_SCREEN="$XVFB_SCREEN" \
     "$SIF" \
-    xvfb-run -n "$XVFB_DISPLAY" -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize --port "$WEBOTS_PORT" \
+    xvfb-run -n "$XVFB_DISPLAY" -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize --port="$WEBOTS_PORT" \
         "${WEBOTS_EXTRA[@]+"${WEBOTS_EXTRA[@]}"}" "$WORLD"
 STATUS=$?
 set -e
