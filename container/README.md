@@ -189,40 +189,46 @@ Auto-selected fidelity is a bad property for reproducible data collection.
 
 ---
 
-## Why not use the GPUs
+## Using the GPUs — this section was wrong
 
-GAIVI has plenty of GPUs, and `singularity --nv` would bind the driver in.
-It does not help by itself: Webots renders through **GLX**, GLX
-acceleration comes from the X server, and Xvfb is a software X server. The
-GPU would be mounted and never asked for anything.
+It previously argued that a bound GPU would go unused, on the reasoning that
+Webots renders through GLX, GLX acceleration comes from the X server, and
+Xvfb is a software X server with no NVIDIA GLX extension. That reasoning
+predicted `--nv` would change nothing.
 
-Real options, if throughput ever demands it:
+**It was wrong.** Measured per collection position on `circ_lm8_r0`:
 
-- **VirtualGL** — `vglrun` interposes on GLX, renders on the GPU (3.x can
-  use EGL with no X server), blits back into Xvfb. The standard solution.
-  Installable at image build time. `libEGL_nvidia.so.0` is present on the
-  nodes, so the pieces are there.
-- **`QT_QPA_PLATFORM=eglfs`** — skips X entirely, but depends on Webots
-  supporting it. Unverified and probably a rabbit hole.
+| configuration | bare step | per position | per arena |
+|---|---|---|---|
+| 32-core node, llvmpipe | 158 ms | 1154 ms | 9.7 h |
+| 64-core node, llvmpipe | 15 ms | 288 ms | 2.4 h |
+| **32-core node, `--nv`** | **2.1 ms** | **22 ms** | **0.2 h** |
 
-**This is not a fidelity fix.** Hardware GL would still not match the Mac —
-different vendor, driver, rasterization, texture filtering. Only collecting
-every condition on one platform fixes comparability.
+75x on the same node class, and faster than the Mac that produced the
+original datasets. Two things are needed together, and either alone does
+nothing:
 
-Order to try things in, if rendering turns out too slow:
+- `singularity --nv`, which binds the host driver.
+- Overriding the image's `LIBGL_ALWAYS_SOFTWARE=1` and
+  `GALLIUM_DRIVER=llvmpipe`, which are pinned at build time and would
+  otherwise keep GL in software however many GPUs were bound.
 
-1. Disable what is not needed. The robot `Display` is **800x800** and
-   redraws on every teleport — 12x the camera's pixels, for a
-   visualisation nobody watches on a cluster.
-2. Scale out, not up: many CPU-only Webots instances. For RL this beats GPU
-   rendering anyway, since CPU allocations schedule far faster.
-3. Only then VirtualGL.
+`slurm/_webots_env.sh` does both under `USE_GPU=1`, and `gl_info` aborts the
+job if the renderer still comes back as llvmpipe — a silent fallback turns a
+12-minute arena into as much as ten hours and looks like nothing but a slow
+run.
 
-Drive this with a measured positions-per-second number from the real world
-file, not from the fact that the GPUs exist. **That benchmark has not been
-run yet.**
+VirtualGL is therefore not needed. Keep the note only as the record of a
+prediction that empirical measurement overturned.
 
----
+### What the software-rendering path taught us anyway
+
+Under llvmpipe the node matters far more than the allocation: a bare step is
+158 ms on the 32-core dual Xeon E5-2620 v4 nodes and 15 ms on 64-core EPYC,
+which is clock plus roughly 3x the memory bandwidth that a software
+rasteriser is bound by. Shrinking the Xvfb screen from 1280x1024 to 320x240
+bought 2.4x on the slow nodes and nothing on the fast ones. Both are moot
+with a GPU, but they are the levers if one is ever unavailable.
 
 ## Where things stand
 

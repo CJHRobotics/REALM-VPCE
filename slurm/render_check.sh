@@ -32,14 +32,15 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=16G
+#SBATCH --gres=gpu:1
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# No --gres. The camera is 224x224 and the lidar 360x1, so llvmpipe carries
-# the render and a GPU would sit unused -- see container/README.md. CPUs do
-# matter: llvmpipe is threaded, and feature extraction runs a thread pool.
+# --gres=gpu:1 with USE_GPU=1, matching the collection job: hardware GL
+# renders a step in 2.1 ms against 15-158 ms on llvmpipe. gl_info aborts if
+# GL falls back to software.
 #
 # 24 h is a guess for one arena of ~30k positions x 8 headings under software
 # rendering; the Mac took ~2 h with a real GPU. Collection is resumable --
@@ -70,6 +71,9 @@ SINGULARITY=/apps/singularity/bin/singularity
 source "$REPO_DIR/slurm/_webots_env.sh"
 resolve_python
 container_binds || exit 1
+USE_GPU="${USE_GPU:-1}"
+gpu_args
+gl_info || exit 1
 WORLD="$REPO_DIR/simulation/worlds/render_check.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -116,7 +120,7 @@ WEBOTS_TIMEOUT="${WEBOTS_TIMEOUT:-900}"
 
 set +e
 timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
-"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" \
+"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
     --env REALM_MAZE="$MAZE" --env REALM_RUN_TAG="$RUN_TAG" \
     --env REALM_TIMED_N="${REALM_TIMED_N:-20}" \
     --env EMAIL_TO="${EMAIL_TO:-}" --env EMAIL_FROM="${EMAIL_FROM:-}" \

@@ -18,48 +18,41 @@
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=collect
 #SBATCH --partition=general
-#SBATCH --time=48:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
+#SBATCH --gres=gpu:1
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# No --gres: Webots renders through GLX and Xvfb is a software X server, so a
-# bound GPU sits unused -- see container/README.md.
+# --gres=gpu:1 and USE_GPU=1 by default. Measured per position on
+# circ_lm8_r0 (perf_probe):
 #
-# 64 CPUs is not about thread scaling. It is how a fast NODE is selected.
-# Measured per-position cost (perf_probe, circ_lm8_r0):
+#   32-core node, llvmpipe    1154 ms    9.7 h per arena
+#   64-core node, llvmpipe     288 ms    2.4 h per arena
+#   32-core node, GPU           22 ms    0.2 h per arena
 #
-#   32-core node (dual Xeon E5-2620 v4)   1154-1168 ms   9.7 h per arena
-#   64-core node (EPYC)                        288 ms    2.4 h per arena
+# 75x on the same node class, and faster than the Mac that produced the
+# original datasets. This contradicts the reasoning in container/README.md,
+# which argued a bound GPU would go unused because Webots renders through
+# GLX and Xvfb is a software X server. Empirically it does get used; the
+# reasoning was wrong and the note has been corrected.
 #
-# A bare simulation step is 158 ms on the old Xeons against 15 ms on EPYC --
-# 10x, from clock and roughly 3x the memory bandwidth, which is what a
-# software rasteriser is bound by. Requesting 64 CPUs excludes the 32-core
-# nodes, which is worth far more than any thread scaling within a node. An
-# earlier reading that "64 cores buys only 1.3x" was confounded: that run
-# landed on a busy 96-core node while its comparison sat on slow 32-core
-# ones.
+# Because the GPU makes node choice irrelevant, the request drops back to 16
+# CPUs and any GPU. Do not pin a GPU type: per the slurm README that queues
+# behind the named nodes for no gain here, since a 224x224 render asks
+# almost nothing of the card.
 #
-# The small Xvfb screen is the same insurance: 2.4x faster on the slow nodes
-# (1154 -> 482 ms), within noise on the fast ones, so it costs nothing.
-#
-# 48 h, against a measured ~9.7 h per arena (perf_probe on 32 CPUs: 1164 ms
-# per position x 30,149 positions). The headroom is deliberate. The same unit
-# measured 15.5 s on an 8-CPU allocation, and only 4x of that 15.7x gap is the
-# CPU count -- the rest is node contention, so the estimate is optimistic
-# rather than a floor.
-#
-# Resumability is per arena, not within one: collect_data accumulates the whole
-# dataset in memory and writes the .h5 only at the end, so a timeout loses that
-# arena's entire run rather than part of it. That asymmetry is why the walltime
-# is generous.
+# gl_info aborts the job if GL falls back to software, rather than letting a
+# 12-minute arena silently become a ten-hour one.
 #
 # Memory: ~241k rows x 7,364 float32 features is ~7.1 GB held live, plus the
-# image batch, hence 32G.
+# image batch, hence 32G. Resumability is per arena, not within one --
+# collect_data writes the .h5 only at the end -- so a timeout loses that
+# arena's whole run.
 # --------------------------------------------------------------------------
 
 set -euo pipefail
@@ -77,6 +70,9 @@ SINGULARITY=/apps/singularity/bin/singularity
 source "$REPO_DIR/slurm/_webots_env.sh"
 resolve_python
 container_binds || exit 1
+USE_GPU="${USE_GPU:-1}"
+gpu_args
+gl_info || exit 1
 WORLD="$REPO_DIR/simulation/worlds/collect_data.wbt"
 
 [[ -f "$SIF"   ]] || { echo "ERROR: image not found: $SIF" >&2; exit 1; }
@@ -121,7 +117,7 @@ WEBOTS_TIMEOUT="${WEBOTS_TIMEOUT:-84000}"
 
 set +e
 timeout --signal=TERM --kill-after=60 "$WEBOTS_TIMEOUT" \
-"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" --env REALM_MAZES="${REALM_MAZES:-}" --env LP_NUM_THREADS="$LP_NUM_THREADS" \
+"$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" --env REALM_MAZES="${REALM_MAZES:-}" --env LP_NUM_THREADS="$LP_NUM_THREADS" \
     "$SIF" \
     xvfb-run -a -s "-screen 0 $XVFB_SCREEN" webots --batch --stdout --stderr --mode=fast --minimize "$WORLD"
 STATUS=$?

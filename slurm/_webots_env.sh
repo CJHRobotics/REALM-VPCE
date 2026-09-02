@@ -125,5 +125,19 @@ gl_info() {
         "$SINGULARITY" exec "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" "$SIF" \
             nvidia-smi --query-gpu=name,driver_version --format=csv,noheader \
             2>&1 | head -3 || echo "  (no nvidia-smi in image)"
+        # Fail rather than fall back. Hardware GL renders a step in 2.1 ms and
+        # llvmpipe in 15-158 ms depending on the node, so a silent fallback
+        # turns a 12-minute arena into anywhere up to ten hours -- and looks
+        # like nothing but a slow run.
+        local r
+        r="$("$SINGULARITY" exec "${BINDS[@]+"${BINDS[@]}"}" "${GPU_ARGS[@]+"${GPU_ARGS[@]}"}" \
+            "$SIF" xvfb-run -a -s "-screen 0 ${XVFB_SCREEN:-1280x1024x24}" \
+            glxinfo -B 2>/dev/null | grep -i 'OpenGL renderer' || true)"
+        if [[ "$r" == *llvmpipe* || "$r" == *softpipe* || "$r" == *swrast* ]]; then
+            echo "ERROR: USE_GPU=1 but GL fell back to software: $r" >&2
+            echo "       Set USE_GPU=0 to run on llvmpipe deliberately." >&2
+            return 1
+        fi
     fi
+    return 0
 }
