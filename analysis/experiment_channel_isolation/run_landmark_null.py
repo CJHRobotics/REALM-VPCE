@@ -214,7 +214,62 @@ def run_tests(bank, lms, env, rng):
     rho, p = stats.spearmanr(d_lm, size)
     out['rho_size_dist'] = float(rho)
     out['p_size_dist'] = float(p)
+
+    # The same, with wall distance partialled out. Landmarks are on the wall,
+    # so the raw correlation above cannot distinguish a landmark effect from
+    # the known size-versus-wall-distance effect. This column is the one to
+    # read; the raw one is kept to show how much of it the wall explains.
+    if 'dist_to_wall_m' in bank:
+        d_wall = bank.dist_to_wall_m.to_numpy()
+        out['rho_dist_lm_vs_wall'] = float(stats.spearmanr(d_lm, d_wall).statistic)
+        rho_c, p_c = partial_spearman(d_lm, size, d_wall)
+        out['rho_size_dist_ctrl_wall'] = rho_c
+        out['p_size_dist_ctrl_wall'] = p_c
+
+        # Test 4 within wall-distance quartiles, so near/far is compared at
+        # matched wall distance rather than across it.
+        try:
+            qs = pd.qcut(d_wall, 4, labels=False, duplicates='drop')
+            ps = []
+            for q in np.unique(qs):
+                m = qs == q
+                near, far = size[m & (d_lm < 0.5 * spacing)], size[m & (d_lm >= 0.5 * spacing)]
+                if len(near) >= 5 and len(far) >= 5:
+                    ps.append(stats.mannwhitneyu(near, far,
+                                                 alternative='two-sided').pvalue)
+            if ps:
+                # Fisher combination across quartiles.
+                chi = -2 * np.sum(np.log(np.clip(ps, 1e-300, 1)))
+                out['p_size_half_spacing_ctrl_wall'] = float(
+                    stats.chi2.sf(chi, df=2 * len(ps)))
+        except ValueError:
+            pass
     return out
+
+
+def partial_spearman(x, y, z):
+    """Rank correlation of x and y with z partialled out.
+
+    Needed because landmarks sit ON THE WALL: distance to the nearest landmark
+    is strongly correlated with distance to the wall, and field size is known
+    to grow with wall distance (Harland r = 0.36-0.40, and our own geometry
+    sweep). Without this control, the established wall effect would present
+    itself as a landmark effect. Test 2's rotation null already controls for
+    radius; tests 4 and 5 had no equivalent.
+    """
+    rx, ry, rz = (stats.rankdata(v) for v in (x, y, z))
+    def resid(a, b):
+        b1 = np.column_stack([np.ones_like(b), b])
+        return a - b1 @ np.linalg.lstsq(b1, a, rcond=None)[0]
+    ex, ey = resid(rx, rz), resid(ry, rz)
+    if ex.std() < 1e-12 or ey.std() < 1e-12:
+        return np.nan, np.nan
+    rho = float(np.corrcoef(ex, ey)[0, 1])
+    n = len(x)
+    if n < 5 or abs(rho) >= 1:
+        return rho, np.nan
+    t = rho * np.sqrt((n - 3) / max(1 - rho ** 2, 1e-12))
+    return rho, float(2 * stats.t.sf(abs(t), df=n - 3))
 
 
 def _nn_dist(cx, cy):
@@ -417,6 +472,14 @@ class LandmarkNullReport(ExperimentReport):
             return f'NULL — no landmark structure in {len(self.results)} runs'
         return f'{n_sig}/{n_tot} landmark tests significant'
 
+    def figures(self):
+        import glob
+        return sorted(glob.glob(f'{self.fig_dir}/*.png'))
+
+    def data_files(self):
+        f = f'{self.out_dir}/results.csv'
+        return [f] if os.path.exists(f) else []
+
     def body(self):
         r = self.results
         if r is None or not len(r):
@@ -452,9 +515,10 @@ class LandmarkNullReport(ExperimentReport):
                 'effect is arena geometry rather than landmark appearance.']
         out.append(S('VERDICT', '\n'.join(verdict)))
 
-        cols = ['env', 'channel', 'n_fields', 'interlandmark_m',
-                'ks_folded_uniform_p', 'p_dist_lm_rotation', 'z_dist_lm_rotation',
-                'ks_gaps_expon_p', 'p_size_half_spacing', 'p_size_dist',
+        cols = ['env', 'channel', 'n_fields', 'ks_folded_uniform_p',
+                'p_dist_lm_rotation', 'z_dist_lm_rotation', 'ks_gaps_expon_p',
+                'rho_size_dist', 'rho_size_dist_ctrl_wall',
+                'p_size_dist_ctrl_wall', 'rho_dist_lm_vs_wall',
                 'n_landmark_effects']
         cols = [c for c in cols if c in r.columns]
         out.append(S('Per environment and channel', self.table(r[cols])))
@@ -554,11 +618,14 @@ def main():
             # Count only the landmark-specific tests, and require an effect
             # size as well as a p-value: with ~1000 fields, significance alone
             # is nearly guaranteed and says little.
+            # The wall-controlled variants are what count: landmarks sit on
+            # the wall, so the uncontrolled size tests cannot separate a
+            # landmark effect from the known wall effect.
             checks = [('ks_folded_uniform_p', None),
                       ('p_dist_lm_rotation', 'z_dist_lm_rotation'),
                       ('ks_gaps_expon_p', None),
-                      ('p_size_half_spacing', None),
-                      ('p_size_dist', 'rho_size_dist')]
+                      ('p_size_half_spacing_ctrl_wall', None),
+                      ('p_size_dist_ctrl_wall', 'rho_size_dist_ctrl_wall')]
             n_run = sum(1 for k, _ in checks if k in res)
             n_sig = 0
             for k, eff in checks:
@@ -566,7 +633,7 @@ def main():
                     continue
                 if eff == 'z_dist_lm_rotation' and abs(res.get(eff, 0)) < 2:
                     continue
-                if eff == 'rho_size_dist' and abs(res.get(eff, 0)) < 0.1:
+                if eff == 'rho_size_dist_ctrl_wall' and abs(res.get(eff, 0) or 0) < 0.1:
                     continue
                 n_sig += 1
             res['n_tests_run'], res['n_landmark_effects'] = n_run, n_sig
