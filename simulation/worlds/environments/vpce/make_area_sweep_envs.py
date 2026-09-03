@@ -51,7 +51,7 @@ COLORS = [(1.00, 0.00, 0.00), (0.00, 1.00, 0.00), (0.00, 0.00, 1.00),
           (0.50, 0.00, 0.50), (0.00, 0.50, 0.50)]
 
 N_LANDMARKS = 8
-PANEL = 0.50          # fixed physical size -- the point of this sweep
+PANEL = 0.75          # fixed physical size -- the point of this sweep
 WALL_H = 0.5
 WALL_THICK = 0.5
 SUBDIV = 128

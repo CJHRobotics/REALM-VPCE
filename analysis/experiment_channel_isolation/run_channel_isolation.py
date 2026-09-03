@@ -9,7 +9,7 @@ Channels
     visual                          hog + color + spatial
     all                             everything, including lidar
 
-Lidar is range-limited: beams beyond LIDAR_MAX_RANGE are replaced by a
+Lidar is uncapped; only non-finite beams are replaced by a
 sentinel and flagged in a companion in-range channel, so the agent's
 distance perception is bounded.
 
@@ -47,7 +47,7 @@ import channels as ch
 import rules as R
 
 
-LIDAR_MAX_RANGE = 5.0        # metres — the agent's distance perception limit
+LIDAR_MAX_RANGE = float('inf')   # uncapped: beams pass through at full range
 LIDAR_SENTINEL  = -1.0
 
 

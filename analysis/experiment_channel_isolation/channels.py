@@ -4,12 +4,22 @@ Each descriptor channel is loaded as its own block so the agglomeration can
 be run on one channel at a time (hog / color / spatial / lidar) as well as
 on combinations. Two things differ from `load_selective_features`:
 
-1. **Range-limited lidar.** Real range perception is bounded. Any beam
-   returning further than `lidar_max_range` — and any non-finite beam,
-   which is the sensor reporting "no hit" — is replaced by a sentinel and
-   flagged in a companion binary channel. The clustering therefore sees
-   "I cannot see that far" as an explicit signal rather than as a very
-   large number.
+1. **Lidar range.** `lidar_max_range` now defaults to infinity: beams are
+   passed through at whatever range they return, and only non-finite beams
+   — the sensor reporting "no hit" — become the sentinel, still flagged in
+   the companion binary channel.
+
+   It was 5 m, on the argument that real range perception is bounded. That
+   cap threw away most of what the sensor measured: the arenas are 20 m
+   across and the sensor reaches 40 m, so a 5 m limit reduced the lidar to
+   "how close is the nearest wall" over a narrow band.
+
+   Worth knowing what the uncapped channel now is. A 360-degree unbounded
+   range scan in a convex arena is very close to a complete geometric
+   readout of position — far more informative than any camera channel, and
+   correspondingly less like bounded animal perception. That strengthens
+   lidar's role as the landmark-null control, since it still cannot see a
+   panel, but it changes what a lidar-versus-camera comparison means.
 
 2. **Per-block scaling.** Channels have wildly different dimensionalities
    and magnitudes (hog 30240-d, lidar 720-d). Left raw, whichever block has
@@ -52,7 +62,7 @@ CHANNEL_SETS = {
 }
 
 
-def mask_lidar(lidar, max_range=5.0, sentinel=-1.0, with_mask_channel=True):
+def mask_lidar(lidar, max_range=float('inf'), sentinel=-1.0, with_mask_channel=True):
     """Bound the agent's distance perception.
 
     Beams returning beyond `max_range`, and beams that are non-finite
@@ -88,7 +98,7 @@ def mask_lidar(lidar, max_range=5.0, sentinel=-1.0, with_mask_channel=True):
 
 def load_channel_blocks(data_path,
                         n_orientations   = 8,
-                        lidar_max_range  = 5.0,
+                        lidar_max_range  = float('inf'),
                         lidar_sentinel   = -1.0,
                         lidar_mask_channel = True,
                         lidar_heading_index = 0,

@@ -37,7 +37,7 @@ COLORS = [(1.00, 0.00, 0.00), (0.00, 1.00, 0.00), (0.00, 0.00, 1.00),
           (1.00, 1.00, 0.00), (0.00, 1.00, 1.00), (1.00, 0.50, 0.00),
           (0.50, 0.00, 0.50), (0.00, 0.50, 0.50)]
 
-PANEL = 0.50          # landmark panel size, m -- same as circ_lm8_r0
+PANEL = 0.75          # landmark panel size, m -- same as circ_lm8_r0
 WALL_H = 0.5
 WALL_W = 0.012
 GRID_STEP = 0.1       # position lattice, m
