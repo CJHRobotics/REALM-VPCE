@@ -31,7 +31,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_area_sweep_envs import (COLORS, PANEL, WALL_H, WALL_THICK, SUBDIV,
-                                  MARGIN, N_TARGET, fmt, landmark_angles)
+                                  MARGIN, N_TARGET, fmt, landmark_angles,
+                                  wall_mount_radius)
 
 RADIUS = 3.0
 # 2, 4, 8, 12 rather than 4, 6, 8, 10: each divides the clock face evenly
@@ -66,11 +67,12 @@ def build_xml(n):
         f'     earlier half-spacing convention put the 8 landmarks exactly on\n'
         f'     those boundaries. See make_area_sweep_envs.landmark_angles. -->\n\n',
         '<world>\n',
-        f'\t<circular_wall radius="{RADIUS:.1f}" height="{WALL_H}" '
+        f'\t<circular_wall radius="{RADIUS:g}" height="{WALL_H}" '
         f'thickness="{WALL_THICK}" subdivision="{SUBDIV}"/>\n\n',
     ]
+    r_mount = wall_mount_radius(RADIUS)
     for k, a in enumerate(landmark_angles(n)):
-        x, y, th = RADIUS * np.cos(a), RADIUS * np.sin(a), a - np.pi
+        x, y, th = r_mount * np.cos(a), r_mount * np.sin(a), a - np.pi
         r, g, b = COLORS[k % len(COLORS)]
         lines.append(
             f'    <landmark type="panel" x="{fmt(x,4)}" y="{fmt(y,4)}" '

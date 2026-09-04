@@ -9,28 +9,28 @@
 <world>
 	<circular_wall radius="3.5" height="0.5" thickness="0.5" subdivision="128"/>
 
-    <landmark type="panel" x=" 0.0000" y=" 3.5000" theta="-1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y=" 3.4649" theta="-1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_0.png"
               red="1.00" green="0.00" blue="0.00"/>
-    <landmark type="panel" x="-2.4749" y=" 2.4749" theta="-0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-2.4500" y=" 2.4500" theta="-0.785" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_1.png"
               red="0.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x="-3.5000" y=" 0.0000" theta=" 0.000" height="0.75" width="0.75"
+    <landmark type="panel" x="-3.4649" y=" 0.0000" theta=" 0.000" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_2.png"
               red="0.00" green="0.00" blue="1.00"/>
-    <landmark type="panel" x="-2.4749" y="-2.4749" theta=" 0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-2.4500" y="-2.4500" theta=" 0.785" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_3.png"
               red="1.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x=" 0.0000" y="-3.5000" theta=" 1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y="-3.4649" theta=" 1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_4.png"
               red="0.00" green="1.00" blue="1.00"/>
-    <landmark type="panel" x=" 2.4749" y="-2.4749" theta=" 2.356" height="0.75" width="0.75"
+    <landmark type="panel" x=" 2.4500" y="-2.4500" theta=" 2.356" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_5.png"
               red="1.00" green="0.50" blue="0.00"/>
-    <landmark type="panel" x=" 3.5000" y=" 0.0000" theta=" 3.142" height="0.75" width="0.75"
+    <landmark type="panel" x=" 3.4649" y=" 0.0000" theta=" 3.142" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_6.png"
               red="0.50" green="0.00" blue="0.50"/>
-    <landmark type="panel" x=" 2.4749" y=" 2.4749" theta=" 3.927" height="0.75" width="0.75"
+    <landmark type="panel" x=" 2.4500" y=" 2.4500" theta=" 3.927" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_7.png"
               red="0.00" green="0.50" blue="0.50"/>
 

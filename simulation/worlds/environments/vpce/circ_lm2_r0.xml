@@ -14,12 +14,12 @@
      those boundaries. See make_area_sweep_envs.landmark_angles. -->
 
 <world>
-	<circular_wall radius="3.0" height="0.5" thickness="0.5" subdivision="128"/>
+	<circular_wall radius="3" height="0.5" thickness="0.5" subdivision="128"/>
 
-    <landmark type="panel" x=" 0.0000" y=" 3.0000" theta="-1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y=" 2.9615" theta="-1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_0.png"
               red="1.00" green="0.00" blue="0.00"/>
-    <landmark type="panel" x=" 0.0000" y="-3.0000" theta=" 1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y="-2.9615" theta=" 1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_1.png"
               red="0.00" green="1.00" blue="0.00"/>
 

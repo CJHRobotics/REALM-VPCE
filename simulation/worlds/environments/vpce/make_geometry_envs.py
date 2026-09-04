@@ -68,8 +68,18 @@ def perimeter_walk(hx, hy):
     ]
 
 
+HALF_THICK = 0.015     # RectangularPanel is 0.03 m thick along its own X,
+                       # which theta points inward.
+
+
 def landmarks_on_perimeter(hx, hy, n):
-    """n landmarks at equal arc length, offset half a spacing from the start."""
+    """n landmarks at equal arc length, offset half a spacing from the start.
+
+    Each is inset from the wall by half the panel's thickness, so the box's
+    outer face is flush with the wall rather than half buried in it. On a
+    straight wall that is the whole correction; the curved arenas need more,
+    since a flat chord's ends reach past the radius its centre sits at.
+    """
     segs = perimeter_walk(hx, hy)
     total = sum(s[4] for s in segs)
     spacing = total / n
@@ -80,7 +90,9 @@ def landmarks_on_perimeter(hx, hy, n):
         for (x0, y0, x1, y1, ln, th) in segs:
             if s <= acc + ln or (x0, y0) == segs[-1][:2]:
                 t = (s - acc) / ln
-                out.append((x0 + t * (x1 - x0), y0 + t * (y1 - y0), th))
+                px = x0 + t * (x1 - x0) + HALF_THICK * np.cos(th)
+                py = y0 + t * (y1 - y0) + HALF_THICK * np.sin(th)
+                out.append((px, py, th))
                 break
             acc += ln
     return out

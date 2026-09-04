@@ -101,6 +101,35 @@ def landmark_angles(n):
     return np.pi / 2 + np.arange(n) * 2 * np.pi / n
 
 
+HALF_THICK = 0.015     # RectangularPanel is a TexturedBox of size
+                       # (0.03, width, height): 3 cm thick along its own X,
+                       # which theta points inward, so 1.5 cm each side.
+
+
+def wall_mount_radius(radius, width=None):
+    """Radius at which to centre a panel so the whole box sits inside the wall.
+
+    A panel is a flat chord on a curved wall. Centred at the wall radius R,
+    every point except the tangent point lies beyond R, so its ends bury
+    themselves in the wall material -- badly at small radii:
+
+        R      visible width of a 0.75 m panel
+        1.25       0.386 m      (half of it buried)
+        2.0        0.489 m
+        3.0        0.599 m
+        6.0        0.750 m      (clean)
+        10.0       0.750 m      (clean)
+
+    Pulling the centre in to sqrt(R^2 - (w/2)^2) - HALF_THICK puts the box's
+    outermost corner exactly on the wall's inner face, so the panel is flush
+    and fully visible at any radius. The inset is 7 cm at R = 1.25 and 2 cm
+    at R = 10, and the panel keeps its declared physical size -- which the
+    area sweep depends on, since holding cue size fixed is the point of it.
+    """
+    w = PANEL if width is None else width
+    return float(np.sqrt(radius ** 2 - (w / 2) ** 2) - HALF_THICK)
+
+
 def fmt(v, prec):
     s = f'{v:.{prec}f}'
     if s.startswith('-') and float(s) == 0.0:
@@ -122,11 +151,12 @@ def build_xml(name, radius):
         f'     arena\'s wall against 9.5% at r = 10. Diameter is {2*radius/0.2:.0f} robot\n'
         f'     body lengths. -->\n\n',
         '<world>\n',
-        f'\t<circular_wall radius="{radius:.1f}" height="{WALL_H}" '
+        f'\t<circular_wall radius="{radius:g}" height="{WALL_H}" '
         f'thickness="{WALL_THICK}" subdivision="{SUBDIV}"/>\n\n',
     ]
+    r_mount = wall_mount_radius(radius)
     for k, a in enumerate(landmark_angles(N_LANDMARKS)):
-        x, y, th = radius * np.cos(a), radius * np.sin(a), a - np.pi
+        x, y, th = r_mount * np.cos(a), r_mount * np.sin(a), a - np.pi
         r, g, b = COLORS[k]
         lines.append(
             f'    <landmark type="panel" x="{fmt(x,4)}" y="{fmt(y,4)}" '
