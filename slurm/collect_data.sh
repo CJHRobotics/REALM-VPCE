@@ -22,26 +22,28 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G
-#SBATCH --gres=gpu:1080Ti:1
+#SBATCH --gres=gpu:1
+#SBATCH --exclude=GPU1,GPU2,GPU45,GPU46,GPU47,GPU48,GPU49,GPU53
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# --gres=gpu:1080Ti:1, and the CARD TYPE IS FUNCTIONAL HERE, not a
-# performance preference. Webots renders through GLX, and an A100 is a
-# compute-only datacenter card with no display engine: nvidia-smi sees it,
-# glxinfo reports "Vendor: Mesa", libglvnd finds no usable NVIDIA GLX, and
-# the job silently falls back to llvmpipe. Only the GeForce cards have been
-# observed to give hardware GL under Xvfb. A40 is also a datacenter part and
-# is likely to behave like the A100; TitanRTX is untested.
+# Any GPU, EXCEPT the compute-only ones. Webots renders through GLX, and a
+# card with no display engine cannot provide it: on an A100, nvidia-smi lists
+# the device but glxinfo reports "Vendor: Mesa", libglvnd finds no usable
+# NVIDIA GLX, and rendering drops to llvmpipe at 15-158 ms per step against
+# 2.1 ms. Confirmed working: 1080 Ti, A40. Confirmed broken: A100.
 #
-# This is the one place where the slurm README's advice to leave the GRES
-# type unpinned does not apply -- there it costs queue time, here it decides
-# whether the job renders at all.
+# Excluded nodes are those whose cards are all compute-only -- A100 (GPU1,
+# GPU2, GPU45, GPU46, GPU47, GPU49), H100 (GPU48) and L40S (GPU49, GPU53).
+# Excluding by node rather than pinning a GRES type keeps every usable card
+# in play, which matters because pinning one type queues behind those nodes
+# for no benefit -- the render asks almost nothing of the card, only that it
+# have a display engine.
 #
-# Override at submit time if a different card is confirmed to work:
-#   sbatch --gres=gpu:TitanRTX:1 slurm/collect_data.sh <maze>
+# Verify the list against the cluster before trusting it:
+#   sinfo -o "%N %G" | sort -u
 #
 # USE_GPU=1 by default. Measured per position on
 # circ_lm8_r0 (perf_probe):

@@ -32,16 +32,17 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=16G
-#SBATCH --gres=gpu:1080Ti:1
+#SBATCH --gres=gpu:1
+#SBATCH --exclude=GPU1,GPU2,GPU45,GPU46,GPU47,GPU48,GPU49,GPU53
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# --gres=gpu:1080Ti:1, matching the collection job. The card type is
-# functional: an A100 has no display engine, so GLX falls back to llvmpipe
-# and a step costs 15-158 ms instead of 2.1 ms. gl_info reports the fallback
-# and, under STRICT_GPU=1, aborts on it.
+# Any GPU except the compute-only ones, matching the collection job. A card
+# with no display engine (A100, H100, L40S) cannot provide GLX, so rendering
+# drops to llvmpipe at 15-158 ms per step against 2.1 ms. gl_info reports the
+# fallback and, under STRICT_GPU=1, aborts on it.
 #
 # 24 h is a guess for one arena of ~30k positions x 8 headings under software
 # rendering; the Mac took ~2 h with a real GPU. Collection is resumable --
