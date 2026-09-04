@@ -22,13 +22,28 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:1080Ti:1
 #SBATCH --output=slurm/logs/%x-%j.out
 #SBATCH --error=slurm/logs/%x-%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# --gres=gpu:1 and USE_GPU=1 by default. Measured per position on
+# --gres=gpu:1080Ti:1, and the CARD TYPE IS FUNCTIONAL HERE, not a
+# performance preference. Webots renders through GLX, and an A100 is a
+# compute-only datacenter card with no display engine: nvidia-smi sees it,
+# glxinfo reports "Vendor: Mesa", libglvnd finds no usable NVIDIA GLX, and
+# the job silently falls back to llvmpipe. Only the GeForce cards have been
+# observed to give hardware GL under Xvfb. A40 is also a datacenter part and
+# is likely to behave like the A100; TitanRTX is untested.
+#
+# This is the one place where the slurm README's advice to leave the GRES
+# type unpinned does not apply -- there it costs queue time, here it decides
+# whether the job renders at all.
+#
+# Override at submit time if a different card is confirmed to work:
+#   sbatch --gres=gpu:TitanRTX:1 slurm/collect_data.sh <maze>
+#
+# USE_GPU=1 by default. Measured per position on
 # circ_lm8_r0 (perf_probe):
 #
 #   32-core node, llvmpipe    1154 ms    9.7 h per arena
