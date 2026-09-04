@@ -66,6 +66,33 @@ SPECS = [('circ_lm8_rad1p25', 1.25),
          ('circ_lm8_rad6p0', 6.0)]
 
 
+def landmark_angles(n):
+    """Landmark bearings, anchored at 90 degrees and evenly spaced.
+
+    The robot captures at headings 0, 45, ... 315 with a 45-degree camera, so
+    the eight views partition the circle at 22.5 + 45k degrees. The previous
+    convention -- a half-spacing offset, pi/n + 2*pi*k/n -- put N=8 landmarks
+    at exactly those boundaries, splitting every panel across two views, and
+    left only 4 of the 8 headings containing a landmark at all. A heading
+    whose view holds no landmark returns the same floor-and-wall colour
+    histogram everywhere, carrying no position information.
+
+    Measured effect on the colour channel, which depends on this most:
+
+        env   sectors occupied   admitted colour fields
+        lm4        4/8                    7
+        lm6        6/8                   28
+        lm8        4/8 (on edges)         4
+        lm10       8/8                  373
+
+    Anchoring at 90 degrees puts every landmark inside a view for all four
+    counts, and for N=8 centres one in each of the eight. It cannot fix the
+    deeper limit: 4 or 6 landmarks cannot occupy 8 sectors, so lm4 and lm6
+    still leave headings empty by construction.
+    """
+    return np.pi / 2 + np.arange(n) * 2 * np.pi / n
+
+
 def fmt(v, prec):
     s = f'{v:.{prec}f}'
     if s.startswith('-') and float(s) == 0.0:
@@ -89,8 +116,7 @@ def build_xml(name, radius):
         f'\t<circular_wall radius="{radius:.1f}" height="{WALL_H}" '
         f'thickness="{WALL_THICK}" subdivision="{SUBDIV}"/>\n\n',
     ]
-    for k in range(N_LANDMARKS):
-        a = np.pi / N_LANDMARKS + k * 2 * np.pi / N_LANDMARKS
+    for k, a in enumerate(landmark_angles(N_LANDMARKS)):
         x, y, th = radius * np.cos(a), radius * np.sin(a), a - np.pi
         r, g, b = COLORS[k]
         lines.append(
