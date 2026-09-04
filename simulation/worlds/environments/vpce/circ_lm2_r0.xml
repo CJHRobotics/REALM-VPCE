@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="us-ascii"?>
 
-<!-- Circular arena, radius 10 m, area 314.16 m^2, with 6 landmarks.
+<!-- Circular arena, radius 10 m, area 314.16 m^2, with 2 landmarks.
      XML `radius` is the inner walkable radius; the wall material
      extends outward by `thickness`. Panels sit on the inner face
      and are 0.75 m square. Interlandmark spacing along the wall
-     is 10.47 m.
+     is 31.42 m.
 
      Landmark bearings are anchored at 90 degrees:
-     [90.0, 150.0, 210.0, 270.0, 330.0, 390.0]
+     [90.0, 270.0]
      The robot captures at headings 0, 45 ... 315 with a 45-degree
      camera, so the views partition the circle at 22.5 + 45k. The
      earlier half-spacing convention put the 8 landmarks exactly on
@@ -19,21 +19,9 @@
     <landmark type="panel" x=" 0.0000" y=" 10.0000" theta="-1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_0.png"
               red="1.00" green="0.00" blue="0.00"/>
-    <landmark type="panel" x="-8.6603" y=" 5.0000" theta="-0.524" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y="-10.0000" theta=" 1.571" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_1.png"
               red="0.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x="-8.6603" y="-5.0000" theta=" 0.524" height="0.75" width="0.75"
-              texture="../protos/world_objects/textures/flags/flag_2.png"
-              red="0.00" green="0.00" blue="1.00"/>
-    <landmark type="panel" x=" 0.0000" y="-10.0000" theta=" 1.571" height="0.75" width="0.75"
-              texture="../protos/world_objects/textures/flags/flag_3.png"
-              red="1.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x=" 8.6603" y="-5.0000" theta=" 2.618" height="0.75" width="0.75"
-              texture="../protos/world_objects/textures/flags/flag_4.png"
-              red="0.00" green="1.00" blue="1.00"/>
-    <landmark type="panel" x=" 8.6603" y=" 5.0000" theta=" 3.665" height="0.75" width="0.75"
-              texture="../protos/world_objects/textures/flags/flag_5.png"
-              red="1.00" green="0.50" blue="0.00"/>
 
     <train_start_positions>
         <pos x="0.0" y="0.0" theta="0.0"/>

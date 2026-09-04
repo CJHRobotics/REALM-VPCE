@@ -2,8 +2,10 @@
 #
 # Do landmarks organise where our fields sit, or how large they are?
 #
-# Reproduces Eliav et al. 2021's five landmark tests over circ_lm4/6/8/10_r0,
-# which vary interlandmark spacing from 15.7 m to 6.3 m by construction. Our
+# Reproduces Eliav et al. 2021's five landmark tests over circ_lm2/4/8/12_r0,
+# which vary interlandmark spacing from 31.4 m to 5.2 m by construction. Those
+# counts each divide the clock face evenly from noon, so no landmark sits on
+# the seam between two of the robot's eight camera views. Our
 # model is driven purely by view appearance and so has an obvious route to
 # over-predicting landmark dependence; this is the sharpest available test of
 # whether it produces a spatial code or a landmark-proximity detector.

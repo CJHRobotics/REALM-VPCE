@@ -2,7 +2,11 @@
 
 All four are the same disc -- radius 10, area 314.16 m^2 -- differing only in
 how many 0.75 m panels sit on the wall, which sets interlandmark spacing from
-15.7 m (lm4) to 6.3 m (lm10).
+31.4 m (lm2) to 5.2 m (lm12).
+
+Counts are 2, 4, 8 and 12: each divides the clock face evenly from noon, so
+every landmark sits on a whole hour and none falls on the seam between two of
+the robot's eight camera views.
 
 These were previously hand-written, which is how circ_lm8_r0 came to have its
 landmarks on the camera's heading-sector boundaries. Generating them keeps
@@ -22,7 +26,19 @@ from make_area_sweep_envs import (COLORS, PANEL, WALL_H, WALL_THICK, SUBDIV,
                                   fmt, landmark_angles, build_r0_grid)
 
 RADIUS = 10.0
-COUNTS = [4, 6, 8, 10]
+# 2, 4, 8, 12 rather than 4, 6, 8, 10: each divides the clock face evenly
+# from noon, so every landmark sits at a whole clock hour and none lands on
+# the seam between two camera views.
+#
+#   lm2   noon, 6                       ->  90, 270 deg
+#   lm4   noon, 3, 6, 9                 ->  90, 0, 270, 180
+#   lm8   every 1.5 hours               ->  every 45 deg, one per view
+#   lm12  every hour                    ->  every 30 deg
+#
+# 6 and 10 are dropped because they do not divide 12, so their landmarks fall
+# between clock hours and their spacing beats against the eight camera
+# headings rather than aligning with them.
+COUNTS = [2, 4, 8, 12]
 
 
 def build_xml(n):

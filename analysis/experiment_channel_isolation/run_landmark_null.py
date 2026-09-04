@@ -13,8 +13,10 @@ fields from forming where the view changes fastest, which is near a landmark.
 This is the sharpest available test of whether the mechanism produces a
 spatial code or a landmark-proximity detector.
 
-Run over circ_lm4/6/8/10_r0, which vary interlandmark spacing from 15.7 m to
-6.3 m by construction. `lidar` is the control: it cannot see the panels, so
+Run over circ_lm2/4/8/12_r0, which vary interlandmark spacing from 31.4 m to
+5.2 m by construction. Those counts each divide the clock face evenly from
+noon, so no landmark falls on the seam between two of the robot's eight
+camera views -- a placement that had silently crippled the colour channel. `lidar` is the control: it cannot see the panels, so
 any landmark relationship it shows is geometry rather than appearance.
 
 Three departures from a literal reading of Eliav, each because the test does
@@ -70,7 +72,7 @@ import channels as ch
 import rules as R
 from realm_tools.experiment_lib.reporting import ExperimentReport
 
-ENVS = ['circ_lm4_r0', 'circ_lm6_r0', 'circ_lm8_r0', 'circ_lm10_r0']
+ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0']
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
                   'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}

@@ -12,17 +12,16 @@ landmarks held at a FIXED physical size, as their room cues were.
 
 Two design constraints set the endpoints, and neither is negotiable.
 
-**The small end is set by the robot.** Eight 0.25 m panels occupy 2 m of wall,
-which is 26% of the circumference at r = 1.25 and still only 42% at r = 0.75 --
-so landmark crowding is not the binding constraint. What binds is the robot:
-its circumscribing radius is 0.31 m, and the 0.2 m wall keep-out leaves a
-walkable disc of only 1.05 m radius at r = 1.25. Below that the robot occupies
-an appreciable fraction of the arena it is meant to be mapping.
+**The small end is set by the landmarks and the robot together.** Eight 0.75 m
+panels occupy 6 m of wall: 76% of the circumference at r = 1.25 and 48% at
+r = 2.0, so the smallest arena is closer to a ring of flags than to a room
+with landmarks in it. The robot binds too -- its circumscribing radius is
+0.31 m and the 0.2 m keep-out leaves a walkable disc of 1.05 m at r = 1.25.
 
-Note the cost at the other end. A 0.25 m panel seen from across the r = 10
-arena spans roughly 4 px of a 224 px image, against 11 px for the same panel
-at r = 3.5. Landmark visibility therefore falls as the arena grows, and the
-sweep confounds enclosure size with cue salience. That is a genuine property of
+Note the cost at the other end. A 0.75 m panel seen from across the r = 10
+arena spans roughly 11 px of a 224 px image, against 33 px at r = 3.5.
+Landmark visibility therefore falls as the arena grows, and the sweep
+confounds enclosure size with cue salience. That is a genuine property of
 fixed-size cues rather than a defect -- distant cues do subtend less -- but it
 belongs in the interpretation.
 
@@ -46,9 +45,14 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# Twelve, enough for circ_lm12_r0. get_landmark_observations identifies a
+# landmark by matching its recognition colour, so these must stay mutually
+# distinguishable; the extras are appended rather than inserted so every
+# arena with fewer landmarks keeps the colours it already had.
 COLORS = [(1.00, 0.00, 0.00), (0.00, 1.00, 0.00), (0.00, 0.00, 1.00),
           (1.00, 1.00, 0.00), (0.00, 1.00, 1.00), (1.00, 0.50, 0.00),
-          (0.50, 0.00, 0.50), (0.00, 0.50, 0.50)]
+          (0.50, 0.00, 0.50), (0.00, 0.50, 0.50), (0.80, 0.20, 0.60),
+          (0.20, 0.60, 0.20), (1.00, 0.00, 1.00), (0.60, 0.30, 0.10)]
 
 N_LANDMARKS = 8
 PANEL = 0.75          # fixed physical size -- the point of this sweep
@@ -101,8 +105,9 @@ def fmt(v, prec):
 
 
 def build_xml(name, radius):
-    """Same landmark convention as circ_lm8_r0: angle = pi/n + k*2pi/n, so the
-    first panel sits half a spacing off the +x axis; theta points inward."""
+    """Same landmark convention as circ_lm8_r0: bearings anchored at 90
+    degrees and evenly spaced, off the camera's view seams. theta points
+    inward. See landmark_angles."""
     area = np.pi * radius ** 2
     cover = N_LANDMARKS * PANEL / (2 * np.pi * radius)
     lines = [

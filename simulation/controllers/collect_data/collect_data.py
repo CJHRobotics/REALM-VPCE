@@ -45,7 +45,7 @@ if os.environ.get('REALM_MAZES'):
     print(f'REALM_MAZES override: {maze_files}')
 
 # Already collected, add back to regenerate:
-#   landmark-count sweep  circ_lm4_r0, circ_lm6_r0, circ_lm8_r0, circ_lm10_r0
+#   landmark-count sweep  circ_lm2_r0, circ_lm4_r0, circ_lm8_r0, circ_lm12_r0
 #   geometry sweep        rect_lm8_r0, corr_lm8_r0
 
 # Positions file per maze. Falls back to this literal name if the per-maze
