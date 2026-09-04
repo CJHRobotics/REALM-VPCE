@@ -28,21 +28,25 @@ from realm_tools.image_lib.image_feature_lib import extract_feature_dict
 
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
-# Landmark-count sweep. Four discs of radius 3 (28.27 m^2) differing only in
-# how many 0.75 m panels sit on the wall: 2, 4, 8, 12, at clock positions
-# from noon. They share the circ_lm8_r0 position grid through the fallback
-# below.
-#
-# Radius 3, not 10. A 0.75 m panel spans 36 px of a 224 px frame from across
-# a 6 m disc against 11 px across a 20 m one, and at r = 10 the colour
-# histogram was 97% floor and wall -- identical everywhere -- which collapsed
-# the colour channel to single-digit field counts whatever the landmark count
-# or placement. The archived original arena had a walkable radius of 2.4 m.
-maze_files = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0']
+# Environment-size sweep (experiment 3). Circular arenas of increasing area
+# with landmarks held at a fixed 0.75 m, replicating Harland's fixed room
+# cues. Every grid carries ~30,100 positions regardless of area, so sample
+# count is not a variable -- at a constant 0.1 m spacing these would have
+# ranged 1,018 to 30,172 and field count would have scaled with area whether
+# or not the model did anything. circ_lm8_r0 is the r = 10 member and is
+# already collected.
+maze_files = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0',
+              'circ_lm8_rad3p5', 'circ_lm8_rad6p0']
+
+# Overridable so one arena can be collected per SLURM job and the sweep run
+# in parallel, instead of serially inside a single long Webots session.
+if os.environ.get('REALM_MAZES'):
+    maze_files = [m.strip() for m in os.environ['REALM_MAZES'].split(',') if m.strip()]
+    print(f'REALM_MAZES override: {maze_files}')
 
 # Already collected, add back to regenerate:
-#   environment-size sweep  circ_lm8_rad1p25, rad2p0, rad3p5, rad6p0, rad10p0
-#   geometry sweep          rect_lm8_r0, corr_lm8_r0
+#   landmark-count sweep  circ_lm2_r0, circ_lm4_r0, circ_lm8_r0, circ_lm12_r0
+#   geometry sweep        rect_lm8_r0, corr_lm8_r0
 
 # Positions file per maze. Falls back to this literal name if the per-maze
 # CSV is missing (matches the older circular-arena convention). The
@@ -179,7 +183,7 @@ for maze_index, maze in enumerate(maze_files):
     # Load (or reload) the environment for this maze
     if env_loaded:
         robot.reset_environment()
-    robot.load_environment(maze_file_dir + 'circ_lm2_r0.xml', floor_texture='carpet')
+    robot.load_environment(maze_file_dir + maze + '.xml', floor_texture='carpet')
     env_loaded = True
 
     positions_path = maze_file_dir + 'positions/' + maze + '_positions.csv'
