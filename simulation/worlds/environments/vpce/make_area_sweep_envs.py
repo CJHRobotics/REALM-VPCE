@@ -64,10 +64,14 @@ MARGIN = 0.2          # keep-out from the wall, absolute (a physical robot
 N_TARGET = 30147      # matches circ_lm8_r0, so N is not a variable
 
 # (name, radius). r = 10 is circ_lm8_r0, already built and collected.
+# rad10p0 replaces circ_lm8_r0 as the largest member: that arena is now
+# radius 3, belonging to the landmark sweep, so the area sweep carries its
+# own r = 10 disc rather than borrowing one.
 SPECS = [('circ_lm8_rad1p25', 1.25),
          ('circ_lm8_rad2p0', 2.0),
          ('circ_lm8_rad3p5', 3.5),
-         ('circ_lm8_rad6p0', 6.0)]
+         ('circ_lm8_rad6p0', 6.0),
+         ('circ_lm8_rad10p0', 10.0)]
 
 
 def landmark_angles(n):
@@ -168,37 +172,6 @@ def build_grid(name, radius):
     return path, len(xs), spacing
 
 
-def build_r0_grid():
-    """The r = 10 grid, shared by every circ_lm*_r0 arena.
-
-    circ_lm8_r0 predates these generators: its world file is hand-written and
-    its grid was produced by a one-off script that was never kept. Since the
-    positions directory is gitignored in full, a fresh clone has no way to
-    rebuild it -- and circ_lm4/6/8/10_r0 all resolve to this one file through
-    the fallback in collect_data.py, so all four collections fail without it.
-
-    Fixed 0.1 m spacing rather than the constant-N spacing used above: this
-    grid is the established one, and at r = 10 the two agree anyway
-    (~30,150 against a 30,147 target).
-    """
-    radius, spacing = 10.0, 0.1
-    usable = radius - MARGIN
-    n = int(np.floor(usable / spacing + 1e-9))
-    ax = np.round(np.arange(-n, n + 1) * spacing, 5)
-    X, Y = np.meshgrid(ax, ax, indexing='ij')
-    keep = np.hypot(X, Y) <= usable + 1e-9
-    xs, ys = X[keep], Y[keep]
-
-    out_dir = os.path.join(HERE, 'positions')
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, 'circ_lm8_r0_positions.csv')
-    with open(path, 'w') as f:
-        f.write('x,y,theta\n')
-        for x, y in zip(xs, ys):
-            f.write(f'{x:g},{y:g},0.0\n')
-    return path, len(xs), spacing
-
-
 if __name__ == '__main__':
     print(f'{"env":18s} {"radius":>7} {"area":>9} {"wall cov":>9} '
           f'{"spacing":>8} {"N":>7} {"diam/body":>10}')
@@ -207,8 +180,3 @@ if __name__ == '__main__':
         csv_path, n, spacing = build_grid(name, radius)
         print(f'{name:18s} {radius:7.2f} {area:8.2f}m2 {100*cover:8.1f}% '
               f'{spacing:8.4f} {n:7d} {2*radius/0.2:10.0f}')
-    p, n, sp = build_r0_grid()
-    print(f'{"circ_lm8_r0":18s} {10.0:7.2f} {314.16:8.2f}m2 '
-          f'{100*8*PANEL/(2*np.pi*10):8.1f}% {sp:8.4f} {n:7d} {100:10.0f}')
-    print(f'\n  circ_lm8_r0 grid -> {p}')
-    print('  (shared by circ_lm4/6/8/10_r0 through the collect_data fallback)')

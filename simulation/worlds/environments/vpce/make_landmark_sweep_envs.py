@@ -1,8 +1,16 @@
 """Circular arenas for the landmark-count sweep: circ_lm{4,6,8,10}_r0.
 
-All four are the same disc -- radius 10, area 314.16 m^2 -- differing only in
+All four are the same disc -- radius 3, area 28.27 m^2 -- differing only in
 how many 0.75 m panels sit on the wall, which sets interlandmark spacing from
-31.4 m (lm2) to 5.2 m (lm12).
+9.4 m (lm2) to 1.6 m (lm12).
+
+Radius 3, not 10. A 0.75 m panel seen from across a 20 m disc spans about
+11 px of a 224 px image, so twelve of them cover roughly 3% of the frame and
+a colour histogram is 97% floor and wall -- identical from everywhere. That
+is why the colour channel collapsed to single-digit field counts at r = 10
+regardless of landmark count or placement. The archived original arena, on
+which the model was tuned, had a walkable radius of 2.4 m plus margin; this
+restores that scale.
 
 Counts are 2, 4, 8 and 12: each divides the clock face evenly from noon, so
 every landmark sits on a whole hour and none falls on the seam between two of
@@ -23,9 +31,9 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_area_sweep_envs import (COLORS, PANEL, WALL_H, WALL_THICK, SUBDIV,
-                                  fmt, landmark_angles, build_r0_grid)
+                                  MARGIN, N_TARGET, fmt, landmark_angles)
 
-RADIUS = 10.0
+RADIUS = 3.0
 # 2, 4, 8, 12 rather than 4, 6, 8, 10: each divides the clock face evenly
 # from noon, so every landmark sits at a whole clock hour and none lands on
 # the seam between two camera views.
@@ -87,9 +95,37 @@ def build_xml(n):
     return path
 
 
+def build_shared_grid():
+    """The grid all four arenas use, via the fallback in collect_data.py.
+
+    Named for circ_lm8_r0 because that is the name the fallback looks for.
+    Spacing is set to hold the sample count near N_TARGET rather than fixed
+    at 0.1 m: at radius 3 a 0.1 m lattice would give only ~2,500 positions,
+    and field count scales with sample count whether or not the model does
+    anything.
+    """
+    usable = RADIUS - MARGIN
+    spacing = float(np.sqrt(np.pi * usable ** 2 / N_TARGET))
+    n = int(np.floor(usable / spacing + 1e-9))
+    ax = np.round(np.arange(-n, n + 1) * spacing, 5)
+    X, Y = np.meshgrid(ax, ax, indexing='ij')
+    keep = np.hypot(X, Y) <= usable + 1e-9
+    xs, ys = X[keep], Y[keep]
+    out_dir = os.path.join(HERE, 'positions')
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, 'circ_lm8_r0_positions.csv')
+    with open(path, 'w') as f:
+        f.write('x,y,theta\n')
+        for x, y in zip(xs, ys):
+            f.write(f'{x:g},{y:g},0.0\n')
+    return path, len(xs), spacing
+
+
 if __name__ == '__main__':
     for n in COUNTS:
+        cov = n * PANEL / (2 * np.pi * RADIUS)
         print(f'circ_lm{n}_r0  spacing {2*np.pi*RADIUS/n:5.2f} m  '
-              f'-> {build_xml(n)}')
-    p, cnt, sp = build_r0_grid()
-    print(f'\nshared grid -> {p}  ({cnt} positions, spacing {sp} m)')
+              f'wall cover {100*cov:4.1f}%  -> {build_xml(n)}')
+    p, cnt, sp = build_shared_grid()
+    print(f'\nshared grid -> {p}\n  {cnt} positions, spacing {sp:.4f} m'
+          f'  (radius {RADIUS}, margin {MARGIN})')
