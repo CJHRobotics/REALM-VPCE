@@ -118,3 +118,124 @@ count is a much tighter cluster when drawn from 30147 locations than from
 `hog` channel produces **zero** fields — every candidate exceeds the Rule 9
 ceiling — while at 14000 it produces 28. Use the full dataset for any result
 you intend to report.
+
+---
+
+# Experiment 2: where our scale distribution sits
+
+`run_scale_distribution.py` — analysis only, no collection.
+
+What shape is our field-size distribution, and how does it compare to the
+three forms reported in the literature? Descriptive rather than decisive: it
+establishes our baseline in Eliav's and Harland's own units and is a
+prerequisite for reading Experiment 3.
+
+## Targets
+
+| source | claim |
+|--------|-------|
+| Eliav 2021 | field size log-normal |
+| Harland Fig 3F–G | negative exponential in the megaspace (r = 0.995, 78% of fields ≤ 1 m²); Gaussian in the small environments (r = 0.985) |
+| Harland Fig 6E | CV of field size rises with arena area, ~70 → 85 → 101 |
+| Harland | one field covers ~9–13% of the arena |
+
+The two papers report **different forms for the same quantity**, so all three
+are fitted for every library and all three goodness-of-fit numbers are
+reported side by side. Reporting only a favoured form is the one thing this
+experiment cannot support.
+
+## Reported per (environment × channel × setting)
+
+- fits against log-normal, negative exponential and Gaussian
+- CV of field area and of field radius
+- min, median, max, max/min ratio
+- scale-band occupancy, bands 0–5 (plus a 6+ overflow)
+- fraction of the arena covered per field
+
+Goodness of fit is three numbers, because Harland's statistic and a
+model-selection statistic answer different questions:
+
+| statistic | what it is | how to read it |
+|-----------|-----------|----------------|
+| `r_hist` | Pearson r between the binned density and the fitted pdf at bin centres | **Harland's own statistic** — the only one comparable to their 0.995 and 0.985. A weak discriminator: all three forms clear 0.9 on a heavy-fine-end sample, so never read it alone |
+| `ks`, `ks_p_boot` | KS distance, p from a parametric bootstrap that refits each synthetic sample | the analytic p is anticonservative when parameters came from the same sample. Expect **every** form to be rejected past ~1000 fields; that is normal, not a failure |
+| `aic`, `d_aic` | 2k − 2 logL | the discriminator. `winner` is its argmin |
+
+## The threshold caveat
+
+Harland show their exponential fit becomes quasi-linear at a lower
+field-detection threshold, so distribution shape is not threshold-independent.
+Every fit is therefore reported across a sweep.
+
+**Our analogous knob is `EXTENT_PCTL`, not `ACT_THRESH`.** Under
+`SIGMA_MODE = 'quantile'` sigma is solved so the threshold contour lands at
+`Q`, the `EXTENT_PCTL` percentile of a cluster's centroid-distance
+distribution, and substituting it back into the mask boundary gives `Q` for
+any `T` — the activation threshold cancels exactly. Sweeping `ACT_THRESH`
+varies sigma and leaves every mask, field and admission decision untouched.
+See `RETIRED.md`.
+
+The default settings list carries one off-threshold point, `65:0.2` beside
+`65:0.5`. It is not a sweep point but a **standing invariance check**: the two
+must produce identical banks, and the report states the measured difference
+rather than asserting the algebra. A divergence means the identity has been
+broken elsewhere and every threshold statement in the experiment is void.
+
+## Two caveats the numbers cannot carry on their own
+
+**Truncation.** Rules 8 and 9 bound field size by construction — floor at
+Harland's smallest measured field, ceiling at 20% of arena area — so every fit
+is to a doubly-truncated sample. `frac_at_floor` and `frac_at_ceiling` say how
+much of the distribution is the rule rather than the model. Agreement at the
+fine end is partly assumed rather than found.
+
+**CV against area is confounded here.** The six datasets give only two
+distinct arena areas: the four landmark counts share one disc, and the only
+area contrast is the two geometry arenas, which differ in *shape* as well as
+area. S2 is a baseline, not a replication of Fig 6E; the clean test is the
+area sweep (`circ_lm8_rad1p25` … `rad10p0`), which holds shape fixed.
+
+## Running
+
+```bash
+sbatch slurm/scale_distribution.sh                    # all six arenas
+sbatch slurm/scale_distribution.sh --envs circ_lm8_r0 # one, in parallel
+```
+
+Fan out one arena per job, then re-run over all six with `--use-cache` for the
+cross-environment figures and the combined report.
+
+Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
+`--n-boot`, `--use-cache`, `--no-gpu`, `--no-email`.
+
+## Outputs
+
+`data_cache/scale_distribution/`
+
+| file | contents |
+|------|----------|
+| `summary.csv` | one row per env × channel × setting: CV, extremes, ratio, band occupancy, coverage, truncation |
+| `fits.csv` | one row per env × channel × setting × variable × form: params, `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `winner` |
+| `threshold_invariance.csv` | the `ACT_THRESH` check, per paired run |
+| `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row |
+
+Fits are run on **area** (Harland's unit) and on **equivalent diameter** (the
+closest thing we have to Eliav's 1D field width).
+
+Figures — `figures/scale_distribution/`
+
+| figure | shows |
+|--------|-------|
+| S1 | size histogram per env × channel with all three fits drawn |
+| S2 | CV against arena area, with Harland's three points marked |
+| S3 | scale-band occupancy |
+| S4 | per-field arena coverage against the 9–13% band |
+| S5 | the threshold caveat: every fit across the `EXTENT_PCTL` sweep |
+
+## Compute
+
+The Gram matrix and the Ward tree depend on neither swept parameter, so both
+are computed **once per channel** and reused across every setting — the sweep
+costs one `prepare_candidates` and one `admit_fields` per setting, not a full
+rebuild. That reuse is also what makes the sweep strictly like-for-like: every
+setting is scored against an identical tree and identical candidates.
