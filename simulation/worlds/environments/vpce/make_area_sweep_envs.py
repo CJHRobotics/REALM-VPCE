@@ -8,7 +8,7 @@ landmarks held at a FIXED physical size, as their room cues were.
     circ_lm8_rad2p0     r = 2.0     12.57 m2     20 robot lengths across
     circ_lm8_rad3p5     r = 3.5     38.48 m2     35
     circ_lm8_rad6p0     r = 6.0    113.10 m2     60
-    circ_lm8_r0         r = 10.0   314.16 m2    100     (already collected)
+    circ_lm8_rad10p0    r = 10.0   314.16 m2    100
 
 Two design constraints set the endpoints, and neither is negotiable.
 

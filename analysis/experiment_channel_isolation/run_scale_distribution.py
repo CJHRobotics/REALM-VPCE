@@ -224,6 +224,10 @@ def describe(bank, env, C):
 
     d = dict(
         n_fields=len(a), env_area_m2=area,
+        # The two axes that vary across the six datasets. Area does not:
+        # it is held at ~28.3 m^2 so the geometry arenas are a shape control.
+        aspect=float(env.get('aspect', 1.0)),
+        n_landmarks=float(env.get('n_landmarks', np.nan)),
         # Harland report the CV as a percentage; 70/85/101 are per cent.
         cv_area_pct=100.0 * a.std(ddof=1) / a.mean() if len(a) > 1 else np.nan,
         cv_radius_pct=100.0 * r.std(ddof=1) / r.mean() if len(r) > 1 else np.nan,
@@ -378,28 +382,46 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
 
 
 def fig_cv(summary, fig_dir):
-    """S2: CV of field size against arena area, with Harland's three points."""
+    """S2: CV of field size against the two axes that actually vary.
+
+    Not against area. The six datasets hold area at ~28.3 m^2 by design --
+    that is what makes the geometry arenas a shape control -- so Harland
+    Fig 6E is not addressable from this set at all. Their three values are
+    drawn as reference lines to place our numbers beside theirs, never as a
+    trend our points could be fitted to.
+    """
     s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
                 (summary.act_thresh == DEFAULT_T)]
     if not len(s):
         return
-    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
     for c in sorted(s.channel.unique()):
-        d = s[s.channel == c].sort_values('env_area_m2')
-        ax.plot(d.env_area_m2, d.cv_area_pct, 'o-', ms=5, lw=1.2,
-                color=CHANNEL_COLORS.get(c, '0.4'), label=c)
-    for i, (k, v) in enumerate(HARLAND_CV.items()):
-        ax.axhline(v, color='k', ls=':', lw=0.9)
-        ax.text(ax.get_xlim()[1], v, f'  Harland {k} {v:g}', fontsize=7,
-                va='center')
-    ax.set_xscale('log')
-    ax.set_xlabel('environment area (m$^2$)')
-    ax.set_ylabel('CV of field area (%)')
-    ax.set_title('S2  coefficient of variation against arena area\n'
-                 '(our area contrast is confounded with shape — see report)',
+        d = s[s.channel == c]
+        col = CHANNEL_COLORS.get(c, '0.4')
+        disc = d[d.n_landmarks.notna() & (d.aspect == 1.0)].sort_values('n_landmarks')
+        if len(disc):
+            axes[0].plot(disc.n_landmarks, disc.cv_area_pct, 'o-', ms=5,
+                         lw=1.2, color=col, label=c)
+        shp = d[d.n_landmarks == 8].sort_values('aspect')
+        if len(shp):
+            axes[1].plot(shp.aspect, shp.cv_area_pct, 'o-', ms=5, lw=1.2,
+                         color=col, label=c)
+    axes[0].set_xlabel('landmark count (disc, area held at 28.3 m$^2$)')
+    axes[1].set_xlabel('aspect ratio (8 landmarks, area held at 28.3 m$^2$)')
+    axes[1].set_xscale('log')
+    for ax in axes:
+        ax.set_ylabel('CV of field area (%)')
+        for k, v in HARLAND_CV.items():
+            ax.axhline(v, color='k', ls=':', lw=0.9)
+            ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=6,
+                    va='center')
+        ax.legend(fontsize=7, frameon=False, ncol=2)
+    fig.suptitle('S2  coefficient of variation of field size. Area is held '
+                 'constant across all six datasets,\nso the dotted Harland '
+                 'Fig 6E values are a reference scale, not a trend to fit.',
                  fontsize=9)
-    ax.legend(fontsize=7, frameon=False, ncol=2)
-    _save(fig, fig_dir, 'S2_cv_vs_area.png')
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    _save(fig, fig_dir, 'S2_cv.png')
 
 
 def fig_bands(summary, fig_dir):
@@ -651,19 +673,26 @@ class ScaleDistributionReport(ExperimentReport):
             'Harland measured — so agreement at the fine end is partly '
             'assumed rather than found.'])))
 
-        # --- caveat specific to this dataset set ---------------------------
+        # --- what these six datasets can and cannot answer ----------------
         areas = sorted(base.env_area_m2.unique())
-        out.append(S('CV AGAINST AREA — a confound in these six datasets',
-                     '\n'.join([
-            f'The six datasets give only {len(areas)} distinct arena areas: '
-            f'{", ".join(f"{a:.0f}" for a in areas)} m^2. The four landmark '
-            'counts share one disc, and the only area contrast is the two '
-            'geometry arenas, which differ in shape as well as area.',
+        out.append(S('CV AGAINST AREA IS NOT ANSWERABLE HERE', '\n'.join([
+            f'The six datasets hold arena area constant by design: '
+            f'{", ".join(f"{a:.1f}" for a in areas)} m^2. That is the point of '
+            'them — the four landmark counts vary cue density on one disc, and '
+            'the two geometry arenas vary shape at the same area, so each axis '
+            'is isolated.',
             '',
-            'So S2 is not a clean reading of Harland Fig 6E: any CV change '
-            'across it is area and shape together. The clean test is the area '
-            'sweep (circ_lm8_rad1p25 .. rad10p0), which holds shape fixed. '
-            'Report S2 as a baseline, not as a replication of 6E.'])))
+            'It also means Harland Fig 6E, which is CV against enclosure area, '
+            'CANNOT be read from this set at all. S2 plots CV against the two '
+            'axes that do vary and draws their 70/85/101 as a reference scale '
+            'to place our numbers beside theirs — not as a trend our points '
+            'could be fitted to. Any claim about CV rising with area has to '
+            'come from the area sweep (circ_lm8_rad1p25 .. rad10p0), which is '
+            'Experiment 3.',
+            '',
+            'What this set does answer: whether our CV sits anywhere near '
+            'their range at all, and whether it moves with cue density or '
+            'with shape when area is pinned.'])))
 
         cols = ['env', 'channel', 'n_fields', 'env_area_m2', 'cv_area_pct',
                 'area_min_m2', 'area_median_m2', 'area_max_m2',
@@ -747,8 +776,15 @@ def main():
                   f'full run; field size scales with sample count')
         root = ET.parse(xml_path).getroot()
         env = R.build_env(xy, root)
-        print(f'  arena area {env["env_area"]:.1f} m^2, {len(xy)} locations',
-              flush=True)
+        # Area is held constant across the six; shape and landmark count are
+        # what vary, so both are carried into the summary for S2.
+        env['n_landmarks'] = len(root.findall('landmark'))
+        env['aspect'] = (1.0 if env.get('is_circular') else
+                         (env['x_max'] - env['x_min']) /
+                         (env['y_max'] - env['y_min']))
+        print(f'  arena area {env["env_area"]:.1f} m^2, aspect '
+              f'{env["aspect"]:.2f}, {env["n_landmarks"]} landmarks, '
+              f'{len(xy)} locations', flush=True)
 
         for c in chans:
             banks = build_banks(e, c, blocks, xy, env, settings, base_C,

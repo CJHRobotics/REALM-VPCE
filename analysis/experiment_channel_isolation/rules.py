@@ -55,8 +55,10 @@ except ImportError:                                        # pragma: no cover
 
 DEFAULT_CFG = dict(
     # --- environment readout ---------------------------------------------
-    # 0.25 m bins put ~6 sample locations in every bin at this dataset's
-    # density (96 locations/m^2), so <1% of in-arena bins are empty. Rule 1
+    # 0.25 m bins put ~67 sample locations in every bin at this dataset's
+    # density (1066 locations/m^2 -- every arena in the series now carries
+    # ~30,100 positions, so density tracks 1/area), so <1% of in-arena bins
+    # are empty. Rule 1
     # needs that: a mask riddled with empty bins fragments under connected-
     # component analysis and every field would fail contiguity spuriously.
     BIN_M            = 0.25,
@@ -274,8 +276,8 @@ def plant_sites_by_wall(xy, env, wall_dists, n_sites, rng, tol=0.15):
 
     Target distances with too few candidate positions are skipped, so an
     environment simply contributes fewer contours rather than silently
-    planting cells outside its own floor. A corridor 5.6 m wide has no
-    position 4 m from a wall, and should report none.
+    planting cells outside its own floor. A corridor 1.68 m wide has no
+    position 1 m from a wall, and should report none.
 
     Returns [(x, y, target_w, actual_w), ...].
     """

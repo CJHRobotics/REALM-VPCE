@@ -189,11 +189,14 @@ is to a doubly-truncated sample. `frac_at_floor` and `frac_at_ceiling` say how
 much of the distribution is the rule rather than the model. Agreement at the
 fine end is partly assumed rather than found.
 
-**CV against area is confounded here.** The six datasets give only two
-distinct arena areas: the four landmark counts share one disc, and the only
-area contrast is the two geometry arenas, which differ in *shape* as well as
-area. S2 is a baseline, not a replication of Fig 6E; the clean test is the
-area sweep (`circ_lm8_rad1p25` … `rad10p0`), which holds shape fixed.
+**CV against area is not answerable from this set.** All six datasets hold
+area at ~28.3 m², which is the point of them: the four landmark counts vary
+cue density on one disc, the two geometry arenas vary shape at the same area,
+and each axis is isolated. Harland Fig 6E is CV against *enclosure area*, so
+it cannot be read here at all. S2 plots CV against the two axes that do vary
+and draws their 70/85/101 as a reference scale, never as a trend to fit. That
+question belongs to the area sweep (`circ_lm8_rad1p25` … `rad10p0`) in
+Experiment 3.
 
 ## Running
 
@@ -227,7 +230,7 @@ Figures — `figures/scale_distribution/`
 | figure | shows |
 |--------|-------|
 | S1 | size histogram per env × channel with all three fits drawn |
-| S2 | CV against arena area, with Harland's three points marked |
+| S2 | CV against landmark count and against aspect, area held constant |
 | S3 | scale-band occupancy |
 | S4 | per-field arena coverage against the 9–13% band |
 | S5 | the threshold caveat: every fit across the `EXTENT_PCTL` sweep |

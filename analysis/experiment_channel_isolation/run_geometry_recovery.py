@@ -3,16 +3,24 @@
 The recovery test (see run_field_recovery.py, and the 2026-08-26 report)
 establishes that a channel can return a place field it was handed. It has only
 ever been run in the circular arena. This experiment asks the same question in
-three environments that hold **area** at ~314 m^2 and **landmark count** at 8,
+three environments that hold **area** at ~28.3 m^2 and **landmark count** at 8,
 so that shape is the only thing that varies:
 
-    circ_lm8_r0   disc, r = 10         aspect  1.00
-    rect_lm8_r0   20 x 15.708          aspect  1.27
-    corr_lm8_r0   56 x 5.6             aspect 10.00
+    circ_lm8_r0   disc, r = 3          aspect  1.00
+    rect_lm8_r0   6 x 4.712            aspect  1.27
+    corr_lm8_r0   16.8 x 1.68          aspect 10.00
 
 Ideal place cells vary in **size** (six radii, 0.5-3.0 m) and in **location**
 (contours at fixed distance from the nearest wall, eight sites spread along
-each). Only the new sigma definition is run -- SIGMA_MODE='quantile' at
+each).
+
+!! IDEAL_RADII AND WALL_DISTS ARE STILL TUNED FOR THE 314 m^2 BUILD and need
+revisiting before this is run again. At 28.3 m^2 the Rule 9 ceiling is 5.65
+m^2, so every ideal cell above r = 1.34 m is above the ceiling by
+construction, and four of the six radii are. WALL_DISTS reaches 8 m against a
+maximum wall distance of 2.8 m in the disc and 0.64 m in the corridor;
+plant_sites_by_wall skips a contour it cannot populate, so those simply
+vanish rather than erroring, which is the failure mode worth knowing about. Only the new sigma definition is run -- SIGMA_MODE='quantile' at
 EXTENT_PCTL=65, the setting selected in the 2026-08-21 report. The old
 'pairwise' rule is not re-litigated here; it returns the whole arena.
 
