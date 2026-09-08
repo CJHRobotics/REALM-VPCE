@@ -138,6 +138,9 @@ def run_env(env_name, channel_names, C, args, rng):
         print(f'  subsampled to {len(xy)} positions')
 
     env = R.build_env(xy, ET.parse(xml_path).getroot())
+    # Per environment, not once in main(): BIN_M is derived from each arena's
+    # own collection lattice, which differs between arenas by construction.
+    C = R.resolve_grid_cfg(C, xy, env=env)
     G = R._grid_setup(env, C)
     occupied = np.zeros(G['gx'] * G['gy'], dtype=bool)
     occupied[R._bin_indices(xy, G)] = True
@@ -298,7 +301,8 @@ def main():
         json.dump(dict(envs=envs, channels=chans, extent_pctl=C['EXTENT_PCTL'],
                        sigma_mode='quantile', ideal_radii=IDEAL_RADII,
                        wall_dists=WALL_DISTS, sites_per_contour=args.sites,
-                       act_thresh=C['ACT_THRESH'], bin_m=C['BIN_M'],
+                       act_thresh=C['ACT_THRESH'],
+                       bin_m=C['BIN_M'] or 'lattice (per environment)',
                        cc_frac_min=C['CC_FRAC_MIN'],
                        rule8_area_frac=C['RULE8_AREA_FRAC'],
                        rule9_area_frac=C['RULE9_AREA_FRAC'],

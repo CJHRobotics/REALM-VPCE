@@ -312,7 +312,9 @@ def parse_args():
     ap.add_argument('--act-thresh', type=float, default=R.DEFAULT_CFG['ACT_THRESH'])
     ap.add_argument('--map-channel', default='color')
     ap.add_argument('--lam', type=float, default=0.0)
-    ap.add_argument('--bin-m', type=float, default=R.DEFAULT_CFG['BIN_M'])
+    ap.add_argument('--bin-m', type=float, default=R.DEFAULT_CFG['BIN_M'],
+                    help='analysis bin size in metres; omit to derive it '
+                         'from the collection lattice (the default)')
     ap.add_argument('--subsample', type=int, default=0)
     ap.add_argument('--no-gpu', action='store_true')
     ap.add_argument('--no-email', action='store_true')

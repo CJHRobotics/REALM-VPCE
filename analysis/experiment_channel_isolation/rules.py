@@ -55,29 +55,66 @@ except ImportError:                                        # pragma: no cover
 
 DEFAULT_CFG = dict(
     # --- environment readout ---------------------------------------------
-    # 0.25 m bins put ~67 sample locations in every bin at this dataset's
-    # density (1066 locations/m^2 -- every arena in the series now carries
-    # ~30,100 positions, so density tracks 1/area), so <1% of in-arena bins
-    # are empty. Rule 1
-    # needs that: a mask riddled with empty bins fragments under connected-
-    # component analysis and every field would fail contiguity spuriously.
-    BIN_M            = 0.25,
+    # Analysis bin size in metres, and the quantum of every field area: a
+    # field's area is its bin count times the bin area, so this sets the
+    # resolution of every size statistic downstream -- CV, min/median/max,
+    # max/min, coverage, and the shape of the size distribution itself.
+    #
+    # None = derive it from the collection lattice (`lattice_spacing`) and
+    # align bins to that lattice. This is the default because it is the only
+    # setting that cannot go stale when an arena changes size.
+    #
+    # It was a fixed 0.25 m, chosen when the arena was r = 10 and 80 bins
+    # across. The landmark sweep dropped to r = 3 and the bin did not follow,
+    # so the median field fell from 13 bins to 2 and the smallest to exactly
+    # 1 -- a measurement of the grid rather than of the field, with every
+    # reported area an integer multiple of one bin. It also silently disabled
+    # Rule 8, whose floor (0.035 m^2 in a 28.3 m^2 arena) sat BELOW a single
+    # 0.0625 m^2 bin and so could never reject anything. At the lattice that
+    # floor is ~43 bins and the rule does what it was written to do.
+    #
+    # A fixed BIN_M is also an absolute length held against arenas that vary
+    # in area, so the quantum as a FRACTION of the arena tracks 1/area: 1.27%
+    # of the floor at r = 1.25 against 0.02% at r = 10, a 64x swing sitting
+    # directly on fractional coverage, which is one of the quantities the
+    # area sweep measures. The lattice spacing is instead solved to hold
+    # ~N_TARGET positions in every arena, so it scales as sqrt(area) and the
+    # quantum stays a near-constant fraction of the floor.
+    #
+    # It is simultaneously the finest bin the sampling supports: exactly one
+    # sample per bin, hence no empty in-arena bins to punch holes in a mask.
+    # Rule 1 needs that -- a mask riddled with empty bins fragments under
+    # connected-component analysis and every field would fail contiguity
+    # spuriously.
+    BIN_M            = None,
     # Place bin CENTRES on the collection lattice instead of spanning the
     # arena with linspace. Only meaningful when BIN_M equals the lattice
     # spacing, and then it is essential: with linspace edges every sampled
     # position falls exactly ON a bin boundary, so floating point scatters
     # neighbours into the same bin and leaves others empty -- a checkerboard
-    # of holes that fails contiguity everywhere. Off by default; the
-    # environment-size sweep turns it on because holding bins equal to
-    # samples is what makes arenas of different area comparable.
-    BIN_ALIGN_TO_LATTICE = False,
+    # of holes that fails contiguity everywhere. None = follow BIN_M: on when
+    # BIN_M was derived from the lattice (where it is not optional but
+    # required), off when an explicit BIN_M was given. Set True/False to
+    # override.
+    BIN_ALIGN_TO_LATTICE = None,
     # Shrink the analysed region by the collection keep-out, so every measure
     # is taken over floor that was actually visited. The keep-out is absolute
     # (0.2 m) while arenas vary in size, so at BIN_M = lattice spacing the
     # unsampled ring is 4% of the r = 10 arena and 23% of the r = 1.25 one --
     # a scale-dependent slab of interpolated bins sitting directly on
     # coverage-against-area, which is one of the quantities being measured.
-    IN_ENV_MARGIN_M  = 0.0,
+    #
+    # None = measure it, as the smallest wall distance any sampled position
+    # reaches. This is not cosmetic at a lattice-derived BIN_M. The keep-out
+    # was under one bin at 0.25 m and is seven bins wide at 0.029 m, and an
+    # unsampled bin holds response 0 while _fill_empty_bins repairs only one
+    # bin deep -- so a ring of zeros would truncate and fragment precisely the
+    # wall-adjacent fields, and Rule 1 would reject them. Wall-dependent field
+    # size is a headline claim, so corrupting the wall-adjacent fields is the
+    # worst available failure. Measured: it removes every unsampled in-arena
+    # bin (12.9% of the disc, 24.2% of the corridor) and leaves in-arena bins
+    # exactly equal to sampled positions.
+    IN_ENV_MARGIN_M  = None,
     # Field boundary as a fraction of the field's own peak response. The
     # ephys convention; commonly 0.2 of peak, 0.5 is the stricter reading.
     ACT_THRESH       = 0.50,
@@ -488,7 +525,53 @@ def lattice_spacing(xy, axis=0):
     return float(np.median(d)) if len(d) else 1.0
 
 
+def resolve_grid_cfg(cfg, xy, env=None, verbose=True):
+    """Resolve BIN_M and IN_ENV_MARGIN_M against the collection lattice.
+
+    Separate from `resolve_cfg` because it needs the sampled positions, which
+    plain config resolution never sees. Idempotent, and an explicit value
+    passes through untouched, so a sweep over either still works.
+
+    Call this instead of `resolve_cfg` anywhere a grid is about to be built.
+    """
+    C = resolve_cfg(cfg)
+    if C.get('BIN_M') is None:
+        C['BIN_M'] = lattice_spacing(xy)
+        if C.get('BIN_ALIGN_TO_LATTICE') is None:
+            # Not optional at this bin size. With linspace edges every sampled
+            # position falls exactly ON a boundary, floating point scatters
+            # neighbours into the same bin, and the result is a checkerboard
+            # of holes that fails contiguity everywhere.
+            C['BIN_ALIGN_TO_LATTICE'] = True
+        if verbose:
+            print(f'  BIN_M from the collection lattice: {C["BIN_M"]:.4f} m '
+                  f'({C["BIN_M"] ** 2:.3g} m^2 per bin)')
+    elif C.get('BIN_ALIGN_TO_LATTICE') is None:
+        C['BIN_ALIGN_TO_LATTICE'] = False
+    if C.get('IN_ENV_MARGIN_M') is None:
+        # The keep-out, measured rather than assumed, so it is right for any
+        # arena shape and any collection margin. Without `env` there is no
+        # boundary to measure against, so analyse everything and say so.
+        if env is None:
+            C['IN_ENV_MARGIN_M'] = 0.0
+            if verbose:
+                print('  IN_ENV_MARGIN_M: no env given, analysing every bin '
+                      'including any never sampled')
+        else:
+            C['IN_ENV_MARGIN_M'] = float(
+                wall_distance(xy[:, 0], xy[:, 1], env).min())
+            if verbose:
+                print(f'  IN_ENV_MARGIN_M from the collection keep-out: '
+                      f'{C["IN_ENV_MARGIN_M"]:.4f} m')
+    return C
+
+
 def _grid_setup(env, C):
+    if C.get('BIN_M') is None:
+        raise ValueError(
+            'BIN_M is None: call rules.resolve_grid_cfg(cfg, xy) rather than '
+            'resolve_cfg() before building a grid, so the bin size can be '
+            'derived from the collection lattice.')
     if C.get('BIN_ALIGN_TO_LATTICE'):
         x_edges = _lattice_edges(env['x_min'], env['x_max'], C['BIN_M'])
         y_edges = _lattice_edges(env['y_min'], env['y_max'], C['BIN_M'])
@@ -510,7 +593,9 @@ def _grid_setup(env, C):
         in_env = ((GX >= env['x_min'] + m) & (GX <= env['x_max'] - m) &
                   (GY >= env['y_min'] + m) & (GY <= env['y_max'] - m))
     return dict(gx=gx, gy=gy, xc=xc, yc=yc, x_edges=x_edges, y_edges=y_edges,
-                bin_area=bin_area, in_env=in_env, GX=GX, GY=GY)
+                bin_area=bin_area, bin_m=float(C['BIN_M']),
+                aligned=bool(C.get('BIN_ALIGN_TO_LATTICE')),
+                in_env=in_env, GX=GX, GY=GY)
 
 
 def _bin_indices(xy, G):
@@ -797,7 +882,7 @@ def prepare_candidates(X, xy, env, D2_feat, feat_med, xy_med, cfg=None,
 
     Returns a context dict for `admit_fields`.
     """
-    C = resolve_cfg(cfg)
+    C = resolve_grid_cfg(cfg, xy, env=env, verbose=verbose)
     rng = np.random.default_rng(C['RANDOM_SEED'])
     N, D = X.shape
     G = _grid_setup(env, C)

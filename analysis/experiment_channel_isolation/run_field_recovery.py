@@ -196,7 +196,10 @@ def score(mask, imask, G, C, env, area_min, area_max):
     cc, ncomp = R.largest_component_fraction(mask)
     inter = float((mask & imask).sum())
     union = float((mask | imask).sum())
-    bin_area = C['BIN_M'] ** 2
+    # From the grid, not BIN_M**2: on the unaligned path the edges are a
+    # linspace over the arena, so the bin is BIN_M only up to the rounding
+    # that fits a whole number of them across.
+    bin_area = G['bin_area']
     rec_area, ideal_area = sh['area'], ts['area']
     return dict(
         rec_area_m2=rec_area, ideal_area_m2=ideal_area,
@@ -1036,8 +1039,8 @@ def main():
     env = R.build_env(xy, root)
     device = R.pick_device(use_gpu=not args.no_gpu)
 
-    C = R.resolve_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
-                           USE_GPU=not args.no_gpu))
+    C = R.resolve_grid_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
+                                USE_GPU=not args.no_gpu), xy, env=env)
     G = R._grid_setup(env, C)
     occupied = np.zeros(G['gx'] * G['gy'], dtype=bool)
     occupied[R._bin_indices(xy, G)] = True

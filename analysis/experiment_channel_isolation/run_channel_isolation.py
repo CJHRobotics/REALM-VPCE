@@ -57,7 +57,9 @@ def parse_args():
     ap.add_argument('--channels', default='hog,color,spatial,lidar,visual,all')
     ap.add_argument('--lambdas', default='0,0.1,0.5,2')
     ap.add_argument('--subsample', type=int, default=0)
-    ap.add_argument('--bin-m', type=float, default=R.DEFAULT_CFG['BIN_M'])
+    ap.add_argument('--bin-m', type=float, default=R.DEFAULT_CFG['BIN_M'],
+                    help='analysis bin size in metres; omit to derive it '
+                         'from the collection lattice (the default)')
     ap.add_argument('--lidar-max-range', type=float, default=LIDAR_MAX_RANGE)
     ap.add_argument('--no-gpu', action='store_true')
     ap.add_argument('--no-plots', action='store_true')
