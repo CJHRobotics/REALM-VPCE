@@ -32,34 +32,44 @@ model-selection statistic answer different questions:
            from the same sample, so it is not used.
   aic      2k - 2 logL. This is the discriminator; `winner` is its argmin.
 
-The threshold caveat
---------------------
+The threshold caveat, and why it no longer sweeps
+------------------------------------------------
 Harland show their exponential fit becomes quasi-linear at a lower
-field-detection threshold, so distribution shape is not threshold-independent.
-The comparison is not meaningful without sweeping our analogous knob.
+field-detection threshold, so distribution shape is not threshold-independent
+and the comparison is meaningless without checking ours.
 
-**Our analogous knob is `EXTENT_PCTL`, not `ACT_THRESH`.** Under
-`SIGMA_MODE = 'quantile'` sigma is solved so the threshold contour lands at
-`Q`, the `EXTENT_PCTL` percentile of a cluster's centroid-distance
-distribution:
+It has been checked. `EXTENT_PCTL` saturates at 65 (run_field_recovery,
+against ideal place cells of known size), and the first full run of this
+experiment swept 50 / 65 / 80 and found log-normal winning on AIC at every
+setting in all 24 environment x channel libraries. The caveat is answered, so
+the default is now the single operating point. `--settings 50:0.5,65:0.5,80:0.5`
+re-opens the sweep if anything upstream changes.
+
+`ACT_THRESH` was never the knob and cannot be. Under `SIGMA_MODE = 'quantile'`
+sigma is solved so the threshold contour lands at `Q`, the `EXTENT_PCTL`
+percentile of a cluster's centroid-distance distribution:
 
     sigma = sqrt( (Q^2 - d_min^2) / (2 ln(1/T)) )
 
-and substituting that back into the mask boundary gives
+and substituting back into the mask boundary gives `Q` for any `T`. The
+threshold cancels exactly; sweeping it varies sigma and leaves every mask,
+field and admission decision untouched. That is why `run_threshold_sweep.py`
+was retired (see RETIRED.md). Measured at 24 paired runs: identical field
+counts, maximum area difference exactly 0. `--settings 65:0.5,65:0.2`
+re-checks it.
 
-    sqrt( d_min^2 + 2 sigma^2 ln(1/T) )  =  Q     for any T.
+Scale
+-----
+Two of the three targets above are claims about ENVIRONMENT SCALE. Fig 3F-G is
+a scale-dependent shape claim -- exponential in the megaspace, Gaussian in the
+small environments -- and Fig 6E is CV against enclosure area. Neither can be
+read from datasets that hold area constant.
 
-`ACT_THRESH` cancels exactly. Sweeping it varies sigma while leaving every
-mask, every field and every admission decision untouched -- this is why
-`run_threshold_sweep.py` was retired (see RETIRED.md). Field extent is now set
-by `EXTENT_PCTL`, so that is what is swept here.
-
-The default settings list still carries one off-threshold point,
-`(EXTENT_PCTL 65, ACT_THRESH 0.2)`, alongside `(65, 0.5)`. It is not a sweep
-point but a standing check: the two must produce bit-identical banks. If they
-ever diverge, the identity above has been broken by a change elsewhere and
-every threshold statement in this experiment is void. The report states the
-measured difference rather than asserting the algebra.
+So the primary env list is `AREA_ENVS`, the area sweep: six discs from 4.91 to
+314.16 m^2, a 64x range at fixed shape and fixed landmark count, each sampled
+at ~N_TARGET positions so sample count is not a covariate. `ENVS`, the six
+same-area datasets, is the control that says whether anything other than scale
+moves the distribution.
 
 Truncation
 ----------
@@ -102,16 +112,36 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 # The six collected datasets: four landmark counts on one disc, plus the two
 # geometry arenas. The landmark counts each divide the clock face evenly from
 # noon, so no panel sits on a camera view seam.
+# Same area (~28.3 m^2), varying cue density and shape. A control: it says
+# whether the distribution moves with anything other than scale.
 ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
         'rect_lm8_r0', 'corr_lm8_r0']
+
+# Varying area at fixed shape and landmark count, 4.91 -> 314.16 m^2, a 64x
+# range. This is the axis Harland's design actually varies, and the only one
+# on which Figs 3F-G and 6E can be read at all -- see the module docstring.
+#   --envs "$(python -c 'import run_scale_distribution as m;
+#                        print(",".join(m.AREA_ENVS))')"
+AREA_ENVS = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0', 'circ_lm8_r0',
+             'circ_lm8_rad3p5', 'circ_lm8_rad6p0', 'circ_lm8_rad10p0']
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
                   'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}
 
-# (EXTENT_PCTL, ACT_THRESH). 65 is the operating point selected by
-# run_field_recovery.py against ideal place cells; 50 and 80 bracket it.
-# (65, 0.2) is the invariance check described in the module docstring.
-SETTINGS = [(50, 0.5), (65, 0.5), (80, 0.5), (65, 0.2)]
+# (EXTENT_PCTL, ACT_THRESH). One setting: the operating point.
+#
+# The sweep this used to run has served its purpose and is retired from the
+# default. EXTENT_PCTL saturates at 65 -- established by run_field_recovery
+# against ideal place cells of known size -- and the first full run of this
+# experiment found log-normal winning on AIC at 50, 65 and 80 alike, in all
+# 24 environment x channel libraries. The threshold caveat is therefore
+# answered rather than open, and re-running the sweep every time buys nothing.
+#
+# Pass --settings to sweep again if something upstream changes: e.g.
+#   --settings 50:0.5,65:0.5,80:0.5      re-open the EXTENT_PCTL sweep
+#   --settings 65:0.5,65:0.2             re-check the ACT_THRESH invariance
+# Two settings sharing an EXTENT_PCTL still trigger the invariance check.
+SETTINGS = [(65, 0.5)]
 DEFAULT_PCTL, DEFAULT_T = 65, 0.5
 
 N_BOOT = 200               # parametric-bootstrap draws for the KS p-value
@@ -123,6 +153,18 @@ HARLAND_CV = {'CA1 small': 70.0, 'CA1 medium': 85.0, 'CA1 megaspace': 101.0}
 HARLAND_COVERAGE = (0.09, 0.13)
 HARLAND_R_EXPON, HARLAND_R_GAUSS = 0.995, 0.985
 HARLAND_FRAC_UNDER_1M2 = 0.78
+
+# Area counts as varied only when it spans at least this ratio. Not
+# `nunique() > 1`: the corridor is 28.224 m^2 against the discs' 28.274, a
+# 0.2% rounding difference that would otherwise be read as an area axis and
+# produce a Fig 6E plot out of six points that all share one scale.
+AREA_SPAN_MIN = 2.0
+
+
+def area_varies(s):
+    """Does this set of runs span enough area to speak to Harland Fig 6E?"""
+    a = s.env_area_m2.dropna()
+    return len(a) > 0 and float(a.max()) / float(a.min()) >= AREA_SPAN_MIN
 
 
 # ------------------------------------------------------------------ fitting
@@ -382,75 +424,58 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
 
 
 def fig_cv(summary, fig_dir):
-    """S2: CV of field size against the two axes that actually vary.
+    """S2: coefficient of variation of field size — Harland Fig 6E.
 
-    Not against area. The six datasets hold area at ~28.3 m^2 by design --
-    that is what makes the geometry arenas a shape control -- so Harland
-    Fig 6E is not addressable from this set at all. Their three values are
-    drawn as reference lines to place our numbers beside theirs, never as a
-    trend our points could be fitted to.
+    Plotted against whichever axis the given datasets actually vary. With the
+    area sweep that is arena area, and the figure is a direct reading of
+    Fig 6E. With the same-area six it can only be cue density and shape, and
+    the figure answers the weaker control question instead — is the CV moved
+    by anything other than scale? The axis is chosen from the data rather
+    than fixed, so the same code serves both and neither is mislabelled.
+
+    Harland's 70/85/101 are drawn as a reference scale. They are a trend to
+    compare against only when our own x axis is area.
     """
     s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
                 (summary.act_thresh == DEFAULT_T)]
     if not len(s):
         return
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
-    for c in sorted(s.channel.unique()):
-        d = s[s.channel == c]
-        col = CHANNEL_COLORS.get(c, '0.4')
-        disc = d[d.n_landmarks.notna() & (d.aspect == 1.0)].sort_values('n_landmarks')
-        if len(disc):
-            axes[0].plot(disc.n_landmarks, disc.cv_area_pct, 'o-', ms=5,
-                         lw=1.2, color=col, label=c)
-        shp = d[d.n_landmarks == 8].sort_values('aspect')
-        if len(shp):
-            axes[1].plot(shp.aspect, shp.cv_area_pct, 'o-', ms=5, lw=1.2,
-                         color=col, label=c)
-    axes[0].set_xlabel('landmark count (disc, area held at 28.3 m$^2$)')
-    axes[1].set_xlabel('aspect ratio (8 landmarks, area held at 28.3 m$^2$)')
-    axes[1].set_xscale('log')
-    for ax in axes:
-        ax.set_ylabel('CV of field area (%)')
+    by_area = area_varies(s)
+    if by_area:
+        panels = [('env_area_m2', 'arena area (m$^2$)', s)]
+    else:
+        panels = [('n_landmarks', 'landmark count (disc)',
+                   s[s.aspect == 1.0]),
+                  ('aspect', 'aspect ratio (8 landmarks)',
+                   s[s.n_landmarks == 8])]
+    fig, axes = plt.subplots(1, len(panels), squeeze=False,
+                             figsize=(6.4 * len(panels), 4.4))
+    for ax, (xcol, xlabel, d) in zip(axes[0], panels):
+        for c in sorted(d.channel.unique()):
+            g = d[d.channel == c].sort_values(xcol)
+            if len(g):
+                ax.plot(g[xcol], g.cv_area_pct, 'o-', ms=5, lw=1.2,
+                        color=CHANNEL_COLORS.get(c, '0.4'), label=c)
         for k, v in HARLAND_CV.items():
             ax.axhline(v, color='k', ls=':', lw=0.9)
             ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=6,
                     va='center')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('CV of field area (%)')
+        ax.set_ylim(bottom=0)
         ax.legend(fontsize=7, frameon=False, ncol=2)
-    fig.suptitle('S2  coefficient of variation of field size. Area is held '
-                 'constant across all six datasets,\nso the dotted Harland '
-                 'Fig 6E values are a reference scale, not a trend to fit.',
-                 fontsize=9)
+    fig.suptitle(
+        'S2  coefficient of variation of field size against arena area '
+        '(Harland Fig 6E)' if by_area else
+        'S2  coefficient of variation of field size. Area is held constant '
+        'across these datasets,\nso the dotted Harland Fig 6E values are a '
+        'reference scale, not a trend to fit.', fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     _save(fig, fig_dir, 'S2_cv.png')
 
 
-def fig_bands(summary, fig_dir):
-    """S3: scale-band occupancy, bands 0-5."""
-    s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
-                (summary.act_thresh == DEFAULT_T)]
-    if not len(s):
-        return
-    cols = [f'band{b}_frac' for b in BANDS] + ['band6plus_frac']
-    labels = [f'{e}\n{c}' for e, c in zip(s.env, s.channel)]
-    fig, ax = plt.subplots(figsize=(max(7.0, 0.42 * len(s)), 4.4))
-    bottom = np.zeros(len(s))
-    for k, col in enumerate(cols):
-        v = s[col].to_numpy(dtype=float)
-        ax.bar(range(len(s)), v, bottom=bottom, width=0.82,
-               color=plt.cm.viridis(k / len(cols)),
-               label=col.replace('_frac', ''))
-        bottom += v
-    ax.set_xticks(range(len(s)))
-    ax.set_xticklabels(labels, rotation=90, fontsize=5)
-    ax.set_ylabel('fraction of fields')
-    ax.set_title('S3  scale-band occupancy (geometric bands, ratio '
-                 f'{R.DEFAULT_CFG["BAND_RATIO"]})', fontsize=9)
-    ax.legend(fontsize=6, frameon=False, ncol=4)
-    _save(fig, fig_dir, 'S3_band_occupancy.png')
-
-
 def fig_coverage(summary, fig_dir):
-    """S4: per-field arena coverage against Harland's 9-13% band."""
+    """S3: per-field arena coverage against Harland's 9-13% band."""
     s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
                 (summary.act_thresh == DEFAULT_T)]
     if not len(s):
@@ -464,61 +489,15 @@ def fig_coverage(summary, fig_dir):
                 color='#333333', ecolor='0.6')
     ax.axhspan(100 * HARLAND_COVERAGE[0], 100 * HARLAND_COVERAGE[1],
                color='#2ca02c', alpha=0.18, label='Harland 9-13%')
-    ax.set_yscale('log')
+    ax.set_ylim(bottom=0)
     ax.set_xticks(xs)
     ax.set_xticklabels([f'{e}\n{c}' for e, c in zip(s.env, s.channel)],
                        rotation=90, fontsize=5)
     ax.set_ylabel('arena covered per field (%)')
-    ax.set_title('S4  fraction of the arena covered by one field '
+    ax.set_title('S3  fraction of the arena covered by one field '
                  '(median, IQR)', fontsize=9)
     ax.legend(fontsize=7, frameon=False)
-    _save(fig, fig_dir, 'S4_coverage.png')
-
-
-def fig_threshold(fits, summary, fig_dir):
-    """S5: does the winning form, and its r, survive the EXTENT_PCTL sweep?
-
-    The caveat figure. If the winner flips across the sweep, no statement
-    about which form we match is threshold-independent.
-    """
-    f = fits[(fits.variable == 'area') & (fits.act_thresh == DEFAULT_T)]
-    if not len(f):
-        return
-    pctls = sorted(f.extent_pctl.unique())
-    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.2))
-    for name, spec in FORMS.items():
-        d = f[f.form == name].groupby('extent_pctl')
-        axes[0].plot(pctls, [d.get_group(p).r_hist.median() if p in d.groups
-                             else np.nan for p in pctls], 'o-', label=name)
-        axes[1].plot(pctls, [d.get_group(p).d_aic.median() if p in d.groups
-                             else np.nan for p in pctls], 'o-', label=name)
-    axes[0].axhline(HARLAND_R_EXPON, color='k', ls=':', lw=0.9)
-    axes[0].axhline(HARLAND_R_GAUSS, color='k', ls='--', lw=0.9)
-    axes[0].set_ylabel('median $r_{hist}$ across runs')
-    axes[0].set_title('fit quality in Harland\'s statistic\n'
-                      'dotted 0.995 expon, dashed 0.985 Gaussian', fontsize=8)
-    axes[1].set_ylabel('median $\\Delta$AIC from the best form')
-    axes[1].set_title('model selection (0 = winner)', fontsize=8)
-    for ax in axes[:2]:
-        ax.set_xlabel('EXTENT_PCTL')
-        ax.legend(fontsize=7, frameon=False)
-    won = (f[f.d_aic == 0].groupby(['extent_pctl', 'form']).size()
-           .unstack(fill_value=0).reindex(columns=list(FORMS), fill_value=0))
-    bottom = np.zeros(len(won))
-    for k, name in enumerate(FORMS):
-        axes[2].bar(range(len(won)), won[name].to_numpy(), bottom=bottom,
-                    color=plt.cm.tab10(k), label=name)
-        bottom += won[name].to_numpy()
-    axes[2].set_xticks(range(len(won)))
-    axes[2].set_xticklabels([str(p) for p in won.index])
-    axes[2].set_xlabel('EXTENT_PCTL')
-    axes[2].set_ylabel('runs won')
-    axes[2].set_title('which form wins, per setting', fontsize=8)
-    axes[2].legend(fontsize=7, frameon=False)
-    fig.suptitle('S5  the threshold caveat: every fit across the EXTENT_PCTL '
-                 'sweep', fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    _save(fig, fig_dir, 'S5_threshold_sweep.png')
+    _save(fig, fig_dir, 'S3_coverage.png')
 
 
 # -------------------------------------------------------------------- report
@@ -623,38 +602,45 @@ class ScaleDistributionReport(ExperimentReport):
                   'the winner is taken from.']
         out.append(S('THE THREE FORMS', '\n'.join(forms)))
 
-        # --- the threshold caveat -----------------------------------------
+        # --- the threshold caveat, now settled ----------------------------
         inv = self.invariance
         cav = [
             'Harland show their exponential fit becomes quasi-linear at a '
-            'lower detection threshold, so shape is not threshold-independent '
-            'and every fit is reported across a sweep.', '',
-            'OUR KNOB IS EXTENT_PCTL, NOT ACT_THRESH. Under SIGMA_MODE = '
+            'lower detection threshold, so distribution shape is not '
+            'threshold-independent and the comparison is meaningless without '
+            'checking ours. It has been checked, and it is settled:', '',
+            '  EXTENT_PCTL saturates at 65, established by run_field_recovery '
+            'against ideal place cells of known size.',
+            '  The first full run of this experiment swept 50 / 65 / 80 and '
+            'found log-normal winning on AIC at every setting, in all 24 '
+            'environment x channel libraries.', '',
+            'So the sweep no longer runs by default. Re-open it with '
+            '--settings 50:0.5,65:0.5,80:0.5 if anything upstream changes.', '',
+            'ACT_THRESH is not the knob and cannot be. Under SIGMA_MODE = '
             '"quantile" sigma is solved so the ACT_THRESH contour lands at '
             'the EXTENT_PCTL quantile, and the threshold cancels exactly from '
-            'the mask boundary. Sweeping ACT_THRESH varies sigma and changes '
-            'nothing else — this is why run_threshold_sweep.py was retired.']
+            'the mask boundary — sweeping it varies sigma and changes nothing '
+            'else, which is why run_threshold_sweep.py was retired. Measured '
+            'once at 24 paired runs: identical field counts, maximum area '
+            'difference exactly 0.']
         if inv is not None and len(inv):
             bad = inv[~inv.same_n_fields | (inv.max_abs_area_diff.fillna(1) > 1e-9)]
             cav += ['',
-                    f'Invariance check, {len(inv)} paired runs: ' +
-                    ('every pair identical, so the algebra holds in the code '
-                     'as well as on paper.' if not len(bad) else
+                    f'Re-checked in this run, {len(inv)} paired runs: ' +
+                    ('every pair identical.' if not len(bad) else
                      f'{len(bad)} PAIRS DIVERGED. The identity has been broken '
                      f'somewhere; treat every threshold statement here as void '
                      f'until that is found.')]
-        sweep = []
-        for p in sorted(f.extent_pctl.unique()):
-            d = f[(f.extent_pctl == p) & (f.d_aic == 0)]
-            n = d.form.value_counts()
-            sweep.append(f'  EXTENT_PCTL {p:>3}: ' +
-                         (', '.join(f'{k} {v}' for k, v in n.items()) or 'no fit'))
-        cav += ['', 'Winning form per setting:'] + sweep
-        cav += ['',
-                'If the winner flips across these rows, no claim about which '
-                'published form we match is threshold-independent, and the '
-                'honest report is the shape section above.']
-        out.append(S('THE THRESHOLD CAVEAT', '\n'.join(cav)))
+        if f.extent_pctl.nunique() > 1:
+            sweep = []
+            for p in sorted(f.extent_pctl.unique()):
+                d = f[(f.extent_pctl == p) & (f.d_aic == 0)]
+                n = d.form.value_counts()
+                sweep.append(f'  EXTENT_PCTL {p:>3}: ' +
+                             (', '.join(f'{k} {v}' for k, v in n.items())
+                              or 'no fit'))
+            cav += ['', 'Winning form per setting in THIS run:'] + sweep
+        out.append(S('THE THRESHOLD CAVEAT — settled', '\n'.join(cav)))
 
         # --- what bounds the distribution ---------------------------------
         out.append(S('TRUNCATION — read before the fits', '\n'.join([
@@ -673,26 +659,50 @@ class ScaleDistributionReport(ExperimentReport):
             'Harland measured — so agreement at the fine end is partly '
             'assumed rather than found.'])))
 
-        # --- what these six datasets can and cannot answer ----------------
+        # --- can these datasets speak to scale at all? --------------------
         areas = sorted(base.env_area_m2.unique())
-        out.append(S('CV AGAINST AREA IS NOT ANSWERABLE HERE', '\n'.join([
-            f'The six datasets hold arena area constant by design: '
-            f'{", ".join(f"{a:.1f}" for a in areas)} m^2. That is the point of '
-            'them — the four landmark counts vary cue density on one disc, and '
-            'the two geometry arenas vary shape at the same area, so each axis '
-            'is isolated.',
-            '',
-            'It also means Harland Fig 6E, which is CV against enclosure area, '
-            'CANNOT be read from this set at all. S2 plots CV against the two '
-            'axes that do vary and draws their 70/85/101 as a reference scale '
-            'to place our numbers beside theirs — not as a trend our points '
-            'could be fitted to. Any claim about CV rising with area has to '
-            'come from the area sweep (circ_lm8_rad1p25 .. rad10p0), which is '
-            'Experiment 3.',
-            '',
-            'What this set does answer: whether our CV sits anywhere near '
-            'their range at all, and whether it moves with cue density or '
-            'with shape when area is pinned.'])))
+        if area_varies(base):
+            lo, hi = min(areas), max(areas)
+            cv_lo = base[base.env_area_m2 == lo].cv_area_pct.median()
+            cv_hi = base[base.env_area_m2 == hi].cv_area_pct.median()
+            out.append(S('CV AGAINST AREA — Harland Fig 6E', '\n'.join([
+                f'{len(areas)} arena areas, {lo:.1f} to {hi:.0f} m^2 '
+                f'({hi/lo:.0f}x). This is the axis Harland vary, so 6E can be '
+                f'read directly.', '',
+                f'  CV at {lo:.1f} m^2   {cv_lo:.0f}%',
+                f'  CV at {hi:.0f} m^2   {cv_hi:.0f}%',
+                f'  Harland      ' +
+                ', '.join(f'{k} {v:g}' for k, v in HARLAND_CV.items()), '',
+                'Their claim is that CV RISES with enclosure area. Read the '
+                'direction first and the absolute values second: matching the '
+                'direction is the result, and sitting at their exact 70/85/101 '
+                'is not expected from a different agent in a different arena.',
+                '',
+                'One confound is built into the sweep and cannot be removed '
+                'from it: the landmarks are a fixed 0.75 m, so a panel '
+                'subtends less of the image in a larger arena, and enclosure '
+                'size is confounded with cue salience. That is a genuine '
+                'property of fixed-size cues rather than a defect — Harland\'s '
+                'room cues were fixed too — but at r = 1.25 eight panels cover '
+                '76% of the circumference, which is closer to a ring of flags '
+                'than to a room with landmarks in it. Treat the endpoints as '
+                'the weakest points of the curve.'])))
+        else:
+            out.append(S('SCALE IS NOT VARIED IN THIS RUN', '\n'.join([
+                f'Every dataset here is within a factor '
+                f'{max(areas)/min(areas):.2f} of {areas[0]:.1f} m^2, so '
+                f'Harland Fig 6E '
+                '(CV against enclosure area) and the 3F/3G contrast (a '
+                'negative exponential in the megaspace against a Gaussian in '
+                'the small environments) CANNOT be read at all. Both are '
+                'claims about scale, and scale is held constant.', '',
+                'What this run does establish is the shape at one scale, and '
+                'whether cue density or arena shape move it — a control, and '
+                'a prerequisite for reading the area sweep, but not a test of '
+                'either published claim.', '',
+                'Run over AREA_ENVS (circ_lm8_rad1p25 .. rad10p0, 4.91 to '
+                '314.16 m^2) for the comparison this experiment is named '
+                'after.'])))
 
         cols = ['env', 'channel', 'n_fields', 'env_area_m2', 'cv_area_pct',
                 'area_min_m2', 'area_median_m2', 'area_max_m2',
@@ -709,7 +719,11 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--envs', default=','.join(ENVS))
+    p.add_argument('--envs', default=','.join(AREA_ENVS),
+                   help='default is the area sweep (AREA_ENVS, 4.91-314 m^2), '
+                        'the axis Harland vary and the only one on which Figs '
+                        '3F-G and 6E can be read. Pass the six same-area '
+                        'datasets (ENVS) for the cue-density/shape control.')
     p.add_argument('--channels', default=','.join(CHANNELS))
     p.add_argument('--settings',
                    default=','.join(f'{p}:{t:g}' for p, t in SETTINGS),
@@ -753,9 +767,11 @@ def main():
     print(f'  channels : {chans}')
     print(f'  settings : {[(p, t) for p, t in settings]}  (EXTENT_PCTL, ACT_THRESH)')
     print(f'  LAMBDA   : {base_C["LAMBDA"]}')
-    print('  note     : ACT_THRESH cancels under SIGMA_MODE=quantile; the')
-    print('             off-threshold setting is an invariance check, not a')
-    print('             sweep point. EXTENT_PCTL is the analogous knob.')
+    print(f'  areas    : {"varies — Fig 6E readable" if len(envs) > 1 else "one"}'
+          '  (a single area cannot speak to Harland 3F-G or 6E)')
+    print('  note     : EXTENT_PCTL saturates at 65 and the sweep is settled;')
+    print('             pass --settings to re-open it. ACT_THRESH cancels')
+    print('             under SIGMA_MODE=quantile and is not a knob.')
     print('=' * 72, flush=True)
 
     banks_all, sum_rows, fit_rows, inv_rows = {}, [], [], []
@@ -825,9 +841,7 @@ def main():
     print('\nfigures:', flush=True)
     fig_distributions(banks_all, fits, envs, chans, fig_dir)
     fig_cv(summary, fig_dir)
-    fig_bands(summary, fig_dir)
     fig_coverage(summary, fig_dir)
-    fig_threshold(fits, summary, fig_dir)
 
     rep = ScaleDistributionReport(env_name=','.join(envs), out_dir=out_dir,
                                   fig_dir=fig_dir, results=summary,

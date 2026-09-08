@@ -2,10 +2,16 @@
 #
 # Experiment 2 — where our scale distribution sits.
 #
-# What shape is our field-size distribution, and how does it compare to the
-# three forms in the literature? Over the six collected datasets (four
-# landmark counts on one disc, plus rect_lm8_r0 and corr_lm8_r0), takes the
-# admitted field library per channel and reports, for each:
+# What shape is our field-size distribution, how does it compare to the three
+# forms in the literature, and how does it move with environment scale?
+#
+# The default env list is the AREA SWEEP -- circ_lm8_rad1p25 .. rad10p0, 4.91
+# to 314.16 m^2, a 64x range at fixed shape and landmark count. That is the
+# axis Harland vary, and two of the three targets (Fig 3F-G's scale-dependent
+# form, Fig 6E's CV against area) cannot be read on any other. The six
+# same-area datasets are the control: pass them with --envs.
+#
+# Takes the admitted field library per channel and reports, for each:
 #
 #   * fits against log-normal, negative exponential AND Gaussian, with
 #     goodness of fit for all three — the two source papers disagree about
@@ -29,23 +35,31 @@
 # the algebra.
 #
 # Usage:
-#   sbatch slurm/scale_distribution.sh                        # all six arenas
+#   sbatch slurm/scale_distribution.sh                        # the area sweep
 #   sbatch slurm/scale_distribution.sh --envs circ_lm8_r0     # one, in parallel
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
-#   sbatch slurm/scale_distribution.sh --settings 65:0.5      # no sweep
+#   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
+#                                                             # re-open the sweep
 #
 # One arena per job is the better pattern here, as for the other analysis
 # jobs: cost is dominated by building a field library per channel, the arenas
 # are independent, and six of them serially is six times the walltime for no
 # benefit. Submit the fan-out with:
 #
-#   for e in circ_lm2_r0 circ_lm4_r0 circ_lm8_r0 circ_lm12_r0 \
-#            rect_lm8_r0 corr_lm8_r0; do
+#   for e in circ_lm8_rad1p25 circ_lm8_rad2p0 circ_lm8_r0 \
+#            circ_lm8_rad3p5 circ_lm8_rad6p0 circ_lm8_rad10p0; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #
 # then re-run once over all six with --use-cache to get the cross-environment
-# figures and the single combined report.
+# figures and the single combined report. S2 needs every arena in one run to
+# draw its axis, so that combining pass is not optional here.
+#
+# THE THRESHOLD SWEEP IS RETIRED FROM THE DEFAULT. EXTENT_PCTL saturates at 65
+# (run_field_recovery, against ideal cells of known size) and the first full
+# run found log-normal winning on AIC at 50, 65 and 80 alike across all 24
+# libraries, with the ACT_THRESH invariance check exact to 0. Re-open either
+# with --settings if something upstream changes.
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=scale-dist

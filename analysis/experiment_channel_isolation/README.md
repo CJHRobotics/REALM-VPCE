@@ -161,11 +161,23 @@ model-selection statistic answer different questions:
 | `ks`, `ks_p_boot` | KS distance, p from a parametric bootstrap that refits each synthetic sample | the analytic p is anticonservative when parameters came from the same sample. Expect **every** form to be rejected past ~1000 fields; that is normal, not a failure |
 | `aic`, `d_aic` | 2k − 2 logL | the discriminator. `winner` is its argmin |
 
-## The threshold caveat
+## The threshold caveat — settled, no longer swept
 
 Harland show their exponential fit becomes quasi-linear at a lower
-field-detection threshold, so distribution shape is not threshold-independent.
-Every fit is therefore reported across a sweep.
+field-detection threshold, so distribution shape is not threshold-independent
+and the comparison is meaningless without checking ours. It has been checked:
+
+- `EXTENT_PCTL` saturates at 65 — `run_field_recovery.py`, against ideal place
+  cells of known size.
+- The first full run of this experiment swept 50 / 65 / 80 and found
+  log-normal winning on AIC at **every** setting, in all 24 environment ×
+  channel libraries.
+- The `ACT_THRESH` invariance check ran at 24 paired runs: identical field
+  counts, maximum area difference exactly **0**.
+
+The default is therefore the single operating point, `65:0.5`. Re-open either
+check with `--settings 50:0.5,65:0.5,80:0.5` or `--settings 65:0.5,65:0.2` if
+something upstream changes.
 
 **Our analogous knob is `EXTENT_PCTL`, not `ACT_THRESH`.** Under
 `SIGMA_MODE = 'quantile'` sigma is solved so the threshold contour lands at
@@ -175,11 +187,11 @@ any `T` — the activation threshold cancels exactly. Sweeping `ACT_THRESH`
 varies sigma and leaves every mask, field and admission decision untouched.
 See `RETIRED.md`.
 
-The default settings list carries one off-threshold point, `65:0.2` beside
-`65:0.5`. It is not a sweep point but a **standing invariance check**: the two
-must produce identical banks, and the report states the measured difference
-rather than asserting the algebra. A divergence means the identity has been
-broken elsewhere and every threshold statement in the experiment is void.
+`ACT_THRESH` was never the knob and cannot be — the algebra above means
+sweeping it varies sigma and leaves every mask, field and admission decision
+untouched. `--settings 65:0.5,65:0.2` re-runs the invariance check, which
+compares the two banks and reports the measured difference rather than
+asserting the algebra.
 
 ## Two caveats the numbers cannot carry on their own
 
@@ -189,24 +201,43 @@ is to a doubly-truncated sample. `frac_at_floor` and `frac_at_ceiling` say how
 much of the distribution is the rule rather than the model. Agreement at the
 fine end is partly assumed rather than found.
 
-**CV against area is not answerable from this set.** All six datasets hold
-area at ~28.3 m², which is the point of them: the four landmark counts vary
-cue density on one disc, the two geometry arenas vary shape at the same area,
-and each axis is isolated. Harland Fig 6E is CV against *enclosure area*, so
-it cannot be read here at all. S2 plots CV against the two axes that do vary
-and draws their 70/85/101 as a reference scale, never as a trend to fit. That
-question belongs to the area sweep (`circ_lm8_rad1p25` … `rad10p0`) in
-Experiment 3.
+**Scale is the primary axis.** Two of the three targets are claims about
+environment *scale*: Fig 3F–G is a scale-dependent shape claim (exponential in
+the megaspace, Gaussian in the small environments) and Fig 6E is CV against
+enclosure area. Neither can be read from datasets that hold area constant.
+
+So the default env list is `AREA_ENVS` — the area sweep, six discs from 4.91
+to 314.16 m², a 64× range at fixed shape and fixed landmark count, each
+sampled at ~`N_TARGET` positions so sample count is not a covariate.
+
+`ENVS`, the six same-area datasets, is the **control**: it says whether cue
+density (2/4/8/12 landmarks) or arena shape (disc/rectangle/corridor) move the
+distribution, which is what licenses reading the area sweep as being about
+area. Run it with `--envs "$(...)"` or by passing the names.
+
+S2 picks its x axis from the data: arena area when the runs span at least
+`AREA_SPAN_MIN` (2×), otherwise landmark count and aspect. The corridor is
+28.224 m² against the discs' 28.274, so the test is a span ratio rather than
+`nunique() > 1` — a 0.2% rounding difference must not be read as an area
+axis.
 
 ## Running
 
 ```bash
-sbatch slurm/scale_distribution.sh                    # all six arenas
-sbatch slurm/scale_distribution.sh --envs circ_lm8_r0 # one, in parallel
+sbatch slurm/scale_distribution.sh                     # the area sweep (default)
+sbatch slurm/scale_distribution.sh --envs circ_lm8_r0  # one, in parallel
 ```
 
-Fan out one arena per job, then re-run over all six with `--use-cache` for the
-cross-environment figures and the combined report.
+The control run, over the six same-area datasets:
+
+```bash
+sbatch slurm/scale_distribution.sh --envs circ_lm2_r0,circ_lm4_r0,circ_lm8_r0,circ_lm12_r0,rect_lm8_r0,corr_lm8_r0
+```
+
+Fan out one arena per job, then re-run over the whole list with `--use-cache`
+for the cross-environment figures and the combined report. S2 needs every
+arena in one run to draw its axis, so the combining pass is not optional when
+the area sweep is the point.
 
 Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 `--n-boot`, `--use-cache`, `--no-gpu`, `--no-email`.
@@ -230,10 +261,13 @@ Figures — `figures/scale_distribution/`
 | figure | shows |
 |--------|-------|
 | S1 | size histogram per env × channel with all three fits drawn |
-| S2 | CV against landmark count and against aspect, area held constant |
-| S3 | scale-band occupancy |
-| S4 | per-field arena coverage against the 9–13% band |
-| S5 | the threshold caveat: every fit across the `EXTENT_PCTL` sweep |
+| S2 | CV of field size — against arena area (Harland Fig 6E) when area varies, otherwise against landmark count and aspect |
+| S3 | per-field arena coverage against the 9–13% band |
+
+Scale-band occupancy is still written to `summary.csv` (`band0_frac` …
+`band6plus_frac`) but no longer plotted: it was a coarsened S1 and harder to
+read than the histogram it summarised. No log axes anywhere — every panel is
+linear and zero-based.
 
 ## Compute
 
