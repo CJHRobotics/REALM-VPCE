@@ -268,6 +268,7 @@ Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 |------|----------|
 | `summary.csv` | one row per env × channel × setting: CV, extremes, ratio, band occupancy, coverage, truncation |
 | `fits.csv` | one row per env × channel × setting × variable × form: params, `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `winner` |
+| `scale_trends.csv` | one row per tracked quantity: value at small and mega, mega/small ratio, pooled Spearman against area, the expected direction and its source, and whether ours agrees |
 | `threshold_invariance.csv` | the `ACT_THRESH` check, per paired run |
 | `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row |
 
@@ -276,16 +277,37 @@ closest thing we have to Eliav's 1D field width).
 
 Figures — `figures/scale_distribution/`
 
-| figure | shows |
-|--------|-------|
-| S1 | size histogram per env × channel with all three fits drawn |
-| S2 | CV of field size — against arena area (Harland Fig 6E) when area varies, otherwise against landmark count and aspect |
-| S3 | per-field arena coverage against the 9–13% band |
+Every figure but S1 is indexed by arena area, so the experiment reads as
+"what changes as scale changes".
 
-Scale-band occupancy is still written to `summary.csv` (`band0_frac` …
-`band6plus_frac`) but no longer plotted: it was a coarsened S1 and harder to
-read than the histogram it summarised. No log axes anywhere — every panel is
-linear and zero-based.
+| figure | shows | published claim |
+|--------|-------|-----------------|
+| S1 | size histogram per arena × channel, arenas in scale order, all three fits drawn | — |
+| S2 | CV of field size against area | Harland Fig 6E: **rises**, 70 → 85 → 101 |
+| S3 | arena covered per field, against area | Harland: **saturates**, ~2 pp across 8.8× area |
+| S4 | which form wins against area, plus `r_hist` and ΔAIC per form | Harland Fig 3F–G: the form **changes** with scale |
+| S5 | median field size, max/min spread, bands occupied, against area | Eliav's 6 m control implies all three fall in a smaller space |
+
+S2 falls back to landmark count and aspect when area is not varied, so a
+control run is never mislabelled as a reading of 6E. Scale-band occupancy is
+in `summary.csv` as before (`band0_frac` … `band6plus_frac`); S5 plots only
+the count of occupied bands. No log axes anywhere — every panel is linear and
+zero-based.
+
+### What the model cannot answer
+
+Harland give **four** quantities against area. Two are within-cell and this
+model cannot produce them at all: subfields per cell (linear in area,
+R² = 0.9776) and summed subfield area per cell (exponential, r = 0.996). A
+single-centroid cluster owns exactly one field, so it has no subfield count
+and no sum over subfields — those wait on multi-field place cells.
+
+Of the two that transfer, coverage is still not quite like for like: theirs is
+per **cell**, summed over that cell's subfields; ours is per **field**. The
+same caution applies to the max/min ratio, where Eliav's 4.4 → 1.6 is
+within-neuron and ours is across the population. `scale_trends.csv` records
+the source of every expectation (`Harland`, `Eliav`, `ours`) so an
+Eliav-derived direction is never scored as agreement with Harland.
 
 ## Compute
 

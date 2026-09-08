@@ -171,13 +171,22 @@ BANDS = list(range(6))     # scale-band occupancy reported over bands 0-5
 # Published reference values, for the report and the figures.
 HARLAND_CV = {'CA1 small': 70.0, 'CA1 medium': 85.0, 'CA1 megaspace': 101.0}
 HARLAND_COVERAGE = (0.09, 0.13)
+# Harland's megaspace is 8.8x their small environment. Ours is 9.0x, so the
+# two spans are directly comparable and their per-quantity changes across that
+# span are numbers to hit rather than directions.
+HARLAND_AREA_RATIO = 8.8
+# Coverage per cell SATURATES: only ~2 percentage points higher in the
+# megaspace than in the small environment despite 8.8x the area.
+HARLAND_COVERAGE_RISE_PP = 2.0
+# Their reported fit quality in the r_hist statistic, and the headline
+# shape number from the megaspace.
 HARLAND_R_EXPON, HARLAND_R_GAUSS = 0.995, 0.985
 HARLAND_FRAC_UNDER_1M2 = 0.78
 
 # Area counts as varied only when it spans at least this ratio. Not
 # `nunique() > 1`: the corridor is 28.224 m^2 against the discs' 28.274, a
 # 0.2% rounding difference that would otherwise be read as an area axis and
-# produce a Fig 6E plot out of six points that all share one scale.
+# produce a Fig 6E plot out of points that all share one scale.
 AREA_SPAN_MIN = 2.0
 
 
@@ -186,6 +195,30 @@ def area_varies(s):
     a = s.env_area_m2.dropna()
     return len(a) > 0 and float(a.max()) / float(a.min()) >= AREA_SPAN_MIN
 
+# The quantities tracked across scale: (column, label, expected direction,
+# source, what that source says). Expected direction is +1 rises with area,
+# 0 flat, or None where the source gives a value rather than a direction and
+# a directional verdict would be meaningless. `source` matters: only two of
+# these are Harland's, two are Eliav's read backwards from her 6 m control,
+# and one is ours alone. Scoring an Eliav-derived expectation as agreement
+# with Harland would misattribute the comparison.
+SCALE_QUANTITIES = [
+    ('cv_area_pct',        'CV of field area (%)',          +1, 'Harland',
+     'rises with area, 70 -> 85 -> 101'),
+    ('coverage_median',    'arena covered per field',        0,  'Harland',
+     'SATURATES: ~2 pp higher in megaspace despite 8.8x the area'),
+    ('area_median_m2',     'median field area (m^2)',       +1, 'Eliav',
+     'mean field size fell 5.9 -> 1.5 m in a 6 m segment of the same tunnel, '
+     'so size should fall in a smaller space'),
+    ('area_max_min_ratio', 'max/min field area',            +1, 'Eliav',
+     'within-neuron size ratio fell 4.4 -> 1.6 in the 6 m segment. Ours is a '
+     'POPULATION spread, not a within-neuron one'),
+    ('n_bands_occupied',   'scale bands occupied',          +1, 'ours',
+     'neither paper measures this; our own index of scale diversity'),
+    ('frac_under_1m2',     'fraction of fields <= 1 m^2', None, 'Harland',
+     '78% in the megaspace -- a value to compare at the mega end, not a '
+     'direction'),
+]
 
 # ------------------------------------------------------------------ fitting
 
@@ -317,6 +350,58 @@ def describe(bank, env, C):
     return d
 
 
+def scale_trends(summary):
+    """How each tracked quantity moves across arena area.
+
+    Three arenas is too few for a meaningful per-channel correlation -- a
+    Spearman rho over three points takes one of four values -- so the trend is
+    read two ways: the mega/small ratio per channel, which is the effect size,
+    and a Spearman pooled over every (channel, arena) point, which is the only
+    place there are enough points to test a direction.
+    """
+    rows = []
+    if summary.env_area_m2.nunique() < 2:
+        return pd.DataFrame(rows)
+    a_lo, a_hi = summary.env_area_m2.min(), summary.env_area_m2.max()
+    for col, label, expect_dir, source, says in SCALE_QUANTITIES:
+        if col not in summary.columns:
+            continue
+        d = summary[['channel', 'env_area_m2', col]].dropna()
+        if not len(d):
+            continue
+        rho, pval = (stats.spearmanr(d.env_area_m2, d[col])
+                     if d.env_area_m2.nunique() > 1 else (np.nan, np.nan))
+        lo = d[d.env_area_m2 == a_lo][col]
+        hi = d[d.env_area_m2 == a_hi][col]
+        lo_m = float(lo.median()) if len(lo) else np.nan
+        hi_m = float(hi.median()) if len(hi) else np.nan
+        rows.append(dict(
+            quantity=col, label=label, expected_direction=expect_dir,
+            source=source, source_says=says,
+            area_small=float(a_lo), area_mega=float(a_hi),
+            value_small=lo_m, value_mega=hi_m,
+            ratio_mega_small=hi_m / lo_m if lo_m else np.nan,
+            delta_mega_small=hi_m - lo_m,
+            spearman_rho=float(rho), spearman_p=float(pval),
+            # Our direction, with a deadband: a change under 10% across a 9x
+            # area span is flat, whatever its sign or its p-value.
+            direction=(0 if not np.isfinite(hi_m / lo_m if lo_m else np.nan)
+                       or abs(hi_m / lo_m - 1) < 0.10
+                       else (1 if hi_m > lo_m else -1)),
+        ))
+    out = pd.DataFrame(rows)
+    if len(out):
+        # NaN, not False, where the source gives no direction to agree with.
+        # pd.isna, not `is not None`: a column mixing ints and None becomes
+        # float with NaN, and `direction == NaN` is False rather than unknown,
+        # which would score a value-only claim as a divergence.
+        out['agrees'] = [
+            None if pd.isna(r.expected_direction)
+            else bool(r.direction == r.expected_direction)
+            for r in out.itertuples()]
+    return out
+
+
 # ------------------------------------------------------------ bank building
 
 def build_banks(env_name, cname, blocks, xy, env, settings, base_C, device,
@@ -443,81 +528,184 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
     _save(fig, fig_dir, 'S1_size_distributions.png')
 
 
+def _scale_panel(ax, s, col, ylabel, pct=False):
+    """One quantity against arena area, a line per channel."""
+    for c in sorted(s.channel.unique()):
+        g = s[s.channel == c].sort_values('env_area_m2')
+        if len(g):
+            ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], 'o-',
+                    ms=5, lw=1.2, color=CHANNEL_COLORS.get(c, '0.4'), label=c)
+    ax.set_xlabel('arena area (m$^2$)')
+    ax.set_ylabel(ylabel)
+    ax.set_ylim(bottom=0)
+
+
 def fig_cv(summary, fig_dir):
-    """S2: coefficient of variation of field size — Harland Fig 6E.
+    """S2: CV of field size against arena area — Harland Fig 6E.
 
-    Plotted against whichever axis the given datasets actually vary. With the
-    area sweep that is arena area, and the figure is a direct reading of
-    Fig 6E. With the same-area six it can only be cue density and shape, and
-    the figure answers the weaker control question instead — is the CV moved
-    by anything other than scale? The axis is chosen from the data rather
-    than fixed, so the same code serves both and neither is mislabelled.
+    Their claim is directional: CV rises with enclosure area, 70 -> 85 -> 101
+    across a span of 8.8x. Ours spans 9.0x, so the comparison is like for
+    like. Read the direction first; landing on their absolute values is not
+    expected from a different agent in a different arena.
 
-    Harland's 70/85/101 are drawn as a reference scale. They are a trend to
-    compare against only when our own x axis is area.
+    Falls back to cue density and shape when area is not varied, so a control
+    run is not mislabelled as a reading of 6E.
     """
     s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
                 (summary.act_thresh == DEFAULT_T)]
     if not len(s):
         return
-    by_area = area_varies(s)
-    if by_area:
-        panels = [('env_area_m2', 'arena area (m$^2$)', s)]
-    else:
-        panels = [('n_landmarks', 'landmark count (disc)',
-                   s[s.aspect == 1.0]),
-                  ('aspect', 'aspect ratio (8 landmarks)',
-                   s[s.n_landmarks == 8])]
-    fig, axes = plt.subplots(1, len(panels), squeeze=False,
-                             figsize=(6.4 * len(panels), 4.4))
-    for ax, (xcol, xlabel, d) in zip(axes[0], panels):
-        for c in sorted(d.channel.unique()):
-            g = d[d.channel == c].sort_values(xcol)
-            if len(g):
-                ax.plot(g[xcol], g.cv_area_pct, 'o-', ms=5, lw=1.2,
-                        color=CHANNEL_COLORS.get(c, '0.4'), label=c)
-        for k, v in HARLAND_CV.items():
-            ax.axhline(v, color='k', ls=':', lw=0.9)
-            ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=6,
-                    va='center')
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('CV of field area (%)')
-        ax.set_ylim(bottom=0)
-        ax.legend(fontsize=7, frameon=False, ncol=2)
-    fig.suptitle(
-        'S2  coefficient of variation of field size against arena area '
-        '(Harland Fig 6E)' if by_area else
-        'S2  coefficient of variation of field size. Area is held constant '
-        'across these datasets,\nso the dotted Harland Fig 6E values are a '
-        'reference scale, not a trend to fit.', fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    if not area_varies(s):
+        fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
+        for ax, (xcol, xlabel, d) in zip(axes, [
+                ('n_landmarks', 'landmark count (disc)', s[s.aspect == 1.0]),
+                ('aspect', 'aspect ratio (8 landmarks)', s[s.n_landmarks == 8])]):
+            for c in sorted(d.channel.unique()):
+                g = d[d.channel == c].sort_values(xcol)
+                if len(g):
+                    ax.plot(g[xcol], g.cv_area_pct, 'o-', ms=5, lw=1.2,
+                            color=CHANNEL_COLORS.get(c, '0.4'), label=c)
+            ax.set_xlabel(xlabel); ax.set_ylabel('CV of field area (%)')
+            ax.set_ylim(bottom=0)
+            for k, v in HARLAND_CV.items():
+                ax.axhline(v, color='k', ls=':', lw=0.9)
+                ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=6, va='center')
+            ax.legend(fontsize=7, frameon=False, ncol=2)
+        fig.suptitle('S2  CV of field size. Area is held constant in this run, '
+                     'so the dotted Harland Fig 6E\nvalues are a reference '
+                     'scale, not a trend to fit.', fontsize=9)
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        _save(fig, fig_dir, 'S2_cv.png')
+        return
+    fig, ax = plt.subplots(figsize=(7.2, 4.8))
+    _scale_panel(ax, s, 'cv_area_pct', 'CV of field area (%)')
+    for k, v in HARLAND_CV.items():
+        ax.axhline(v, color='k', ls=':', lw=0.9)
+        ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=7, va='center')
+    ax.legend(fontsize=7, frameon=False, ncol=2)
+    ax.set_title('S2  CV of field size against arena area — Harland Fig 6E\n'
+                 'their claim is that this RISES; dotted lines are their '
+                 '70 / 85 / 101', fontsize=9)
     _save(fig, fig_dir, 'S2_cv.png')
 
 
 def fig_coverage(summary, fig_dir):
-    """S3: per-field arena coverage against Harland's 9-13% band."""
+    """S3: fraction of the arena one field covers, against area.
+
+    Harland's result is that coverage SATURATES -- only ~2 percentage points
+    higher in the megaspace than in the small environment despite 8.8x the
+    area. A flat line here is the match; a rising or falling one is the
+    divergence.
+
+    Theirs is coverage per CELL, summed over that cell's subfields. Ours is
+    per FIELD, because a single-centroid cluster owns exactly one. The two
+    coincide only for single-field cells, so this is a comparison of related
+    but not identical quantities and the gap belongs in any writeup.
+    """
     s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
                 (summary.act_thresh == DEFAULT_T)]
     if not len(s):
         return
-    fig, ax = plt.subplots(figsize=(max(7.0, 0.42 * len(s)), 4.4))
-    xs = np.arange(len(s))
-    lo = 100 * (s.coverage_median - s.coverage_q25).to_numpy()
-    hi = 100 * (s.coverage_q75 - s.coverage_median).to_numpy()
-    ax.errorbar(xs, 100 * s.coverage_median.to_numpy(), yerr=[lo, hi],
-                fmt='o', ms=4, lw=1, capsize=2,
-                color='#333333', ecolor='0.6')
+    fig, ax = plt.subplots(figsize=(7.6, 4.8))
+    if area_varies(s):
+        _scale_panel(ax, s, 'coverage_median', 'arena covered per field (%)',
+                     pct=True)
+        ax.set_title('S3  arena covered by one field, against area\n'
+                     "Harland: SATURATES, ~2 pp across 8.8x area (theirs is "
+                     'per cell, ours per field)', fontsize=9)
+    else:
+        xs = np.arange(len(s))
+        lo = 100 * (s.coverage_median - s.coverage_q25).to_numpy()
+        hi = 100 * (s.coverage_q75 - s.coverage_median).to_numpy()
+        ax.errorbar(xs, 100 * s.coverage_median.to_numpy(), yerr=[lo, hi],
+                    fmt='o', ms=4, lw=1, capsize=2, color='#333333',
+                    ecolor='0.6')
+        ax.set_xticks(xs)
+        ax.set_xticklabels([f'{e}\n{c}' for e, c in zip(s.env, s.channel)],
+                           rotation=90, fontsize=5)
+        ax.set_ylabel('arena covered per field (%)')
+        ax.set_ylim(bottom=0)
+        ax.set_title('S3  arena covered by one field (median, IQR)', fontsize=9)
     ax.axhspan(100 * HARLAND_COVERAGE[0], 100 * HARLAND_COVERAGE[1],
                color='#2ca02c', alpha=0.18, label='Harland 9-13%')
-    ax.set_ylim(bottom=0)
-    ax.set_xticks(xs)
-    ax.set_xticklabels([f'{e}\n{c}' for e, c in zip(s.env, s.channel)],
-                       rotation=90, fontsize=5)
-    ax.set_ylabel('arena covered per field (%)')
-    ax.set_title('S3  fraction of the arena covered by one field '
-                 '(median, IQR)', fontsize=9)
-    ax.legend(fontsize=7, frameon=False)
+    ax.legend(fontsize=7, frameon=False, ncol=2)
     _save(fig, fig_dir, 'S3_coverage.png')
+
+
+def fig_form_vs_scale(fits, fig_dir):
+    """S4: does the winning form change with scale? — Harland Fig 3F-G.
+
+    Their 3F-G is not one claim but a contrast: a negative exponential in the
+    megaspace against a Gaussian in the small environments. That is a
+    scale-DEPENDENT form, and it is the only figure here that can test it. A
+    single form winning at every area is a divergence from Harland and an
+    agreement with Eliav, who fit one form throughout.
+    """
+    f = fits[(fits.variable == 'area') & (fits.extent_pctl == DEFAULT_PCTL) &
+             (fits.act_thresh == DEFAULT_T)]
+    if not len(f) or f.env_area_m2.nunique() < 2:
+        return
+    areas = sorted(f.env_area_m2.unique())
+    fig, axes = plt.subplots(1, 2, figsize=(13.0, 4.6))
+    for name in FORMS:
+        d = f[f.form == name].groupby('env_area_m2')
+        axes[0].plot(areas, [d.get_group(a).r_hist.median() if a in d.groups
+                             else np.nan for a in areas], 'o-', ms=5, label=name)
+        axes[1].plot(areas, [d.get_group(a).d_aic.median() if a in d.groups
+                             else np.nan for a in areas], 'o-', ms=5, label=name)
+    axes[0].axhline(HARLAND_R_EXPON, color='k', ls=':', lw=0.9)
+    axes[0].axhline(HARLAND_R_GAUSS, color='k', ls='--', lw=0.9)
+    axes[0].set_ylabel("median $r_{hist}$")
+    axes[0].set_title("fit quality in Harland's own statistic\n"
+                      'dotted 0.995 their exponential, dashed 0.985 their '
+                      'Gaussian', fontsize=8)
+    axes[1].set_ylabel('median $\\Delta$AIC from the best form')
+    axes[1].set_title('model selection (0 = winner at that area)', fontsize=8)
+    for ax in axes:
+        ax.set_xlabel('arena area (m$^2$)')
+        ax.legend(fontsize=7, frameon=False)
+    axes[1].set_ylim(bottom=0)
+    won = f[f.d_aic == 0].groupby('env_area_m2').form.agg(
+        lambda v: v.value_counts().idxmax())
+    fig.suptitle('S4  which distribution form wins, against area — Harland '
+                 'Fig 3F-G predicts this CHANGES\n(exponential in the '
+                 'megaspace, Gaussian in the small environments).   winner: '
+                 + ',  '.join(f'{a:.0f} m$^2$ {w}' for a, w in won.items()),
+                 fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    _save(fig, fig_dir, 'S4_form_vs_scale.png')
+
+
+def fig_size_vs_scale(summary, fig_dir):
+    """S5: the size ladder against area.
+
+    Median field size, the max/min spread and the number of occupied scale
+    bands. Together these say whether a larger space buys a wider range of
+    scales or merely a uniformly coarser one -- which is the question
+    Experiment 3 is built on, and the reason this experiment is its
+    prerequisite.
+    """
+    s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
+                (summary.act_thresh == DEFAULT_T)]
+    if not len(s) or not area_varies(s):
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.4))
+    # Median alone, no min-max band. On a linear axis the largest field is two
+    # orders of magnitude above the median, so a shaded range flattens the
+    # line it is meant to annotate. The spread is panel 2's job.
+    _scale_panel(axes[0], s, 'area_median_m2', 'median field area (m$^2$)')
+    _scale_panel(axes[1], s, 'area_max_min_ratio', 'max / min field area')
+    _scale_panel(axes[2], s, 'n_bands_occupied', 'scale bands occupied')
+    axes[0].set_title('typical field size', fontsize=8)
+    axes[1].set_title('size spread', fontsize=8)
+    axes[2].set_title('scale diversity', fontsize=8)
+    for ax in axes:
+        ax.legend(fontsize=6, frameon=False, ncol=2)
+    fig.suptitle('S5  the size ladder against arena area — does a larger space '
+                 'buy a WIDER range of scales, or a uniformly coarser one?',
+                 fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    _save(fig, fig_dir, 'S5_size_vs_scale.png')
 
 
 # -------------------------------------------------------------------- report
@@ -549,6 +737,7 @@ class ScaleDistributionReport(ExperimentReport):
     def data_files(self):
         return [p for p in (f'{self.out_dir}/summary.csv',
                             f'{self.out_dir}/fits.csv',
+                            f'{self.out_dir}/scale_trends.csv',
                             f'{self.out_dir}/threshold_invariance.csv')
                 if os.path.exists(p)]
 
@@ -679,56 +868,90 @@ class ScaleDistributionReport(ExperimentReport):
             'Harland measured — so agreement at the fine end is partly '
             'assumed rather than found.'])))
 
-        # --- can these datasets speak to scale at all? --------------------
+        # --- what changes as scale changes -------------------------------
         areas = sorted(base.env_area_m2.unique())
-        if area_varies(base):
+        tr = getattr(self, 'trends', None)
+        if area_varies(base) and tr is not None and len(tr):
             lo, hi = min(areas), max(areas)
-            cv_lo = base[base.env_area_m2 == lo].cv_area_pct.median()
-            cv_hi = base[base.env_area_m2 == hi].cv_area_pct.median()
-            out.append(S('CV AGAINST AREA — Harland Fig 6E', '\n'.join([
-                f'{len(areas)} arena areas, {lo:.1f} to {hi:.0f} m^2 '
-                f'({hi/lo:.0f}x). This is the axis Harland vary, so 6E can be '
-                f'read directly.', '',
-                f'  CV at {lo:.1f} m^2   {cv_lo:.0f}%',
-                f'  CV at {hi:.0f} m^2   {cv_hi:.0f}%',
-                f'  Harland      ' +
-                ', '.join(f'{k} {v:g}' for k, v in HARLAND_CV.items()), '',
-                'Their claim is that CV RISES with enclosure area. Read the '
-                'direction first and the absolute values second: matching the '
-                'direction is the result, and sitting at their exact 70/85/101 '
-                'is not expected from a different agent in a different arena.',
-                '',
-                'One confound is built into the sweep and cannot be removed '
-                'from it: the landmarks are a fixed 0.75 m, so a panel '
-                'subtends less of the image in a larger arena, and enclosure '
-                'size is confounded with cue salience. That is a genuine '
-                'property of fixed-size cues rather than a defect — Harland\'s '
-                'room cues were fixed too — but at r = 1.25 eight panels cover '
-                '76% of the circumference, which is closer to a ring of flags '
-                'than to a room with landmarks in it. Treat the endpoints as '
-                'the weakest points of the curve.'])))
+            L = [f'{len(areas)} arenas, {lo:.1f} to {hi:.0f} m^2 ({hi/lo:.1f}x). '
+                 f'Harland span {HARLAND_AREA_RATIO}x, so the two are directly '
+                 f'comparable and their per-quantity changes are numbers to '
+                 f'hit rather than directions.', '']
+            for _, r in tr.iterrows():
+                arrow = {1: 'RISES', -1: 'FALLS', 0: 'flat'}[r.direction]
+                if r.quantity == 'coverage_median':
+                    L.append(f'  {r.label:26s} {100*r.value_small:6.2f}% -> '
+                             f'{100*r.value_mega:6.2f}%   '
+                             f'{100*r.delta_mega_small:+.2f} pp   {arrow}')
+                else:
+                    L.append(f'  {r.label:26s} {r.value_small:8.3g} -> '
+                             f'{r.value_mega:8.3g}   '
+                             f'x{r.ratio_mega_small:.2f}   {arrow}')
+                L.append(f'      {r.source}: {r.source_says}')
+                if r.agrees is None or pd.isna(r.agrees):
+                    L.append('      -> no directional claim to match; compare '
+                             'the value above')
+                else:
+                    L.append(f'      -> {"matches" if r.agrees else "DIVERGES"}'
+                             f'  (pooled Spearman rho {r.spearman_rho:+.2f}, '
+                             f'p {r.spearman_p:.3g})')
+            scored = tr[tr.agrees.notna()]
+            n_ok = int(scored.agrees.sum()) if len(scored) else 0
+            by_src = ', '.join(
+                f'{src} {int(g.agrees.sum())}/{len(g)}'
+                for src, g in scored.groupby('source'))
+            L += ['',
+                  f'{n_ok} of {len(scored)} quantities with a directional claim '
+                  f'move the predicted way ({by_src}). Read the direction first '
+                  f'and the absolute values second: a different agent in a '
+                  f'different arena is not expected to land on 70/85/101.',
+                  '',
+                  'Three arenas is few. The per-channel mega/small ratio is the '
+                  'effect size and the pooled Spearman is the only test with '
+                  'enough points to run, so neither is strong on its own; a '
+                  'quantity is called flat when it moves under 10% across a '
+                  f'{hi/lo:.0f}x area span, whatever the sign or the p-value.']
+            out.append(S('WHAT CHANGES WITH SCALE', '\n'.join(L)))
+
+            out.append(S('TWO OF HARLAND\'S FOUR SCALE MEASURES ARE OUT OF REACH',
+                         '\n'.join([
+                'Harland give four quantities against area. Two are WITHIN-CELL '
+                'and this model cannot produce them: subfields per cell (linear '
+                'in area, R^2 = 0.9776) and summed subfield area per cell '
+                '(exponential, r = 0.996). A single-centroid cluster owns '
+                'exactly one field, so it has no subfield count and no sum over '
+                'subfields. Those wait on multi-field place cells.', '',
+                'The two reported above are the two that transfer. Even there, '
+                'coverage is not quite like for like: Harland measure it per '
+                'CELL, summed over that cell\'s subfields, and we measure it '
+                'per FIELD. The two coincide only for single-field cells. '
+                'Comparing a population spread against a within-cell one would '
+                'overstate the match, and the same caution applies to the '
+                'max/min ratio, where Eliav\'s 4.4 -> 1.6 is within-neuron and '
+                'ours is across the population.'])))
         else:
             out.append(S('SCALE IS NOT VARIED IN THIS RUN', '\n'.join([
                 f'Every dataset here is within a factor '
-                f'{max(areas)/min(areas):.2f} of {areas[0]:.1f} m^2, so '
-                f'Harland Fig 6E '
-                '(CV against enclosure area) and the 3F/3G contrast (a '
+                f'{max(areas)/min(areas):.2f} of {areas[0]:.1f} m^2, so Harland '
+                'Fig 6E (CV against enclosure area) and the 3F/3G contrast (a '
                 'negative exponential in the megaspace against a Gaussian in '
-                'the small environments) CANNOT be read at all. Both are '
-                'claims about scale, and scale is held constant.', '',
+                'the small environments) CANNOT be read at all. Both are claims '
+                'about scale, and scale is held constant.', '',
                 'What this run does establish is the shape at one scale, and '
-                'whether cue density or arena shape move it — a control, and '
-                'a prerequisite for reading the area sweep, but not a test of '
+                'whether cue density or arena shape move it — a control, and a '
+                'prerequisite for reading the area sweep, but not a test of '
                 'either published claim.', '',
-                'Run over AREA_ENVS (circ_lm8_rad1p25 .. rad10p0, 4.91 to '
-                '314.16 m^2) for the comparison this experiment is named '
-                'after.'])))
+                'Run over AREA_ENVS (circ_lm8_rad2p0, circ_lm8_r0, '
+                'circ_lm8_rad6p0 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
+                '8.8x) for the comparison this experiment is named after.'])))
 
-        cols = ['env', 'channel', 'n_fields', 'env_area_m2', 'cv_area_pct',
+        base = base.sort_values(['env_area_m2', 'channel'])
+        cols = ['env', 'env_area_m2', 'channel', 'n_fields', 'cv_area_pct',
                 'area_min_m2', 'area_median_m2', 'area_max_m2',
                 'area_max_min_ratio', 'coverage_median', 'frac_under_1m2',
                 'n_bands_occupied', 'frac_at_floor', 'frac_at_ceiling']
-        out.append(S(f'Per environment and channel (EXTENT_PCTL {DEFAULT_PCTL})',
+        out.append(S(f'Per environment and channel, in scale order '
+                     f'(EXTENT_PCTL {DEFAULT_PCTL})',
                      self.table(base[[c for c in cols if c in base.columns]])))
         return '\n'.join(out)
 
@@ -831,8 +1054,11 @@ def main():
                 banks_all[(e, c, p, t)] = bank
                 if not len(bank):
                     continue
-                tag = dict(env=e, channel=c, extent_pctl=p, act_thresh=t)
-                sum_rows.append(dict(tag, **describe(bank, env, base_C)))
+                tag = dict(env=e, channel=c, extent_pctl=p,
+                           act_thresh=t,
+                           env_area_m2=float(env['env_area']))
+                d = describe(bank, env, base_C)
+                sum_rows.append({**tag, **d})
                 # Area is Harland's unit; equivalent diameter is the closest
                 # thing we have to Eliav's 1D field width, so both are fitted.
                 for var, x in (('area', bank.area_env_m2),
@@ -854,19 +1080,29 @@ def main():
     if inv is not None:
         inv.to_csv(f'{out_dir}/threshold_invariance.csv', index=False)
 
+    trends = scale_trends(summary[(summary.extent_pctl == DEFAULT_PCTL) &
+                                  (summary.act_thresh == DEFAULT_T)])
+    if len(trends):
+        trends.to_csv(f'{out_dir}/scale_trends.csv', index=False)
+
     winners = (fits[(fits.variable == 'area') & (fits.d_aic == 0) &
                     (fits.extent_pctl == DEFAULT_PCTL) &
                     (fits.act_thresh == DEFAULT_T)].form.value_counts())
 
     print('\nfigures:', flush=True)
-    fig_distributions(banks_all, fits, envs, chans, fig_dir)
+    # Scale order, so S1 reads small -> mega down the page.
+    envs_by_area = list(summary.sort_values('env_area_m2')
+                        .drop_duplicates('env').env)
+    fig_distributions(banks_all, fits, envs_by_area, chans, fig_dir)
     fig_cv(summary, fig_dir)
     fig_coverage(summary, fig_dir)
+    fig_form_vs_scale(fits, fig_dir)
+    fig_size_vs_scale(summary, fig_dir)
 
     rep = ScaleDistributionReport(env_name=','.join(envs), out_dir=out_dir,
                                   fig_dir=fig_dir, results=summary,
                                   log_path=os.environ.get('REALM_LOG_PATH'))
-    rep.fits, rep.invariance, rep.winners = fits, inv, winners
+    rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)

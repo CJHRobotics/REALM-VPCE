@@ -17,7 +17,9 @@
 # cannot be read on any other. The six same-area datasets are the control:
 # pass them with --envs.
 #
-# Takes the admitted field library per channel and reports, for each:
+# Everything but S1 is reported against arena area, so the output reads as
+# "what changes as scale changes". Takes the admitted field library per
+# channel and reports, for each:
 #
 #   * fits against log-normal, negative exponential AND Gaussian, with
 #     goodness of fit for all three — the two source papers disagree about
