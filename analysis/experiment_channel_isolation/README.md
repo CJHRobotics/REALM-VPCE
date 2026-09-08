@@ -206,9 +206,27 @@ environment *scale*: Fig 3F–G is a scale-dependent shape claim (exponential in
 the megaspace, Gaussian in the small environments) and Fig 6E is CV against
 enclosure area. Neither can be read from datasets that hold area constant.
 
-So the default env list is `AREA_ENVS` — the area sweep, six discs from 4.91
-to 314.16 m², a 64× range at fixed shape and fixed landmark count, each
-sampled at ~`N_TARGET` positions so sample count is not a covariate.
+So the default env list is `AREA_ENVS` — small, medium, mega at fixed shape
+and landmark count, each sampled at ~`N_TARGET` positions so sample count is
+not a covariate:
+
+| arena | r | area | span | wall cover |
+|---|---|---|---|---|
+| `circ_lm8_rad2p0` | 2 m | 12.57 m² | small | 48% |
+| `circ_lm8_r0` | 3 m | 28.27 m² | medium | 32% |
+| `circ_lm8_rad6p0` | 6 m | 113.10 m² | mega | 16% |
+
+**9.0×, matching Harland's 8.8×.** We match their *ratio*, not their absolute
+areas, and cannot do otherwise: their megaspace is 18.6 m² — smaller than our
+medium arena — and matching it absolutely would put the small environment at
+~2.1 m², a disc of radius 0.82 m. The robot's circumscribing radius is 0.31 m
+and the keep-out 0.2 m, so it would barely fit, and eight 0.75 m panels need
+6 m of wall against a 5.2 m circumference. The agent is larger relative to its
+arena than a rat is to a room, so ordering and ratio are what transfer.
+
+`circ_lm8_rad1p25`, `rad3p5` and `rad10p0` are still built and available via
+`--envs` for a wider span; `rad1p25` is the weakest, with panels covering 76%
+of its circumference.
 
 `ENVS`, the six same-area datasets, is the **control**: it says whether cue
 density (2/4/8/12 landmarks) or arena shape (disc/rectangle/corridor) move the

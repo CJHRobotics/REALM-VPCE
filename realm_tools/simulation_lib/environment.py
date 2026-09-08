@@ -140,8 +140,8 @@ class Wall:
         prefix = 'boundary_wall' if self.wall_type == 'boundary' else 'obstacle'
         node = (
             f'DEF {prefix}_{self.id} wall {{ '
-            f'translation {self.translation[0]:.2f} {self.translation[1]:.2f} {self.translation[2]:.2f} '
-            f'rotation {self.rotation[0]:.2f} {self.rotation[1]:.2f} {self.rotation[2]:.2f} {self.rotation[3]:.2f} '
+            f'translation {self.translation[0]:.5f} {self.translation[1]:.5f} {self.translation[2]:.5f} '
+            f'rotation {self.rotation[0]:.5f} {self.rotation[1]:.5f} {self.rotation[2]:.5f} {self.rotation[3]:.5f} '
             f'size {self.width:.3f} {self.length:.3f} {self.height:.3f}'
         )
         if self.texture:
@@ -182,21 +182,30 @@ class Landmark:
         r, g, b = self.color
         return (
             f'DEF landmark_{self.id} landmark {{ '
-            f'translation {self.translation[0]:.2f} {self.translation[1]:.2f} {self.translation[2]:.2f} '
+            f'translation {self.translation[0]:.5f} {self.translation[1]:.5f} {self.translation[2]:.5f} '
             f'color {r:.2f} {g:.2f} {b:.2f} '
             f'recognitionColors [{r:.2f} {g:.2f} {b:.2f}] '
-            f'size {self.height:.2f} {self.radius:.2f} {self.radius - 0.01:.2f} }}'
+            f'size {self.height:.5f} {self.radius:.5f} {self.radius - 0.01:.5f} }}'
         )
 
     def _panel_node_string(self):
+        # Geometry at 5 dp, not 2. A panel is mounted flush against a curved
+        # wall by centring it at sqrt(R^2 - (w/2)^2) - HALF_THICK, an inset of
+        # 22 mm at R = 10 and 73 mm at R = 1.25. Writing the translation at
+        # 2 dp quantises that to the nearest centimetre and throws most of it
+        # away: measured across the area sweep it displaces a panel by up to
+        # 6.4 mm and buries the outer corners up to 8.1 mm into the wall in
+        # four of the six arenas. Rounding theta to 0.01 rad (0.57 deg) swings
+        # the ends of a 0.75 m panel a further +-3.7 mm. Colours stay at 2 dp
+        # -- they are matched, not measured.
         r, g, b = self.color
         return (
             f'DEF panel_{self.id} RectangularPanel {{ '
-            f'translation {self.translation[0]:.2f} {self.translation[1]:.2f} {self.translation[2]:.2f} '
-            f'rotation {self.rotation[0]:.2f} {self.rotation[1]:.2f} {self.rotation[2]:.2f} {self.rotation[3]:.2f} '
+            f'translation {self.translation[0]:.5f} {self.translation[1]:.5f} {self.translation[2]:.5f} '
+            f'rotation {self.rotation[0]:.5f} {self.rotation[1]:.5f} {self.rotation[2]:.5f} {self.rotation[3]:.5f} '
             f'color {r:.2f} {g:.2f} {b:.2f} '
             f'recognitionColors [{r:.2f} {g:.2f} {b:.2f}] '
-            f'size {self.width:.2f} {self.height:.2f} '
+            f'size {self.width:.5f} {self.height:.5f} '
             f'signImage ["{self.texture}"] }}'
         )
 
@@ -236,7 +245,7 @@ class CircularWall:
         webots_outer = self.radius + self.thickness
         return (
             f'DEF circular_wall_{self.id} SolidPipe {{ '
-            f'translation {self.translation[0]:.2f} {self.translation[1]:.2f} {self.translation[2]:.2f} '
+            f'translation {self.translation[0]:.5f} {self.translation[1]:.5f} {self.translation[2]:.5f} '
             f'height {self.height:.3f} '
             f'radius {webots_outer:.3f} '
             f'thickness {self.thickness:.3f} '

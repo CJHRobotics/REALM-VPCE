@@ -5,11 +5,17 @@
 # What shape is our field-size distribution, how does it compare to the three
 # forms in the literature, and how does it move with environment scale?
 #
-# The default env list is the AREA SWEEP -- circ_lm8_rad1p25 .. rad10p0, 4.91
-# to 314.16 m^2, a 64x range at fixed shape and landmark count. That is the
-# axis Harland vary, and two of the three targets (Fig 3F-G's scale-dependent
-# form, Fig 6E's CV against area) cannot be read on any other. The six
-# same-area datasets are the control: pass them with --envs.
+# The default env list is the AREA SWEEP -- small, medium and mega at fixed
+# shape and landmark count:
+#
+#   circ_lm8_rad2p0   r = 2    12.57 m^2   small
+#   circ_lm8_r0       r = 3    28.27 m^2   medium   (already collected)
+#   circ_lm8_rad6p0   r = 6   113.10 m^2   mega
+#
+# 9.0x, against Harland's 8.8x. That is the axis Harland vary, and two of the
+# three targets (Fig 3F-G's scale-dependent form, Fig 6E's CV against area)
+# cannot be read on any other. The six same-area datasets are the control:
+# pass them with --envs.
 #
 # Takes the admitted field library per channel and reports, for each:
 #
@@ -46,12 +52,11 @@
 # are independent, and six of them serially is six times the walltime for no
 # benefit. Submit the fan-out with:
 #
-#   for e in circ_lm8_rad1p25 circ_lm8_rad2p0 circ_lm8_r0 \
-#            circ_lm8_rad3p5 circ_lm8_rad6p0 circ_lm8_rad10p0; do
+#   for e in circ_lm8_rad2p0 circ_lm8_r0 circ_lm8_rad6p0; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #
-# then re-run once over all six with --use-cache to get the cross-environment
+# then re-run once over all three with --use-cache to get the cross-environment
 # figures and the single combined report. S2 needs every arena in one run to
 # draw its axis, so that combining pass is not optional here.
 #

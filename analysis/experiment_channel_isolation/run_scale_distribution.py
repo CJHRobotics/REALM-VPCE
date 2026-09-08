@@ -117,13 +117,33 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
         'rect_lm8_r0', 'corr_lm8_r0']
 
-# Varying area at fixed shape and landmark count, 4.91 -> 314.16 m^2, a 64x
-# range. This is the axis Harland's design actually varies, and the only one
-# on which Figs 3F-G and 6E can be read at all -- see the module docstring.
-#   --envs "$(python -c 'import run_scale_distribution as m;
-#                        print(",".join(m.AREA_ENVS))')"
-AREA_ENVS = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0', 'circ_lm8_r0',
-             'circ_lm8_rad3p5', 'circ_lm8_rad6p0', 'circ_lm8_rad10p0']
+# Varying area at fixed shape and landmark count: small, medium, mega, in
+# Harland's proportions rather than in ours.
+#
+#   circ_lm8_rad2p0    r = 2    12.57 m^2   small     wall cover 48%
+#   circ_lm8_r0        r = 3    28.27 m^2   medium    wall cover 32%
+#   circ_lm8_rad6p0    r = 6   113.10 m^2   mega      wall cover 16%
+#
+# Three, not six, and spanning 9.0x rather than 64x. Harland's megaspace is
+# 8.8x their small environment, so a 64x sweep is seven times wider than the
+# design it is being compared to, and the extra arenas cost collection without
+# buying a comparison. 9.0x is the closest span the built arenas offer, and
+# circ_lm8_r0 is already collected, so this needs two new datasets.
+#
+# We match Harland's RATIO, not their absolute areas, and cannot do otherwise.
+# Their megaspace is 18.6 m^2 -- smaller than our medium arena -- and matching
+# it in absolute terms would put the small environment near 2.1 m^2, a disc of
+# radius 0.82 m. The robot's circumscribing radius is 0.31 m and the
+# collection keep-out 0.2 m, so it would barely fit, and eight 0.75 m panels
+# need 6 m of wall against a 5.2 m circumference: they would overlap. The
+# agent is simply larger relative to its arena than a rat is to a room, so
+# ordering and ratio are what transfer.
+#
+# The remaining built arenas (circ_lm8_rad1p25, rad3p5, rad10p0) still work
+# with --envs if a wider span is ever wanted; rad1p25 is the weakest of them,
+# with eight panels covering 76% of its circumference.
+AREA_ENVS = ['circ_lm8_rad2p0', 'circ_lm8_r0', 'circ_lm8_rad6p0']
+
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
                   'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}
