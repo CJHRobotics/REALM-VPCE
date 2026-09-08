@@ -16,8 +16,13 @@ from math import cos, sin, pi, hypot
 
 import numpy as np
 
-DEFAULT_OUT = os.path.expanduser(
-    '~/VPCE-Brain/VPCE-Brain/figures/current_model_pipeline.svg')
+# The vault moved from ~/VPCE-Brain/VPCE-Brain to ~/VPCE-work/VPCE-Brain, which
+# broke this silently -- the default path simply stopped existing. Read it from
+# the environment so the next move is one export rather than a code edit:
+#   export VPCE_BRAIN=/path/to/VPCE-Brain
+VAULT_DIR = os.path.expanduser(
+    os.environ.get('VPCE_BRAIN', '~/VPCE-work/VPCE-Brain'))
+DEFAULT_OUT = os.path.join(VAULT_DIR, 'figures', 'current_model_pipeline.svg')
 
 # ---------------------------------------------------------------- palette
 INK      = '#0f172a'
