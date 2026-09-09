@@ -86,6 +86,7 @@ Usage
 """
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -215,6 +216,11 @@ SCALE_QUANTITIES = [
      'POPULATION spread, not a within-neuron one'),
     ('n_bands_occupied',   'scale bands occupied',          +1, 'ours',
      'neither paper measures this; our own index of scale diversity'),
+    ('area_median_over_floor', 'median field / Rule 8 floor', None, 'ours',
+     'a CONTROL, not a claim. The Rule 8 floor is a fixed fraction of arena '
+     'area, so it grows with the arena. If this is flat, the rule is setting '
+     'field size and any rise in absolute size is the floor moving, not the '
+     'model responding to scale'),
     ('frac_under_1m2',     'fraction of fields <= 1 m^2', None, 'Harland',
      '78% in the megaspace -- a value to compare at the mega end, not a '
      'direction'),
@@ -341,6 +347,18 @@ def describe(bank, env, C):
         rule8_floor_m2=float(a_floor), rule9_ceiling_m2=float(a_ceil),
         frac_at_floor=float(np.mean(a <= a_floor * 1.05)),
         frac_at_ceiling=float(np.mean(a >= a_ceil * 0.95)),
+        # Field size in units of the Rule 8 floor. The floor is a FRACTION of
+        # arena area, so it grows with the arena: if fields merely sit on it,
+        # their absolute size rises with area for reasons that have nothing to
+        # do with the model, and "field size grows with the space" is an
+        # artifact of the rule. This ratio is the control for that -- flat
+        # means the floor is setting the scale, rising means the model is.
+        area_median_over_floor=float(np.median(a) / a_floor),
+        frac_within_2x_floor=float(np.mean(a <= 2.0 * a_floor)),
+        # Harland's typical field covers 9-13%; this is how far below that a
+        # median field sits, at whatever arena size.
+        coverage_shortfall_x=float(
+            np.mean(HARLAND_COVERAGE) / (float(np.median(a)) / area)),
     )
     band = bank.scale_band.to_numpy(dtype=int)
     for b in BANDS:
@@ -481,11 +499,40 @@ def threshold_invariance(banks):
 
 # ------------------------------------------------------------------ figures
 
+# Figures written by this run. The report attaches these rather than globbing
+# the directory: figures come and go as the experiment changes, and a glob
+# picks up orphans from earlier runs -- which is how a retired threshold sweep
+# and a single-arena coverage plot ended up attached to a three-arena report.
+FIGURES_WRITTEN = []
+
+
 def _save(fig, fig_dir, name):
     p = os.path.join(fig_dir, name)
     fig.savefig(p, dpi=150, bbox_inches='tight')
     plt.close(fig)
+    FIGURES_WRITTEN.append(p)
     print(f'  {p}', flush=True)
+
+
+def prune_orphan_figures(fig_dir):
+    """Delete figures this experiment used to produce and no longer does.
+
+    Scoped to `S<digit>*.png` in this experiment's own figure directory, all
+    of which are regenerated on every run, so nothing unrecoverable is at
+    risk. Without it the directory accumulates plots from retired figures and
+    from earlier single-arena runs, and they are indistinguishable from
+    current output when someone opens the folder later.
+    """
+    keep = {os.path.abspath(p) for p in FIGURES_WRITTEN}
+    removed = []
+    for p in sorted(glob.glob(os.path.join(fig_dir, 'S[0-9]*.png'))):
+        if os.path.abspath(p) not in keep:
+            os.remove(p)
+            removed.append(os.path.basename(p))
+    if removed:
+        print(f'  pruned {len(removed)} orphaned figure(s): '
+              f'{", ".join(removed)}', flush=True)
+    return removed
 
 
 def fig_distributions(banks_all, fits, envs, chans, fig_dir):
@@ -731,8 +778,8 @@ class ScaleDistributionReport(ExperimentReport):
                 f'max/min {base.area_max_min_ratio.median():.1f}x, {top}')
 
     def figures(self):
-        import glob
-        return sorted(glob.glob(f'{self.fig_dir}/*.png'))
+        # What this run wrote, not what is lying in the directory.
+        return sorted(FIGURES_WRITTEN)
 
     def data_files(self):
         return [p for p in (f'{self.out_dir}/summary.csv',
@@ -911,6 +958,64 @@ class ScaleDistributionReport(ExperimentReport):
                   'enough points to run, so neither is strong on its own; a '
                   'quantity is called flat when it moves under 10% across a '
                   f'{hi/lo:.0f}x area span, whatever the sign or the p-value.']
+            # The size trend is only the model's if it survives division by
+            # the Rule 8 floor, which grows with the arena on its own.
+            def _row(q):
+                r = tr[tr.quantity == q]
+                return r.iloc[0] if len(r) else None
+            med, ratio = _row('area_median_m2'), _row('area_median_over_floor')
+            if med is not None and ratio is not None:
+                if med.direction == 1 and ratio.direction == 0:
+                    L += ['',
+                          '!! THE SIZE TREND IS THE RULE, NOT THE MODEL. '
+                          f'Median field area rises x{med.ratio_mega_small:.2f} '
+                          f'across the span, but measured against the Rule 8 '
+                          f'floor it is flat '
+                          f'(x{ratio.ratio_mega_small:.2f}, '
+                          f'{ratio.value_small:.2f} -> {ratio.value_mega:.2f} '
+                          f'floors). The floor is a fixed fraction of arena '
+                          f'area, so it grows with the arena by construction '
+                          f'and the fields are riding it. Do not report field '
+                          f'size as growing with the space, and do not score '
+                          f'that against Eliav.']
+                elif med is not None and ratio is not None and ratio.direction == 1:
+                    L += ['',
+                          f'The size trend survives the floor: median/floor '
+                          f'itself rises x{ratio.ratio_mega_small:.2f}, so the '
+                          f'model is responding to scale rather than tracking '
+                          f'the rule.']
+            base_med = base.area_median_over_floor.median()
+            base_w2 = base.frac_within_2x_floor.median()
+            base_short = base.coverage_shortfall_x.median()
+            if base_med < 4.0 or base_short > 5.0:
+                L += ['',
+                      f'!! FIELDS SIT AT THE BOTTOM OF THE ADMISSIBLE WINDOW. '
+                      f'The median field is {base_med:.1f}x the Rule 8 floor'
+                      + ('' if pd.isna(base_w2) else
+                         f' and {100*base_w2:.0f}% of fields are within 2x of it')
+                      + f', while the smallest admitted field IS the floor. A '
+                      f'median field covers '
+                      f'{100*base.coverage_median.median():.2f}% of the arena '
+                      f'against Harland\'s '
+                      f'{100*HARLAND_COVERAGE[0]:g}-{100*HARLAND_COVERAGE[1]:g}%, '
+                      f'a shortfall of about {base_short:.0f}x.',
+                      '',
+                      'Rule 8 is Harland\'s SMALLEST measured field, roughly '
+                      '0.12% of their arena, while their TYPICAL field is '
+                      '9-13% -- so the admissible window is about two orders '
+                      'of magnitude wide and our population occupies its very '
+                      'bottom. The model can reach the right scale (the '
+                      'largest fields here approach the Rule 9 ceiling); it '
+                      'simply produces far more small fields than large ones.',
+                      '',
+                      'Worth considering before reading any of the above as a '
+                      'result: a field library enumerates every admissible '
+                      'node of a hierarchy, and a Ward tree has far more fine '
+                      'nodes than coarse ones. Harland and Eliav report fields '
+                      'from a RECORDED SAMPLE of neurons, which is not an '
+                      'exhaustive enumeration of a hierarchy. Comparing the '
+                      'two populations assumes a selection step this model '
+                      'does not have.']
             out.append(S('WHAT CHANGES WITH SCALE', '\n'.join(L)))
 
             out.append(S('TWO OF HARLAND\'S FOUR SCALE MEASURES ARE OUT OF REACH',
@@ -1098,6 +1203,7 @@ def main():
     fig_coverage(summary, fig_dir)
     fig_form_vs_scale(fits, fig_dir)
     fig_size_vs_scale(summary, fig_dir)
+    prune_orphan_figures(fig_dir)
 
     rep = ScaleDistributionReport(env_name=','.join(envs), out_dir=out_dir,
                                   fig_dir=fig_dir, results=summary,
