@@ -114,16 +114,11 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 # The six collected datasets: four landmark counts on one disc, plus the two
 # geometry arenas. The landmark counts each divide the clock face evenly from
 # noon, so no panel sits on a camera view seam.
-# Same area (~28.3 m^2), varying cue density and shape. A control: it says
-# whether the distribution moves with anything other than scale.
-ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
-        'rect_lm8_r0', 'corr_lm8_r0']
-
 # Varying area at fixed shape and landmark count: small, medium, mega.
 #
-#   circ_lm8_r0        r = 3     28.27 m^2   small     wall cover 32%
-#   circ_lm8_rad6p0    r = 6    113.10 m^2   medium    wall cover 16%
-#   circ_lm8_rad10p0   r = 10   314.16 m^2   mega      wall cover 10%
+#   circ_lm_8_r3        r = 3     28.27 m^2   small     wall cover 32%
+#   circ_lm_8_r6    r = 6    113.10 m^2   medium    wall cover 16%
+#   circ_lm_8_r10   r = 10   314.16 m^2   mega      wall cover 10%
 #
 # An 11.1x span against Harland's 8.8x. Each arena is sampled at ~N_TARGET
 # positions, so sample count is not a covariate.
@@ -134,9 +129,7 @@ ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
 # single-digit field counts there. It did not at r = 6 (511 fields), so the
 # collapse may have been an artifact of the older configuration -- but r = 10
 # is 2.8x that area again, and colour is the channel to check first.
-AREA_ENVS = ['circ_lm8_r0', 'circ_lm8_rad6p0', 'circ_lm8_rad10p0']
-
-SHAPE_ENVS = ['rect_lm8_r0']
+AREA_ENVS = ['circ_lm_8_r3', 'circ_lm_8_r6', 'circ_lm_8_r10']
 
 # The Eliav comparison: a 10 x 2 m corridor, 20 m^2, aspect 5:1. Long enough
 # to read as one-dimensional, short enough to stand for the 6 m tunnel segment
@@ -146,7 +139,7 @@ SHAPE_ENVS = ['rect_lm8_r0']
 #
 # Deliberately not area-matched to any disc, and excluded from the area trend
 # for the same reason the rectangle is: its aspect is not 1.
-ELIAV_ENVS = ['corr_lm8_r0']
+ELIAV_ENVS = ['corr_lm_8_l10w2']
 
 # Eliav's numbers, as field LENGTH along the tunnel -- a one-dimensional
 # width, so ours has to be measured the same way (the field's extent along the
@@ -474,8 +467,8 @@ def scale_trends(summary):
     place there are enough points to test a direction.
     """
     rows = []
-    # Circles only. A matched-area rectangle in here would put two points on
-    # one x and let boundary shape leak into a slope about area alone.
+    # Circles only. The corridor's aspect is 5, and letting an elongated
+    # arena into a slope about area would confound shape with scale.
     if 'aspect' in summary.columns:
         summary = summary[summary.aspect == 1.0]
     if not len(summary) or summary.env_area_m2.nunique() < 2:
@@ -701,9 +694,8 @@ def _scale_panel(ax, s, col, ylabel, pct=False):
     """One quantity against arena area, a line per channel.
 
     Only the circles are joined: the trend is about area at fixed shape. A
-    matched-area rectangle is drawn as an open square at the same x, so it
-    reads as a comparison against the disc beside it rather than as a point
-    on the curve.
+    non-circular arena is drawn as an open square at its own area, so it
+    reads as a comparison beside the curve rather than a point on it.
     """
     circ = s[s.aspect == 1.0] if 'aspect' in s.columns else s
     other = s[s.aspect != 1.0] if 'aspect' in s.columns else s.iloc[:0]
@@ -786,7 +778,7 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
             if i == 0:
                 ax.set_title(c, fontsize=9)
             if j == 0:
-                ax.set_ylabel(f"{e.replace('circ_lm8_', '')}\n"
+                ax.set_ylabel(f"{e.replace('circ_lm_8_', '').replace('corr_lm_8_', '')}\n"
                               f"{geom.get('env_area', float('nan')):.0f} m$^2$",
                               fontsize=8)
     handles = [plt.Line2D([], [], marker='o', ls='', color=cmap(k / max(nb - 1, 1)),
@@ -827,7 +819,7 @@ def fig_size_vs_scale(summary, fig_dir):
     fig.suptitle('S3  the size ladder against arena area — does a larger space '
                  'buy a WIDER range of scales, or a uniformly coarser one?\n'
                  'filled circles joined = the area sweep (shape fixed); open '
-                 'squares = a matched-area arena of different shape',
+                 'squares = an elongated arena, not on the area curve',
                  fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     _save(fig, fig_dir, 'S3_size_vs_scale.png')
@@ -1194,8 +1186,8 @@ class ScaleDistributionReport(ExperimentReport):
                 'whether cue density or arena shape move it — a control, and a '
                 'prerequisite for reading the area sweep, but not a test of '
                 'either published claim.', '',
-                'Run over AREA_ENVS (circ_lm8_rad2p0, circ_lm8_r0, '
-                'circ_lm8_rad6p0 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
+                'Run over AREA_ENVS (circ_lm_8_r3, circ_lm_8_r6, '
+                'circ_lm_8_r6 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
                 '8.8x) for the comparison this experiment is named after.'])))
 
         base = base.sort_values(['env_area_m2', 'channel'])
@@ -1296,15 +1288,12 @@ def parse_args():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--envs',
-                   default=','.join(AREA_ENVS + SHAPE_ENVS + ELIAV_ENVS),
-                   help='default is the area sweep (AREA_ENVS, 12.6-113 m^2, '
-                        'the axis Harland vary) plus the matched-area '
-                        'rectangle (SHAPE_ENVS) as a shape control. The '
-                        'rectangle (SHAPE_ENVS, area-matched to the small '
-                        'disc) and the corridor (ELIAV_ENVS, 10 x 2 m). '
-                        'Neither has aspect 1, so both are excluded from the '
-                        'area trend by construction. Pass ENVS for the '
-                        'cue-density control set.')
+                   default=','.join(AREA_ENVS + ELIAV_ENVS),
+                   help='default is the area sweep (AREA_ENVS, 28.3-314 m^2, '
+                        'the axis Harland vary) plus the corridor '
+                        '(ELIAV_ENVS, 10 x 2 m). The corridor has aspect 5, '
+                        'so it is excluded from the area trend by '
+                        'construction.')
     p.add_argument('--channels', default=','.join(CHANNELS))
     p.add_argument('--settings',
                    default=','.join(f'{p}:{t:g}' for p, t in SETTINGS),

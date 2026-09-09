@@ -6,25 +6,32 @@ the repo, and run one of the analysis entry points.
 
 ## Quick reference
 
-Every script carries a complete `#SBATCH` header, so
-`sbatch slurm/<name>.sh <env>` is all that is needed. Arguments after
-the environment name are forwarded to the Python entry point.
+Every script carries a complete `#SBATCH` header, so `sbatch slurm/<name>.sh`
+is all that is needed. Arguments are forwarded to the Python entry point.
 
 ```bash
-sbatch slurm/field_recovery.sh circ_lm8_r0
+sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 slurm/collect_data.sh circ_lm_8_r3
 ```
 
 ```bash
-sbatch slurm/field_recovery.sh circ_lm8_r0 --tests 1,2 --channels color,hog
+sbatch slurm/scale_distribution.sh --split-half-iou-min none,0.4,0.5,0.6
 ```
 
 | script | job name | time | mem | GPU | what it runs |
 |---|---|---|---|---|---|
-| `channel_isolation.sh` | `chan-iso` | 6 h | 128 G | `gpu:1` | per-channel isolation (hog / color / spatial / lidar / visual / all) × spatial-weighting sweep, under the agglomeration rules, via `analysis/experiment_channel_isolation/run_channel_isolation.py` |
-| `field_recovery.sh` | `fieldrec` | 6 h | 128 G | `gpu:1` | recovery of ideal place cells of known size, rejection of non-fields, and the `EXTENT_PCTL` sweep, via `analysis/experiment_channel_isolation/run_field_recovery.py` |
-| `pruning_sweep.sh` | `prune-sweep` | 6 h | 128 G | `gpu:1` | competition separation × coverage requirement grid via `analysis/experiment_channel_isolation/run_pruning_sweep.py` |
-| `locality_test.sh` | `locality` | 4 h | 128 G | `gpu:1` | does a channel carry location information, or does the width statistic fail? via `analysis/experiment_channel_isolation/run_locality_test.py` |
-| `compare_feature_sets.sh` | `cmp-feat` | 4 h | 64 G | none | three-way comparison (full / lidar / visual) via `analysis/experiment_feature_selection/compare_feature_sets.py` |
+| `collect_data.sh` | `collect` | 24 h | 32 G | `gpu:1` | renders one arena headless in Webots and writes its feature dataset, via `simulation/controllers/collect_data`. Needs the Singularity image; `_webots_env.sh` sets it up |
+| `scale_distribution.sh` | `scale-dist` | 24 h | 128 G | `gpu:1` | Experiment 2 — field-size distribution against enclosure scale, via `analysis/experiment_channel_isolation/run_scale_distribution.py` |
+| `render_check.sh` | `render-chk` | 1 h | 16 G | `gpu:1` | is the headless renderer actually producing images? Run this before a long collection |
+
+`check_dataset.py` and `report_collection.py` are helpers called by
+`collect_data.sh`, not job scripts.
+
+Scripts for the retired experiments (channel isolation, field recovery,
+pruning sweep, locality test, landmark null, geometry recovery, feature-set
+comparison, perf probe) were removed once Experiment 2 became the active line
+of work. They are in the git history if any is needed again — the analysis
+code for several of them is still in `analysis/`, so only the wrapper has to
+be restored.
 
 All run on the **`general`** partition with 16 CPUs. Logs land in
 `slurm/logs/<job-name>-<jobid>.out` and `.err`, git-ignored.
@@ -76,7 +83,7 @@ way.
 Take an A40 for a run that needs the speed, without editing anything:
 
 ```bash
-sbatch --gres=gpu:A40:1 slurm/channel_isolation.sh circ_lm8_r0
+sbatch --gres=gpu:A40:1 slurm/scale_distribution.sh
 ```
 
 ### Two things the node table implies
@@ -93,7 +100,7 @@ request to `--mem=64G` would genuinely widen where they can land.
 partition is worth trying:
 
 ```bash
-sbatch --partition=Quick slurm/channel_isolation.sh circ_lm8_r0
+sbatch --partition=Quick slurm/scale_distribution.sh
 ```
 
 ## Full node inventory

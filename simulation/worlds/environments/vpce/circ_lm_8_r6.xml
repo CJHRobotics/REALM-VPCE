@@ -1,36 +1,37 @@
 <?xml version="1.0" encoding="us-ascii"?>
 
-<!-- Circular arena, radius 3.5 m, area 38.48 m^2. Member of
-     the environment-size sweep; landmarks are held at a fixed physical
-     size (0.75 m) across the sweep, so they occupy 27% of this
-     arena's wall against 9.5% at r = 10. Diameter is 35 robot
-     body lengths. -->
+<!-- Circular arena, radius 6 m, area 113.10 m^2, with 8 landmarks of 0.75 m.
+     XML `radius` is the inner walkable radius; the wall material
+     extends outward by `thickness`. Panels sit flush on the inner
+     face. Interlandmark spacing along the wall is 4.71 m; the panels cover 15.9% of
+     the circumference. Landmark bearings are anchored at 90 deg,
+     off the camera view seams: [90.0, 135.0, 180.0, 225.0, 270.0, 315.0, 360.0, 405.0] -->
 
 <world>
-	<circular_wall radius="3.5" height="0.5" thickness="0.5" subdivision="128"/>
+	<circular_wall radius="6" height="0.5" thickness="0.5" subdivision="128"/>
 
-    <landmark type="panel" x=" 0.0000" y=" 3.4649" theta="-1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y=" 5.9733" theta="-1.5708" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_0.png"
               red="1.00" green="0.00" blue="0.00"/>
-    <landmark type="panel" x="-2.4500" y=" 2.4500" theta="-0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-4.2237" y=" 4.2237" theta="-0.7854" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_1.png"
               red="0.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x="-3.4649" y=" 0.0000" theta=" 0.000" height="0.75" width="0.75"
+    <landmark type="panel" x="-5.9733" y=" 0.0000" theta=" 0.0000" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_2.png"
               red="0.00" green="0.00" blue="1.00"/>
-    <landmark type="panel" x="-2.4500" y="-2.4500" theta=" 0.785" height="0.75" width="0.75"
+    <landmark type="panel" x="-4.2237" y="-4.2237" theta=" 0.7854" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_3.png"
               red="1.00" green="1.00" blue="0.00"/>
-    <landmark type="panel" x=" 0.0000" y="-3.4649" theta=" 1.571" height="0.75" width="0.75"
+    <landmark type="panel" x=" 0.0000" y="-5.9733" theta=" 1.5708" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_4.png"
               red="0.00" green="1.00" blue="1.00"/>
-    <landmark type="panel" x=" 2.4500" y="-2.4500" theta=" 2.356" height="0.75" width="0.75"
+    <landmark type="panel" x=" 4.2237" y="-4.2237" theta=" 2.3562" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_5.png"
               red="1.00" green="0.50" blue="0.00"/>
-    <landmark type="panel" x=" 3.4649" y=" 0.0000" theta=" 3.142" height="0.75" width="0.75"
+    <landmark type="panel" x=" 5.9733" y=" 0.0000" theta=" 3.1416" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_6.png"
               red="0.50" green="0.00" blue="0.50"/>
-    <landmark type="panel" x=" 2.4500" y=" 2.4500" theta=" 3.927" height="0.75" width="0.75"
+    <landmark type="panel" x=" 4.2237" y=" 4.2237" theta=" 3.9270" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_7.png"
               red="0.00" green="0.50" blue="0.50"/>
 

@@ -28,15 +28,26 @@ from realm_tools.image_lib.image_feature_lib import extract_feature_dict
 
 maze_file_dir = 'simulation/worlds/environments/vpce/'
 
-# Environment-size sweep (experiment 3). Circular arenas of increasing area
-# with landmarks held at a fixed 0.75 m, replicating Harland's fixed room
-# cues. Every grid carries ~30,100 positions regardless of area, so sample
-# count is not a variable -- at a constant 0.1 m spacing these would have
-# ranged 1,018 to 30,172 and field count would have scaled with area whether
-# or not the model did anything. circ_lm8_r0 is the r = 10 member and is
-# already collected.
-maze_files = ['circ_lm8_rad1p25', 'circ_lm8_rad2p0',
-              'circ_lm8_rad3p5', 'circ_lm8_rad6p0']
+# The four arenas this experiment uses. Three discs spanning 11.1x in area
+# against Harland's 8.8x, at fixed shape and fixed landmark count, plus a
+# 10 x 2 m corridor as the Eliav comparison.
+#
+#   circ_lm_8_r3       28.27 m^2   small
+#   circ_lm_8_r6      113.10 m^2   medium
+#   circ_lm_8_r10     314.16 m^2   mega
+#   corr_lm_8_l10w2    20.00 m^2   Eliav comparison, aspect 5:1
+#
+# Every grid carries ~30,100 positions regardless of area, so sample count is
+# not a variable -- at a constant 0.1 m spacing these would have ranged from
+# about 2,500 to 30,000 and field count would have scaled with area whether or
+# not the model did anything.
+#
+# Landmarks are a fixed 0.75 m, replicating Harland's fixed room cues, so they
+# occupy a smaller share of the wall as the arena grows (32% at r = 3, 10% at
+# r = 10). Enclosure size is therefore confounded with cue prominence, which
+# is a property of fixed-size cues rather than a defect.
+maze_files = ['circ_lm_8_r3', 'circ_lm_8_r6', 'circ_lm_8_r10',
+              'corr_lm_8_l10w2']
 
 # Overridable so one arena can be collected per SLURM job and the sweep run
 # in parallel, instead of serially inside a single long Webots session.
@@ -44,14 +55,10 @@ if os.environ.get('REALM_MAZES'):
     maze_files = [m.strip() for m in os.environ['REALM_MAZES'].split(',') if m.strip()]
     print(f'REALM_MAZES override: {maze_files}')
 
-# Already collected, add back to regenerate:
-#   landmark-count sweep  circ_lm2_r0, circ_lm4_r0, circ_lm8_r0, circ_lm12_r0
-#   geometry sweep        rect_lm8_r0, corr_lm8_r0
-
-# Positions file per maze. Falls back to this literal name if the per-maze
-# CSV is missing (matches the older circular-arena convention). The
-# circ_lm* worlds have no per-maze CSV of their own and land here.
-POSITIONS_FILE_FALLBACK = 'circ_lm8_r0_positions.csv'
+# Positions file per maze. Every arena now generates its own grid
+# (make_envs.py), so the fallback should never fire; it is kept because a
+# missing grid would otherwise fail deep inside the capture loop.
+POSITIONS_FILE_FALLBACK = 'circ_lm_8_r3_positions.csv'
 
 
 

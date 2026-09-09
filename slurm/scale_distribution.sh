@@ -8,11 +8,10 @@
 # The default env list is the AREA SWEEP -- small, medium and mega at fixed
 # shape and landmark count:
 #
-#   circ_lm8_r0        r = 3     28.27 m^2   small    (collected)
-#   circ_lm8_rad6p0    r = 6    113.10 m^2   medium   (collected)
-#   circ_lm8_rad10p0   r = 10   314.16 m^2   mega
-#   rect_lm8_r0        6 x 4.712 m  28.27 m^2   shape control, matched to r=3
-#   corr_lm8_r0        10 x 2 m     20.00 m^2   Eliav comparison
+#   circ_lm_8_r3        r = 3     28.27 m^2   small    (collected)
+#   circ_lm_8_r6    r = 6    113.10 m^2   medium   (collected)
+#   circ_lm_8_r10   r = 10   314.16 m^2   mega
+#   corr_lm_8_l10w2        10 x 2 m     20.00 m^2   Eliav comparison
 #
 # 11.1x, against Harland's 8.8x. That is the axis Harland vary, and two of the
 # three targets (Fig 3F-G's scale-dependent form, Fig 6E's CV against area)
@@ -46,7 +45,7 @@
 #
 # Usage:
 #   sbatch slurm/scale_distribution.sh                        # the area sweep
-#   sbatch slurm/scale_distribution.sh --envs circ_lm8_r0     # one, in parallel
+#   sbatch slurm/scale_distribution.sh --envs circ_lm_8_r3     # one, in parallel
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
 #   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
 #                                                             # re-open the sweep
@@ -62,8 +61,7 @@
 # are independent, and six of them serially is six times the walltime for no
 # benefit. Submit the fan-out with:
 #
-#   for e in circ_lm8_r0 circ_lm8_rad6p0 circ_lm8_rad10p0 \
-#            rect_lm8_r0 corr_lm8_r0; do
+#   for e in circ_lm_8_r3 circ_lm_8_r6 circ_lm_8_r10 corr_lm_8_l10w2; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #

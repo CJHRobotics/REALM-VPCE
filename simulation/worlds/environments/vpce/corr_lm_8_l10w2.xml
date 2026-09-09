@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="us-ascii"?>
 
-<!-- Corridor 10 m x 2 m, area 20.00 m^2, aspect 5:1. The Eliav comparison: long enough to read as one-dimensional, short enough to stand for the 6 m tunnel segment in which mean field size fell from 5.9 m to 1.5 m. Deliberately not area-matched to any disc; that is the rectangle's job. Walkable width 1.60 m, about 2.6 robot body widths. -->
-<!-- x in [-5, 5] (long axis); y in [-1, 1] (short axis).  Area 20.00 m^2. -->
-<!-- Landmark theta = angle of the inward-facing surface normal. -->
-<!-- 8 landmarks at equal arc length around the perimeter, offset by half a spacing. -->
+<!-- Corridor 10 m x 2 m, area 20.00 m^2, aspect 5:1, with 8 landmarks of 0.75 m
+     covering 25.0% of the 24 m perimeter. The Eliav
+     comparison: long enough to read as one-dimensional, short
+     enough to stand for the 6 m tunnel segment. Walkable width
+     1.60 m after the keep-out. Landmark theta is the
+     inward surface normal; panels are at equal arc length around
+     the perimeter, offset by half a spacing. -->
 
 <world>
     <wall x1=" 5.0000" y1="-1.0000" x2=" 5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"/>

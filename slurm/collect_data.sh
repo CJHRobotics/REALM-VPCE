@@ -8,8 +8,8 @@
 #
 # Usage:
 #   sbatch slurm/collect_data.sh                          # the maze_files list in the controller
-#   sbatch slurm/collect_data.sh circ_lm8_rad2p0          # one arena
-#   sbatch slurm/collect_data.sh rect_lm8_r0,corr_lm8_r0  # several, serially
+#   sbatch slurm/collect_data.sh circ_lm_8_r6                 # one arena
+#   sbatch slurm/collect_data.sh circ_lm_8_r3,corr_lm_8_l10w2 # several, serially
 #
 # One arena per job is the better pattern: they are independent, they queue
 # in parallel, and a single serial session over four arenas is four times the
@@ -46,7 +46,7 @@
 #   sinfo -o "%N %G" | sort -u
 #
 # USE_GPU=1 by default. Measured per position on
-# circ_lm8_r0 (perf_probe):
+# circ_lm_8_r3 (perf_probe):
 #
 #   32-core node, llvmpipe    1154 ms    9.7 h per arena
 #   64-core node, llvmpipe     288 ms    2.4 h per arena
