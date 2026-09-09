@@ -164,6 +164,22 @@ CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
 #   --settings 65:0.5,65:0.2             re-check the ACT_THRESH invariance
 # Two settings sharing an EXTENT_PCTL still trigger the invariance check.
 SETTINGS = [(65, 0.5)]
+
+# The Rule 2 setting the figures and the report are drawn at. Set from the
+# first --split-half-iou-min entry, so a sweep still has one primary view and
+# the rest lands in the CSVs. None = Rule 2 off, the series default.
+PRIMARY_IOU = None
+
+
+def at_operating_point(df):
+    """Rows at the primary EXTENT_PCTL, ACT_THRESH and Rule 2 setting."""
+    if df is None or not len(df):
+        return df
+    m = (df.extent_pctl == DEFAULT_PCTL) & (df.act_thresh == DEFAULT_T)
+    if 'split_half_iou_min' in df.columns:
+        col = df.split_half_iou_min
+        m &= col.isna() if PRIMARY_IOU is None else (col == PRIMARY_IOU)
+    return df[m]
 DEFAULT_PCTL, DEFAULT_T = 65, 0.5
 
 N_BOOT = 200               # parametric-bootstrap draws for the KS p-value
@@ -458,17 +474,33 @@ def scale_trends(summary):
 
 # ------------------------------------------------------------ bank building
 
-def build_banks(env_name, cname, blocks, xy, env, settings, base_C, device,
-                out_dir, use_cache, verbose=True):
-    """Field libraries for one channel at every setting in the sweep.
+def build_banks(env_name, cname, blocks, xy, env, settings, ious, base_C,
+                device, out_dir, use_cache, verbose=True):
+    """Field libraries for one channel at every (setting, Rule 2) combination.
 
-    The Gram matrix and the Ward tree depend on neither EXTENT_PCTL nor
-    ACT_THRESH, so both are computed once and reused across the sweep. That
-    is not only cheaper: it makes the settings strictly like-for-like, every
-    one scored against an identical tree.
+    Three stages, split by what each depends on, so nothing is recomputed
+    that did not change:
+
+      Gram + Ward tree   depend on the channel and LAMBDA only -- once.
+      prepare_candidates depends on EXTENT_PCTL -- once per setting.
+      admit_fields       depends on ACT_THRESH and Rule 2 -- once per
+                         (setting, IoU) pair, and it is the cheap stage.
+
+    So a Rule 2 sweep costs one extra admit_fields per threshold, not a
+    rebuild. That matters because Rule 2 CANNOT be applied by filtering a
+    finished bank: it sits upstream of Rule 11, whose competition ordering is
+    already tie-broken on reliability, and upstream of Rule 12, which decides
+    which bands survive on the coverage the survivors reach. Remove a field
+    before competition and a different one claims that territory; remove
+    enough and a whole band stops tiling. Post-hoc filtering answers a
+    different question.
     """
-    want = {(p, t): f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_bank.csv'
-            for p, t in settings}
+    def _key(p, t, iou):
+        r = 'off' if iou is None else f'{iou:g}'
+        return f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}_bank.csv'
+
+    want = {(p, t, iou): _key(p, t, iou)
+            for p, t in settings for iou in ious}
     if use_cache and all(os.path.exists(v) for v in want.values()):
         print(f'  [{cname}] cached banks', flush=True)
         return {k: pd.read_csv(v) for k, v in want.items()}
@@ -490,15 +522,20 @@ def build_banks(env_name, cname, blocks, xy, env, settings, base_C, device,
                                    device=device, tree=tree,
                                    tag=f'{env_name}/{cname}/p{p}t{t:g}',
                                    verbose=verbose)
-        bank, _, rep = R.admit_fields(ctx, cfg=C, verbose=verbose)
-        bank.to_csv(want[(p, t)], index=False)
-        with open(f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_report.json', 'w') as f:
-            json.dump({k: v for k, v in rep.items()
-                       if not isinstance(v, np.ndarray)}, f, indent=2,
-                      default=float)
-        banks[(p, t)] = bank
-        print(f'  [{cname}] pctl {p} T {t:g}: {len(bank)} fields', flush=True)
-    print(f'  [{cname}] {len(settings)} settings in {time.time()-t0:.0f}s',
+        for iou in ious:
+            Ci = R.resolve_cfg(dict(C, SPLIT_HALF_IOU_MIN=iou))
+            bank, _, rep = R.admit_fields(ctx, cfg=Ci, verbose=verbose)
+            bank.to_csv(want[(p, t, iou)], index=False)
+            with open(want[(p, t, iou)].replace('_bank.csv', '_report.json'),
+                      'w') as f:
+                json.dump({k: v for k, v in rep.items()
+                           if not isinstance(v, np.ndarray)}, f, indent=2,
+                          default=float)
+            banks[(p, t, iou)] = bank
+            lbl = 'off' if iou is None else f'>= {iou:g}'
+            print(f'  [{cname}] pctl {p} T {t:g} Rule2 {lbl}: '
+                  f'{len(bank)} fields', flush=True)
+    print(f'  [{cname}] {len(want)} bank(s) in {time.time()-t0:.0f}s',
           flush=True)
     del X, D2
     return banks
@@ -573,8 +610,9 @@ def prune_orphan_figures(fig_dir):
 
 def fig_distributions(banks_all, fits, envs, chans, fig_dir):
     """S1: the size histogram per env x channel with all three fits drawn."""
-    envs = [e for e in envs if any((e, c, DEFAULT_PCTL, DEFAULT_T) in banks_all
-                                   for c in chans)]
+    envs = [e for e in envs
+            if any((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU) in banks_all
+                   for c in chans)]
     if not envs:
         return
     fig, axes = plt.subplots(len(envs), len(chans), squeeze=False,
@@ -582,7 +620,7 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
     for i, e in enumerate(envs):
         for j, c in enumerate(chans):
             ax = axes[i][j]
-            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T))
+            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU))
             if b is None or len(b) < MIN_FIELDS:
                 ax.set_axis_off()
                 continue
@@ -591,9 +629,9 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
             ax.bar(centres, dens, width=(centres[1] - centres[0]) * 0.9,
                    color='0.82', edgecolor='none')
             gx = np.linspace(x.min(), x.max(), 300)
-            sub = fits[(fits.env == e) & (fits.channel == c) &
-                       (fits.extent_pctl == DEFAULT_PCTL) &
-                       (fits.act_thresh == DEFAULT_T) & (fits.variable == 'area')]
+            fo = at_operating_point(fits)
+            sub = fo[(fo.env == e) & (fo.channel == c) &
+                     (fo.variable == 'area')]
             for _, row in sub.iterrows():
                 par = json.loads(row.params)
                 ax.plot(gx, FORMS[row.form]['dist'].pdf(gx, *par), lw=1.4,
@@ -648,7 +686,7 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
         for j, c in enumerate(chans):
             ax = axes[i][j]
             ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
-            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T))
+            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU))
             R_ = geom.get('env_R')
             if R_ is not None:
                 ax.add_patch(plt.Circle((geom.get('env_cx', 0.0),
@@ -710,8 +748,7 @@ def fig_size_vs_scale(summary, fig_dir):
     Experiment 3 is built on, and the reason this experiment is its
     prerequisite.
     """
-    s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
-                (summary.act_thresh == DEFAULT_T)]
+    s = at_operating_point(summary)
     if not len(s) or not area_varies(s):
         return
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.4))
@@ -746,7 +783,7 @@ class ScaleDistributionReport(ExperimentReport):
         s = self.results
         if s is None or not len(s):
             return 'no results'
-        base = s[(s.extent_pctl == DEFAULT_PCTL) & (s.act_thresh == DEFAULT_T)]
+        base = at_operating_point(s)
         if not len(base):
             return f'{len(s)} runs'
         w = getattr(self, 'winners', None)
@@ -772,7 +809,7 @@ class ScaleDistributionReport(ExperimentReport):
         if s is None or not len(s):
             return 'No field libraries were produced.'
         S = self.section
-        base = s[(s.extent_pctl == DEFAULT_PCTL) & (s.act_thresh == DEFAULT_T)]
+        base = at_operating_point(s)
         f = self.fits[(self.fits.variable == 'area') &
                       (self.fits.act_thresh == DEFAULT_T)]
         fb = f[f.extent_pctl == DEFAULT_PCTL]
@@ -1125,15 +1162,17 @@ def parse_args():
                    help='EXTENT_PCTL:ACT_THRESH pairs, comma separated')
     p.add_argument('--lam', type=float, default=0.0,
                    help='LAMBDA. 0 = feature only, as everywhere else.')
-    p.add_argument('--split-half-iou-min', type=float, default=None,
-                   metavar='IOU',
+    p.add_argument('--split-half-iou-min', default='none', metavar='LIST',
                    help='Rule 2: reject a field whose split-half IoU is below '
                         'this. Off by default, as in every other experiment. '
                         'Reliability rises monotonically with scale band '
                         '(median IoU 0.45 at band 0 to 0.69 at band 5), so a '
                         'threshold removes fine fields for being unreliable '
                         'rather than for being small, and approximates an '
-                        'experimenter\'s detection criterion. 0.5 keeps ~57%.')
+                        'experimenter\'s detection criterion. 0.5 keeps ~57%. '
+                        'Takes a comma list -- "none,0.4,0.5,0.6" scores every '
+                        'threshold in one job, since Rule 2 only re-runs the '
+                        'cheap admission stage.')
     p.add_argument('--subsample', type=int, default=0)
     p.add_argument('--n-boot', type=int, default=N_BOOT)
     p.add_argument('--seed', type=int, default=0)
@@ -1148,6 +1187,11 @@ def main():
     args = parse_args()
     envs = [e.strip() for e in args.envs.split(',') if e.strip()]
     chans = [c.strip() for c in args.channels.split(',') if c.strip()]
+    ious = [None if tok.strip().lower() in ('none', 'off', '')
+            else float(tok) for tok in args.split_half_iou_min.split(',')
+            if tok.strip()] or [None]
+    global PRIMARY_IOU
+    PRIMARY_IOU = ious[0]
     settings = []
     for tok in args.settings.split(','):
         if not tok.strip():
@@ -1162,8 +1206,7 @@ def main():
     os.makedirs(fig_dir, exist_ok=True)
 
     base_C = R.resolve_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
-                                USE_GPU=not args.no_gpu,
-                                SPLIT_HALF_IOU_MIN=args.split_half_iou_min))
+                                USE_GPU=not args.no_gpu))
     device = R.pick_device(use_gpu=not args.no_gpu)
 
     print('=' * 72)
@@ -1172,9 +1215,9 @@ def main():
     print(f'  channels : {chans}')
     print(f'  settings : {[(p, t) for p, t in settings]}  (EXTENT_PCTL, ACT_THRESH)')
     print(f'  LAMBDA   : {base_C["LAMBDA"]}')
-    print(f'  Rule 2   : ' + ('off (measured, not enforced)'
-                              if base_C['SPLIT_HALF_IOU_MIN'] is None else
-                              f'split-half IoU >= {base_C["SPLIT_HALF_IOU_MIN"]}'))
+    print('  Rule 2   : ' + ', '.join(
+        'off (measured, not enforced)' if i is None else f'IoU >= {i:g}'
+        for i in ious))
     print(f'  areas    : {"varies — Fig 6E readable" if len(envs) > 1 else "one"}'
           '  (a single area cannot speak to Harland 3F-G or 6E)')
     print('  note     : EXTENT_PCTL saturates at 65 and the sweep is settled;')
@@ -1215,16 +1258,21 @@ def main():
               f'{len(xy)} locations', flush=True)
 
         for c in chans:
-            banks = build_banks(e, c, blocks, xy, env, settings, base_C,
-                                device, out_dir, args.use_cache)
-            for row in threshold_invariance(banks):
+            banks = build_banks(e, c, blocks, xy, env, settings, ious,
+                                base_C, device, out_dir, args.use_cache)
+            # The ACT_THRESH identity is about the mask, so check it at one
+            # Rule 2 setting rather than once per threshold.
+            for row in threshold_invariance(
+                    {(p, t): b for (p, t, i), b in banks.items()
+                     if i == ious[0]}):
                 inv_rows.append(dict(row, env=e, channel=c))
-            for (p, t), bank in banks.items():
-                banks_all[(e, c, p, t)] = bank
+            for (p, t, iou), bank in banks.items():
+                banks_all[(e, c, p, t, iou)] = bank
                 if not len(bank):
                     continue
-                tag = dict(env=e, channel=c, extent_pctl=p,
-                           act_thresh=t,
+                tag = dict(env=e, channel=c, extent_pctl=p, act_thresh=t,
+                           split_half_iou_min=(np.nan if iou is None
+                                               else float(iou)),
                            env_area_m2=float(env['env_area']))
                 d = describe(bank, env, base_C)
                 sum_rows.append({**tag, **d})
@@ -1254,14 +1302,12 @@ def main():
     if inv is not None:
         inv.to_csv(f'{out_dir}/threshold_invariance.csv', index=False)
 
-    trends = scale_trends(summary[(summary.extent_pctl == DEFAULT_PCTL) &
-                                  (summary.act_thresh == DEFAULT_T)])
+    trends = scale_trends(at_operating_point(summary))
     if len(trends):
         trends.to_csv(f'{out_dir}/scale_trends.csv', index=False)
 
-    winners = (fits[(fits.variable == 'area') & (fits.d_aic == 0) &
-                    (fits.extent_pctl == DEFAULT_PCTL) &
-                    (fits.act_thresh == DEFAULT_T)].form.value_counts())
+    _f = at_operating_point(fits)
+    winners = _f[(_f.variable == 'area') & (_f.d_aic == 0)].form.value_counts()
 
     print('\nfigures:', flush=True)
     # Scale order, so S1 reads small -> mega down the page.

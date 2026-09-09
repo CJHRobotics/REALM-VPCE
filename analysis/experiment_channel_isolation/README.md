@@ -329,8 +329,21 @@ so a threshold removes fine fields for being unreproducible rather than for
 being small, and approximates an experimenter's detection criterion:
 
 ```bash
-sbatch slurm/scale_distribution.sh --split-half-iou-min 0.5   # keeps ~57%
+sbatch slurm/scale_distribution.sh --split-half-iou-min none,0.4,0.5,0.6
 ```
+
+**Rule 2 cannot be applied by filtering a finished bank**, so it does need the
+banks rebuilt — but only the cheap stage. It sits upstream of Rule 11, whose
+competition ordering is already tie-broken on reliability, and upstream of
+Rule 12, which decides which bands survive on the coverage the survivors
+reach. Remove a field before competition and a different one claims that
+territory; remove enough and a whole band stops tiling.
+
+So `--split-half-iou-min` takes a **comma list** and scores every threshold in
+one job: the Gram matrix and Ward tree are built once per channel,
+`prepare_candidates` once per setting, and only `admit_fields` re-runs per
+threshold. The first entry is the one the figures and report are drawn at; the
+rest lands in the CSVs, which carry a `split_half_iou_min` column throughout.
 
 ### What the model cannot answer
 
