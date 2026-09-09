@@ -281,19 +281,31 @@ Figures — `figures/scale_distribution/`
 Every figure but S1 is indexed by arena area, so the experiment reads as
 "what changes as scale changes".
 
-| figure | shows | published claim |
-|--------|-------|-----------------|
-| S1 | size histogram per arena × channel, arenas in scale order, all three fits drawn | — |
-| S2 | CV of field size against area | Harland Fig 6E: **rises**, 70 → 85 → 101 |
-| S3 | admitted fields drawn on the arena, coloured by scale band | — |
-| S4 | which form wins against area, plus `r_hist` and ΔAIC per form | Harland Fig 3F–G: the form **changes** with scale |
-| S5 | median field size, max/min spread, bands occupied, against area | Eliav's 6 m control implies all three fall in a smaller space |
+| figure | shows |
+|--------|-------|
+| S1 | size histogram per arena × channel, arenas in scale order, all three fits drawn |
+| S2 | admitted fields drawn on the arena as their Rule 7 ellipses, coloured by scale band, each panel to its own arena with a 1 m bar |
+| S3 | median field size, max/min spread and bands occupied, against area |
 
-S2 falls back to landmark count and aspect when area is not varied, so a
-control run is never mislabelled as a reading of 6E. Scale-band occupancy is
-in `summary.csv` as before (`band0_frac` … `band6plus_frac`); S5 plots only
-the count of occupied bands. No log axes anywhere — every panel is linear and
-zero-based.
+**CV is measured but not plotted, and not compared to Fig 6E.** Pooled across
+bands it describes a six-band mixture spanning two orders of magnitude, and
+its trend across area tracks how many bands are occupied rather than any field
+size. Within a band it is fixed by the band definition — bands are geometric
+in radius at ratio 1.6, so areas span 2.56× and a uniform spread gives
+CV ≈ 25%, which is what we measure (23–32%). Harland's 70–101 sits between the
+two. Neither is comparable until there is a model of how a recording samples
+cells from this library. The numbers are in `band_summary.csv`.
+
+The three-form fits are likewise kept in `fits.csv` and the report rather than
+plotted against area: the pooled distribution they fit is the tiling spectrum
+(N(>s) ∝ s⁻¹·¹), not a recorded population, so "which form wins" inherits the
+same non-comparability. S1 shows the raw distribution, which is the honest
+version of that picture.
+
+Scale-band occupancy is in `summary.csv` (`band0_frac` … `band6plus_frac`) and
+per-band detail in `band_summary.csv`; S3 plots only the count of occupied
+bands. No log axes anywhere — every panel is linear and zero-based, and the
+report attaches only the figures the run actually wrote.
 
 ### Read the bands, not the pool
 

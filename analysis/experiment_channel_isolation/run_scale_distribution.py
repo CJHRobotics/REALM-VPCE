@@ -623,55 +623,6 @@ def _scale_panel(ax, s, col, ylabel, pct=False):
     ax.set_ylim(bottom=0)
 
 
-def fig_cv(summary, fig_dir):
-    """S2: CV of field size against arena area — Harland Fig 6E.
-
-    Their claim is directional: CV rises with enclosure area, 70 -> 85 -> 101
-    across a span of 8.8x. Ours spans 9.0x, so the comparison is like for
-    like. Read the direction first; landing on their absolute values is not
-    expected from a different agent in a different arena.
-
-    Falls back to cue density and shape when area is not varied, so a control
-    run is not mislabelled as a reading of 6E.
-    """
-    s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
-                (summary.act_thresh == DEFAULT_T)]
-    if not len(s):
-        return
-    if not area_varies(s):
-        fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
-        for ax, (xcol, xlabel, d) in zip(axes, [
-                ('n_landmarks', 'landmark count (disc)', s[s.aspect == 1.0]),
-                ('aspect', 'aspect ratio (8 landmarks)', s[s.n_landmarks == 8])]):
-            for c in sorted(d.channel.unique()):
-                g = d[d.channel == c].sort_values(xcol)
-                if len(g):
-                    ax.plot(g[xcol], g.cv_area_pct, 'o-', ms=5, lw=1.2,
-                            color=CHANNEL_COLORS.get(c, '0.4'), label=c)
-            ax.set_xlabel(xlabel); ax.set_ylabel('CV of field area (%)')
-            ax.set_ylim(bottom=0)
-            for k, v in HARLAND_CV.items():
-                ax.axhline(v, color='k', ls=':', lw=0.9)
-                ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=6, va='center')
-            ax.legend(fontsize=7, frameon=False, ncol=2)
-        fig.suptitle('S2  CV of field size. Area is held constant in this run, '
-                     'so the dotted Harland Fig 6E\nvalues are a reference '
-                     'scale, not a trend to fit.', fontsize=9)
-        fig.tight_layout(rect=(0, 0, 1, 0.92))
-        _save(fig, fig_dir, 'S2_cv.png')
-        return
-    fig, ax = plt.subplots(figsize=(7.2, 4.8))
-    _scale_panel(ax, s, 'cv_area_pct', 'CV of field area (%)')
-    for k, v in HARLAND_CV.items():
-        ax.axhline(v, color='k', ls=':', lw=0.9)
-        ax.text(ax.get_xlim()[1], v, f'  {k} {v:g}', fontsize=7, va='center')
-    ax.legend(fontsize=7, frameon=False, ncol=2)
-    ax.set_title('S2  CV of field size against arena area — Harland Fig 6E\n'
-                 'their claim is that this RISES; dotted lines are their '
-                 '70 / 85 / 101', fontsize=9)
-    _save(fig, fig_dir, 'S2_cv.png')
-
-
 def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
     """S3: the admitted fields drawn on the arena, coloured by scale band.
 
@@ -743,55 +694,11 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
                           label=f'band {k}') for k in range(nb)]
     fig.legend(handles=handles, loc='lower center', ncol=nb, fontsize=7,
                frameon=False, bbox_to_anchor=(0.5, -0.01))
-    fig.suptitle('S3  admitted fields drawn on the arena, coloured by scale '
+    fig.suptitle('S2  admitted fields drawn on the arena, coloured by scale '
                  'band\neach panel to its own arena with a 1 m bar; the count '
                  'is bottom-left', fontsize=10)
     fig.tight_layout(rect=(0, 0.03, 1, 0.94))
-    _save(fig, fig_dir, 'S3_field_maps.png')
-
-
-def fig_form_vs_scale(fits, fig_dir):
-    """S4: does the winning form change with scale? — Harland Fig 3F-G.
-
-    Their 3F-G is not one claim but a contrast: a negative exponential in the
-    megaspace against a Gaussian in the small environments. That is a
-    scale-DEPENDENT form, and it is the only figure here that can test it. A
-    single form winning at every area is a divergence from Harland and an
-    agreement with Eliav, who fit one form throughout.
-    """
-    f = fits[(fits.variable == 'area') & (fits.extent_pctl == DEFAULT_PCTL) &
-             (fits.act_thresh == DEFAULT_T)]
-    if not len(f) or f.env_area_m2.nunique() < 2:
-        return
-    areas = sorted(f.env_area_m2.unique())
-    fig, axes = plt.subplots(1, 2, figsize=(13.0, 4.6))
-    for name in FORMS:
-        d = f[f.form == name].groupby('env_area_m2')
-        axes[0].plot(areas, [d.get_group(a).r_hist.median() if a in d.groups
-                             else np.nan for a in areas], 'o-', ms=5, label=name)
-        axes[1].plot(areas, [d.get_group(a).d_aic.median() if a in d.groups
-                             else np.nan for a in areas], 'o-', ms=5, label=name)
-    axes[0].axhline(HARLAND_R_EXPON, color='k', ls=':', lw=0.9)
-    axes[0].axhline(HARLAND_R_GAUSS, color='k', ls='--', lw=0.9)
-    axes[0].set_ylabel("median $r_{hist}$")
-    axes[0].set_title("fit quality in Harland's own statistic\n"
-                      'dotted 0.995 their exponential, dashed 0.985 their '
-                      'Gaussian', fontsize=8)
-    axes[1].set_ylabel('median $\\Delta$AIC from the best form')
-    axes[1].set_title('model selection (0 = winner at that area)', fontsize=8)
-    for ax in axes:
-        ax.set_xlabel('arena area (m$^2$)')
-        ax.legend(fontsize=7, frameon=False)
-    axes[1].set_ylim(bottom=0)
-    won = f[f.d_aic == 0].groupby('env_area_m2').form.agg(
-        lambda v: v.value_counts().idxmax())
-    fig.suptitle('S4  which distribution form wins, against area — Harland '
-                 'Fig 3F-G predicts this CHANGES\n(exponential in the '
-                 'megaspace, Gaussian in the small environments).   winner: '
-                 + ',  '.join(f'{a:.0f} m$^2$ {w}' for a, w in won.items()),
-                 fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.90))
-    _save(fig, fig_dir, 'S4_form_vs_scale.png')
+    _save(fig, fig_dir, 'S2_field_maps.png')
 
 
 def fig_size_vs_scale(summary, fig_dir):
@@ -819,11 +726,11 @@ def fig_size_vs_scale(summary, fig_dir):
     axes[2].set_title('scale diversity', fontsize=8)
     for ax in axes:
         ax.legend(fontsize=6, frameon=False, ncol=2)
-    fig.suptitle('S5  the size ladder against arena area — does a larger space '
+    fig.suptitle('S3  the size ladder against arena area — does a larger space '
                  'buy a WIDER range of scales, or a uniformly coarser one?',
                  fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
-    _save(fig, fig_dir, 'S5_size_vs_scale.png')
+    _save(fig, fig_dir, 'S3_size_vs_scale.png')
 
 
 # -------------------------------------------------------------------- report
@@ -877,6 +784,16 @@ class ScaleDistributionReport(ExperimentReport):
             f'{len(base)} environment x channel libraries at the operating '
             f'point (EXTENT_PCTL {DEFAULT_PCTL}), '
             f'{int(base.n_fields.sum())} fields in total.', '',
+            'CV IS MEASURED BUT NOT PLOTTED, and not compared to Fig 6E. '
+            'Pooled across bands it describes a six-band mixture spanning two '
+            'orders of magnitude, and its trend across area tracks how many '
+            'bands are occupied rather than any field size. Within a band it '
+            'is fixed by the band definition: bands are geometric in radius '
+            'at ratio 1.6, so areas span 2.56x and a uniform spread over that '
+            'gives CV = 25%, which is what we measure (23-32%). Harland\'s '
+            '70-101 sits between the two, and neither of ours is comparable '
+            'until there is a model of how a recording samples cells from '
+            'this library. The numbers are in band_summary.csv.', '',
             f'CV of field area   median {base.cv_area_pct.median():.0f}% '
             f'(range {base.cv_area_pct.min():.0f}-{base.cv_area_pct.max():.0f}%). '
             f'Harland: {", ".join(f"{k} {v:g}" for k, v in HARLAND_CV.items())}.',
@@ -1351,9 +1268,7 @@ def main():
     envs_by_area = list(summary.sort_values('env_area_m2')
                         .drop_duplicates('env').env)
     fig_distributions(banks_all, fits, envs_by_area, chans, fig_dir)
-    fig_cv(summary, fig_dir)
     fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir)
-    fig_form_vs_scale(fits, fig_dir)
     fig_size_vs_scale(summary, fig_dir)
     prune_orphan_figures(fig_dir)
 
