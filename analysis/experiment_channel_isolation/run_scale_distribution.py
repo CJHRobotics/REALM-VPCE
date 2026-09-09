@@ -98,6 +98,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
 from scipy import stats
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -368,6 +369,41 @@ def describe(bank, env, C):
     return d
 
 
+def band_table(bank, env, C, tag):
+    """One row per scale band: the library is a tiling at every scale.
+
+    A tiling at scale s needs about arena/s tiles, so the finest band always
+    holds most of the library and always sets any pooled median, mean or CV.
+    Measured on the first full sweep: band 0 is 61-65% of every channel's
+    library, and the pooled median coverage (0.26%) is simply band 0's.
+
+    Per band the picture is different -- bands 4 and 5 sit at 7-9% and 15-17%
+    of the arena, bracketing Harland's 9-13% -- so the model does reach their
+    scale and the pooled statistic hides it. Report both; the per-band numbers
+    are the ones comparable to a recorded sample of cells.
+    """
+    if not len(bank):
+        return []
+    area = float(env['env_area'])
+    rows = []
+    for band, g in bank.groupby('scale_band'):
+        a = g.area_env_m2.to_numpy(dtype=float)
+        rows.append(dict(
+            tag, scale_band=int(band), n_fields=len(a),
+            share_of_library=float(len(a) / len(bank)),
+            area_median_m2=float(np.median(a)),
+            coverage_median=float(np.median(a) / area),
+            # Total floor this band lays down, as a multiple of the arena.
+            # Around 1.0 means the band tiles it once.
+            tiling_multiple=float(a.sum() / area),
+            cv_area_pct=(100.0 * a.std(ddof=1) / a.mean()
+                         if len(a) > 1 else np.nan),
+            split_half_iou_median=(float(g.split_half_iou.median())
+                                   if 'split_half_iou' in g else np.nan),
+        ))
+    return rows
+
+
 def scale_trends(summary):
     """How each tracked quantity moves across arena area.
 
@@ -636,47 +672,82 @@ def fig_cv(summary, fig_dir):
     _save(fig, fig_dir, 'S2_cv.png')
 
 
-def fig_coverage(summary, fig_dir):
-    """S3: fraction of the arena one field covers, against area.
+def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
+    """S3: the admitted fields drawn on the arena, coloured by scale band.
 
-    Harland's result is that coverage SATURATES -- only ~2 percentage points
-    higher in the megaspace than in the small environment despite 8.8x the
-    area. A flat line here is the match; a rising or falling one is the
-    divergence.
+    The picture behind the per-band table. Each field is its Rule 7 ellipse --
+    two axes and an orientation -- at its measured position, so the multiscale
+    tiling is visible directly: a dense carpet of band-0 fields with
+    progressively fewer, larger ones above it.
 
-    Theirs is coverage per CELL, summed over that cell's subfields. Ours is
-    per FIELD, because a single-centroid cluster owns exactly one. The two
-    coincide only for single-field cells, so this is a comparison of related
-    but not identical quantities and the gap belongs in any writeup.
+    Every panel is drawn to its own arena, with a 1 m bar for scale, because
+    the arenas span 9x in area and a common frame would render the smallest
+    one unreadable. Field size RELATIVE to the arena is what the eye should
+    compare across a row.
     """
-    s = summary[(summary.extent_pctl == DEFAULT_PCTL) &
-                (summary.act_thresh == DEFAULT_T)]
-    if not len(s):
+    if not banks_all:
         return
-    fig, ax = plt.subplots(figsize=(7.6, 4.8))
-    if area_varies(s):
-        _scale_panel(ax, s, 'coverage_median', 'arena covered per field (%)',
-                     pct=True)
-        ax.set_title('S3  arena covered by one field, against area\n'
-                     "Harland: SATURATES, ~2 pp across 8.8x area (theirs is "
-                     'per cell, ours per field)', fontsize=9)
-    else:
-        xs = np.arange(len(s))
-        lo = 100 * (s.coverage_median - s.coverage_q25).to_numpy()
-        hi = 100 * (s.coverage_q75 - s.coverage_median).to_numpy()
-        ax.errorbar(xs, 100 * s.coverage_median.to_numpy(), yerr=[lo, hi],
-                    fmt='o', ms=4, lw=1, capsize=2, color='#333333',
-                    ecolor='0.6')
-        ax.set_xticks(xs)
-        ax.set_xticklabels([f'{e}\n{c}' for e, c in zip(s.env, s.channel)],
-                           rotation=90, fontsize=5)
-        ax.set_ylabel('arena covered per field (%)')
-        ax.set_ylim(bottom=0)
-        ax.set_title('S3  arena covered by one field (median, IQR)', fontsize=9)
-    ax.axhspan(100 * HARLAND_COVERAGE[0], 100 * HARLAND_COVERAGE[1],
-               color='#2ca02c', alpha=0.18, label='Harland 9-13%')
-    ax.legend(fontsize=7, frameon=False, ncol=2)
-    _save(fig, fig_dir, 'S3_coverage.png')
+    n_r, n_c = len(envs_by_area), len(chans)
+    fig, axes = plt.subplots(n_r, n_c, squeeze=False,
+                             figsize=(2.7 * n_c, 2.9 * n_r))
+    cmap = plt.cm.viridis
+    nb = max(BANDS) + 1
+    for i, e in enumerate(envs_by_area):
+        geom = env_geom.get(e, {})
+        for j, c in enumerate(chans):
+            ax = axes[i][j]
+            ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T))
+            R_ = geom.get('env_R')
+            if R_ is not None:
+                ax.add_patch(plt.Circle((geom.get('env_cx', 0.0),
+                                         geom.get('env_cy', 0.0)), R_,
+                                        fill=False, color='0.2', lw=1.2))
+                lim = R_ * 1.08
+                ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+            else:
+                x0, x1 = geom.get('x_min', -1), geom.get('x_max', 1)
+                y0, y1 = geom.get('y_min', -1), geom.get('y_max', 1)
+                ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0,
+                                           fill=False, color='0.2', lw=1.2))
+                mx = 0.04 * max(x1 - x0, y1 - y0)
+                ax.set_xlim(x0 - mx, x1 + mx); ax.set_ylim(y0 - mx, y1 + mx)
+            for lm in geom.get('landmarks', []):
+                ax.plot(lm[0], lm[1], 's', ms=3, color='#d64545', zorder=5)
+            if b is not None and len(b):
+                # Coarsest first, so the fine carpet is drawn on top of the
+                # large fields rather than hidden beneath them.
+                for _, r in b.sort_values('radius_env_m', ascending=False).iterrows():
+                    ax.add_patch(Ellipse(
+                        (r.centroid_x, r.centroid_y),
+                        2 * r.semi_major_m, 2 * r.semi_minor_m,
+                        angle=np.degrees(r.orientation_rad),
+                        facecolor=cmap(min(int(r.scale_band), nb - 1) / max(nb - 1, 1)),
+                        edgecolor='none', alpha=0.30, lw=0))
+                ax.text(0.02, 0.02, f'{len(b)}', transform=ax.transAxes,
+                        fontsize=6, color='0.35')
+            # 1 m scale bar, so the arenas stay comparable despite the framing
+            if R_ is not None or 'x_min' in geom:
+                xl = ax.get_xlim(); yl = ax.get_ylim()
+                x_s = xl[0] + 0.06 * (xl[1] - xl[0])
+                y_s = yl[0] + 0.06 * (yl[1] - yl[0])
+                ax.plot([x_s, x_s + 1.0], [y_s, y_s], '-', color='k', lw=1.6)
+                ax.text(x_s, y_s + 0.02 * (yl[1] - yl[0]), '1 m', fontsize=5)
+            if i == 0:
+                ax.set_title(c, fontsize=9)
+            if j == 0:
+                ax.set_ylabel(f"{e.replace('circ_lm8_', '')}\n"
+                              f"{geom.get('env_area', float('nan')):.0f} m$^2$",
+                              fontsize=8)
+    handles = [plt.Line2D([], [], marker='o', ls='', color=cmap(k / max(nb - 1, 1)),
+                          label=f'band {k}') for k in range(nb)]
+    fig.legend(handles=handles, loc='lower center', ncol=nb, fontsize=7,
+               frameon=False, bbox_to_anchor=(0.5, -0.01))
+    fig.suptitle('S3  admitted fields drawn on the arena, coloured by scale '
+                 'band\neach panel to its own arena with a 1 m bar; the count '
+                 'is bottom-left', fontsize=10)
+    fig.tight_layout(rect=(0, 0.03, 1, 0.94))
+    _save(fig, fig_dir, 'S3_field_maps.png')
 
 
 def fig_form_vs_scale(fits, fig_dir):
@@ -785,6 +856,7 @@ class ScaleDistributionReport(ExperimentReport):
         return [p for p in (f'{self.out_dir}/summary.csv',
                             f'{self.out_dir}/fits.csv',
                             f'{self.out_dir}/scale_trends.csv',
+                            f'{self.out_dir}/band_summary.csv',
                             f'{self.out_dir}/threshold_invariance.csv')
                 if os.path.exists(p)]
 
@@ -914,6 +986,64 @@ class ScaleDistributionReport(ExperimentReport):
             'than it should, and the fine end is floored at exactly the value '
             'Harland measured — so agreement at the fine end is partly '
             'assumed rather than found.'])))
+
+        # --- the library is a tiling at every scale -----------------------
+        bd = getattr(self, 'bands', None)
+        if bd is not None and len(bd):
+            # Column names deliberately not `cov`/`n`: those collide with
+            # pandas Series methods and attribute access silently returns the
+            # method instead of the value.
+            g = bd.groupby('scale_band').agg(
+                n_f=('n_fields', 'sum'), share_lib=('share_of_library', 'median'),
+                cov_med=('coverage_median', 'median'),
+                tile_mult=('tiling_multiple', 'median'),
+                iou_med=('split_half_iou_median', 'median'))
+            L = ['A field library is a TILING AT EVERY SCALE, not a sample of '
+                 'cells. A tiling at scale s needs about arena/s tiles, so the '
+                 'finest band necessarily holds most of the library and '
+                 'necessarily sets any pooled median, mean or CV. Read the '
+                 'bands, not the pool.', '',
+                 f'  {"band":>4s} {"fields":>7s} {"share":>7s} '
+                 f'{"median cov":>11s} {"tiling":>7s} {"IoU":>5s}']
+            for b_, r in g.iterrows():
+                L.append(f'  {int(b_):>4d} {int(r.n_f):>7d} {100*r.share_lib:>6.1f}% '
+                         f'{100*r.cov_med:>10.2f}% {r.tile_mult:>7.2f} {r.iou_med:>5.2f}')
+            hi = g[(g.cov_med >= HARLAND_COVERAGE[0]) &
+                   (g.cov_med <= HARLAND_COVERAGE[1])]
+            near = g[(g.cov_med >= 0.5 * HARLAND_COVERAGE[0]) &
+                     (g.cov_med <= 2.0 * HARLAND_COVERAGE[1])]
+            L += ['',
+                  f'"tiling" is the floor a band lays down as a multiple of '
+                  f'the arena; ~1 means the band covers it once. IoU is '
+                  f'split-half reliability, which rises with band.']
+            if len(near):
+                L += ['',
+                      f'THE MODEL DOES REACH HARLAND\'S SCALE. Band(s) '
+                      f'{", ".join(str(int(i)) for i in near.index)} sit at '
+                      + ', '.join(f'{100*v:.1f}%' for v in near.cov_med) +
+                      f' of the arena, against their 9-13% per cell'
+                      + ('' if len(hi) else ' (bracketing it rather than '
+                         'landing inside)') + '. The pooled median is far '
+                      f'below that only because band '
+                      f'{int(g.share_lib.idxmax())} is '
+                      f'{100*g.share_lib.max():.0f}% of the library.']
+            else:
+                L += ['',
+                      'No band reaches Harland\'s 9-13% per cell. This is a '
+                      'divergence in the coarse tail, not an artifact of '
+                      'pooling, and should be reported as such.']
+            L += ['',
+                  'Rule 2 (split-half reliability) is the principled way to '
+                  'thin the fine end if you want to: reliability rises '
+                  'monotonically with band, so a threshold removes fine '
+                  'fields for being unreproducible rather than for being '
+                  'small, and approximates an experimenter\'s detection '
+                  'criterion. --split-half-iou-min 0.5 keeps roughly 57%. '
+                  'Raising the Rule 8 floor instead would not work: the '
+                  'median lands at about 2x the floor wherever the floor is '
+                  'put, so choosing it chooses the answer.']
+            out.append(S('PER SCALE BAND — read this before any pooled number',
+                         '\n'.join(L)))
 
         # --- what changes as scale changes -------------------------------
         areas = sorted(base.env_area_m2.unique())
@@ -1078,6 +1208,15 @@ def parse_args():
                    help='EXTENT_PCTL:ACT_THRESH pairs, comma separated')
     p.add_argument('--lam', type=float, default=0.0,
                    help='LAMBDA. 0 = feature only, as everywhere else.')
+    p.add_argument('--split-half-iou-min', type=float, default=None,
+                   metavar='IOU',
+                   help='Rule 2: reject a field whose split-half IoU is below '
+                        'this. Off by default, as in every other experiment. '
+                        'Reliability rises monotonically with scale band '
+                        '(median IoU 0.45 at band 0 to 0.69 at band 5), so a '
+                        'threshold removes fine fields for being unreliable '
+                        'rather than for being small, and approximates an '
+                        'experimenter\'s detection criterion. 0.5 keeps ~57%.')
     p.add_argument('--subsample', type=int, default=0)
     p.add_argument('--n-boot', type=int, default=N_BOOT)
     p.add_argument('--seed', type=int, default=0)
@@ -1106,7 +1245,8 @@ def main():
     os.makedirs(fig_dir, exist_ok=True)
 
     base_C = R.resolve_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
-                                USE_GPU=not args.no_gpu))
+                                USE_GPU=not args.no_gpu,
+                                SPLIT_HALF_IOU_MIN=args.split_half_iou_min))
     device = R.pick_device(use_gpu=not args.no_gpu)
 
     print('=' * 72)
@@ -1115,6 +1255,9 @@ def main():
     print(f'  channels : {chans}')
     print(f'  settings : {[(p, t) for p, t in settings]}  (EXTENT_PCTL, ACT_THRESH)')
     print(f'  LAMBDA   : {base_C["LAMBDA"]}')
+    print(f'  Rule 2   : ' + ('off (measured, not enforced)'
+                              if base_C['SPLIT_HALF_IOU_MIN'] is None else
+                              f'split-half IoU >= {base_C["SPLIT_HALF_IOU_MIN"]}'))
     print(f'  areas    : {"varies — Fig 6E readable" if len(envs) > 1 else "one"}'
           '  (a single area cannot speak to Harland 3F-G or 6E)')
     print('  note     : EXTENT_PCTL saturates at 65 and the sweep is settled;')
@@ -1123,6 +1266,7 @@ def main():
     print('=' * 72, flush=True)
 
     banks_all, sum_rows, fit_rows, inv_rows = {}, [], [], []
+    band_rows, env_geom = [], {}
     missing = []
     for e in envs:
         data_path = f'{REPO}/data/vpce/collect_data/{e}.h5'
@@ -1146,6 +1290,9 @@ def main():
         env['aspect'] = (1.0 if env.get('is_circular') else
                          (env['x_max'] - env['x_min']) /
                          (env['y_max'] - env['y_min']))
+        env_geom[e] = dict(env, landmarks=[
+            (float(l.get('x')), float(l.get('y')))
+            for l in root.findall('landmark')])
         print(f'  arena area {env["env_area"]:.1f} m^2, aspect '
               f'{env["aspect"]:.2f}, {env["n_landmarks"]} landmarks, '
               f'{len(xy)} locations', flush=True)
@@ -1164,6 +1311,7 @@ def main():
                            env_area_m2=float(env['env_area']))
                 d = describe(bank, env, base_C)
                 sum_rows.append({**tag, **d})
+                band_rows.extend(band_table(bank, env, base_C, tag))
                 # Area is Harland's unit; equivalent diameter is the closest
                 # thing we have to Eliav's 1D field width, so both are fitted.
                 for var, x in (('area', bank.area_env_m2),
@@ -1181,6 +1329,10 @@ def main():
     fits = pd.DataFrame(fit_rows)
     inv = pd.DataFrame(inv_rows) if inv_rows else None
     summary.to_csv(f'{out_dir}/summary.csv', index=False)
+    bands = pd.DataFrame(band_rows)
+    if len(bands):
+        bands = bands.sort_values(['env_area_m2', 'channel', 'scale_band'])
+        bands.to_csv(f'{out_dir}/band_summary.csv', index=False)
     fits.to_csv(f'{out_dir}/fits.csv', index=False)
     if inv is not None:
         inv.to_csv(f'{out_dir}/threshold_invariance.csv', index=False)
@@ -1200,7 +1352,7 @@ def main():
                         .drop_duplicates('env').env)
     fig_distributions(banks_all, fits, envs_by_area, chans, fig_dir)
     fig_cv(summary, fig_dir)
-    fig_coverage(summary, fig_dir)
+    fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir)
     fig_form_vs_scale(fits, fig_dir)
     fig_size_vs_scale(summary, fig_dir)
     prune_orphan_figures(fig_dir)
@@ -1209,6 +1361,7 @@ def main():
                                   fig_dir=fig_dir, results=summary,
                                   log_path=os.environ.get('REALM_LOG_PATH'))
     rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
+    rep.bands = bands
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)

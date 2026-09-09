@@ -268,6 +268,7 @@ Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 |------|----------|
 | `summary.csv` | one row per env × channel × setting: CV, extremes, ratio, band occupancy, coverage, truncation |
 | `fits.csv` | one row per env × channel × setting × variable × form: params, `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `winner` |
+| `band_summary.csv` | one row per env × channel × scale band: field count, share of the library, median area and coverage, tiling multiple, CV, median split-half IoU |
 | `scale_trends.csv` | one row per tracked quantity: value at small and mega, mega/small ratio, pooled Spearman against area, the expected direction and its source, and whether ours agrees |
 | `threshold_invariance.csv` | the `ACT_THRESH` check, per paired run |
 | `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row |
@@ -284,7 +285,7 @@ Every figure but S1 is indexed by arena area, so the experiment reads as
 |--------|-------|-----------------|
 | S1 | size histogram per arena × channel, arenas in scale order, all three fits drawn | — |
 | S2 | CV of field size against area | Harland Fig 6E: **rises**, 70 → 85 → 101 |
-| S3 | arena covered per field, against area | Harland: **saturates**, ~2 pp across 8.8× area |
+| S3 | admitted fields drawn on the arena, coloured by scale band | — |
 | S4 | which form wins against area, plus `r_hist` and ΔAIC per form | Harland Fig 3F–G: the form **changes** with scale |
 | S5 | median field size, max/min spread, bands occupied, against area | Eliav's 6 m control implies all three fall in a smaller space |
 
@@ -293,6 +294,31 @@ control run is never mislabelled as a reading of 6E. Scale-band occupancy is
 in `summary.csv` as before (`band0_frac` … `band6plus_frac`); S5 plots only
 the count of occupied bands. No log axes anywhere — every panel is linear and
 zero-based.
+
+### Read the bands, not the pool
+
+A field library is a **tiling at every scale**, not a sample of cells. A
+tiling at scale *s* needs ~arena/*s* tiles, so the finest band necessarily
+holds most of the library and necessarily sets any pooled median, mean or CV.
+Measured: band 0 is 61–65% of every channel's library, and the pooled median
+coverage (0.26%) is just band 0's.
+
+Per band the picture is different — bands 4 and 5 sit at ~8% and ~16% of the
+arena, bracketing Harland's 9–13% per cell. **The model does reach their
+scale; the pooled statistic hides it.** `band_summary.csv` and the report's
+per-band table are the numbers comparable to a recorded sample.
+
+Two things follow. Raising the Rule 8 floor is not the fix: the median lands
+at about **2× the floor wherever the floor is put** (measured at 0.12%, 1%, 2%
+and 4% of arena), so choosing the floor chooses the answer. And Rule 2
+(split-half reliability) is the principled way to thin the fine end if you
+want to — reliability rises monotonically with band (median IoU 0.45 → 0.69),
+so a threshold removes fine fields for being unreproducible rather than for
+being small, and approximates an experimenter's detection criterion:
+
+```bash
+sbatch slurm/scale_distribution.sh --split-half-iou-min 0.5   # keeps ~57%
+```
 
 ### What the model cannot answer
 
