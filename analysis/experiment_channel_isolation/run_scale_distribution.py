@@ -1043,15 +1043,17 @@ class ScaleDistributionReport(ExperimentReport):
                       'divergence in the coarse tail, not an artifact of '
                       'pooling, and should be reported as such.']
             L += ['',
-                  'Rule 2 (split-half reliability) is the principled way to '
-                  'thin the fine end if you want to: reliability rises '
-                  'monotonically with band, so a threshold removes fine '
-                  'fields for being unreproducible rather than for being '
-                  'small, and approximates an experimenter\'s detection '
-                  'criterion. --split-half-iou-min 0.5 keeps roughly 57%. '
-                  'Raising the Rule 8 floor instead would not work: the '
-                  'median lands at about 2x the floor wherever the floor is '
-                  'put, so choosing it chooses the answer.']
+                  'Neither available lever thins the fine end at present. '
+                  'Raising the Rule 8 floor does not work: the median lands '
+                  'at about 2x the floor wherever the floor is put, so '
+                  'choosing it chooses the answer. Rule 2 (split-half '
+                  'reliability) would be the principled route -- reliability '
+                  'rose monotonically with band under the old 0.25 m binning, '
+                  'so a threshold removes fine fields for being '
+                  'unreproducible rather than for being small -- but at the '
+                  'lattice bin the two half-maps land on disjoint bins and '
+                  'every IoU is exactly 0. Scoring the halves on a coarser '
+                  'grid than the one used for field extent would restore it.']
             out.append(S('PER SCALE BAND — read this before any pooled number',
                          '\n'.join(L)))
 
@@ -1303,15 +1305,15 @@ def parse_args():
                    help='LAMBDA. 0 = feature only, as everywhere else.')
     p.add_argument('--split-half-iou-min', default='none', metavar='LIST',
                    help='Rule 2: reject a field whose split-half IoU is below '
-                        'this. Off by default, as in every other experiment. '
-                        'Reliability rises monotonically with scale band '
-                        '(median IoU 0.45 at band 0 to 0.69 at band 5), so a '
-                        'threshold removes fine fields for being unreliable '
-                        'rather than for being small, and approximates an '
-                        'experimenter\'s detection criterion. 0.5 keeps ~57%. '
-                        'Takes a comma list -- "none,0.4,0.5,0.6" scores every '
-                        'threshold in one job, since Rule 2 only re-runs the '
-                        'cheap admission stage.')
+                        'this. CURRENTLY UNUSABLE and the run will refuse it: '
+                        'at the lattice bin the two half-maps occupy disjoint '
+                        'bins, so every IoU is exactly 0 and any threshold '
+                        'rejects the whole library. It was informative under '
+                        'the old 0.25 m binning (0.45 at band 0 rising to 0.69 '
+                        'at band 5) and needs the halves scored on a coarser '
+                        'grid before it works again. Takes a comma list once '
+                        'that is fixed, since Rule 2 only re-runs the cheap '
+                        'admission stage.')
     p.add_argument('--subsample', type=int, default=0)
     p.add_argument('--n-boot', type=int, default=N_BOOT)
     p.add_argument('--seed', type=int, default=0)

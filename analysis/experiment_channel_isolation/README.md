@@ -341,28 +341,14 @@ per-band table are the numbers comparable to a recorded sample.
 
 Two things follow. Raising the Rule 8 floor is not the fix: the median lands
 at about **2× the floor wherever the floor is put** (measured at 0.12%, 1%, 2%
-and 4% of arena), so choosing the floor chooses the answer. And Rule 2
-(split-half reliability) is the principled way to thin the fine end if you
-want to — reliability rises monotonically with band (median IoU 0.45 → 0.69),
-so a threshold removes fine fields for being unreproducible rather than for
-being small, and approximates an experimenter's detection criterion:
-
-```bash
-sbatch slurm/scale_distribution.sh --split-half-iou-min none,0.4,0.5,0.6
-```
-
-**Rule 2 cannot be applied by filtering a finished bank**, so it does need the
-banks rebuilt — but only the cheap stage. It sits upstream of Rule 11, whose
-competition ordering is already tie-broken on reliability, and upstream of
-Rule 12, which decides which bands survive on the coverage the survivors
-reach. Remove a field before competition and a different one claims that
-territory; remove enough and a whole band stops tiling.
-
-So `--split-half-iou-min` takes a **comma list** and scores every threshold in
-one job: the Gram matrix and Ward tree are built once per channel,
-`prepare_candidates` once per setting, and only `admit_fields` re-runs per
-threshold. The first entry is the one the figures and report are drawn at; the
-rest lands in the CSVs, which carry a `split_half_iou_min` column throughout.
+and 4% of arena), so choosing the floor chooses the answer. **Rule 2 (split-half reliability) is currently unusable**, and the run refuses
+it rather than returning an empty library. At the lattice bin each bin holds
+one sample, so the two half-maps occupy disjoint bins, every split-half IoU is
+exactly 0, and any threshold rejects everything. It was informative under the
+old 0.25 m binning — median IoU rose from 0.45 at band 0 to 0.69 at band 5,
+which is what made it the principled way to thin the fine end — so the measure
+is sound and only its resolution is wrong. Restoring it means scoring the
+halves on a deliberately coarser grid than the one used for field extent.
 
 ### What the model cannot answer
 

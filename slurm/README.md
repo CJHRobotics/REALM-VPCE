@@ -14,7 +14,7 @@ sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 slurm/collect_data.sh
 ```
 
 ```bash
-sbatch slurm/scale_distribution.sh --split-half-iou-min none,0.4,0.5,0.6
+sbatch slurm/scale_distribution.sh --envs circ_lm8_r3
 ```
 
 | script | job name | time | mem | GPU | what it runs |

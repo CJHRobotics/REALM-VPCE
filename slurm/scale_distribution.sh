@@ -49,12 +49,10 @@
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
 #   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
 #                                                             # re-open the sweep
-#   sbatch slurm/scale_distribution.sh --split-half-iou-min none,0.4,0.5,0.6
-#                                                             # Rule 2 sweep
-#
-# Rule 2 needs the banks rebuilt -- it sits upstream of Rules 11 and 12, so
-# filtering a finished bank answers a different question -- but only the cheap
-# admission stage re-runs per threshold, so the list above costs one build.
+# Rule 2 (--split-half-iou-min) is currently UNUSABLE and the run refuses it:
+# at the lattice bin the two split-half maps occupy disjoint bins, so every
+# IoU is exactly 0 and any threshold rejects the whole library. It needs the
+# halves scored on a coarser grid first.
 #
 # One arena per job is the better pattern here, as for the other analysis
 # jobs: cost is dominated by building a field library per channel, the arenas

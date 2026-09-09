@@ -1021,6 +1021,33 @@ def admit_fields(ctx, cfg=None, verbose=True):
     funnel.append(('rule_1_contiguity', int(pass_cc.sum())))
 
     if C['SPLIT_HALF_IOU_MIN'] is not None:                            # Rule 2
+        # Rule 2 is meaningless once the analysis bins are as fine as the
+        # sampling grid, and it fails silently rather than loudly, so refuse.
+        #
+        # With BIN_M at the lattice spacing each bin holds exactly one sample,
+        # and half_id sends that sample to one half or the other. resp_a is
+        # then zero on every bin belonging to half 1 and resp_b zero on every
+        # bin belonging to half 0, so the two masks occupy disjoint bins and
+        # their intersection is empty. _fill_empty_bins does not rescue it:
+        # it is handed the `occupied` map built from ALL locations, finds no
+        # holes because every in-arena bin has a sample, and returns each
+        # half-map untouched. Every split-half IoU is therefore exactly 0 and
+        # any threshold above 0 rejects the entire library.
+        #
+        # Measured across the 9 September sweep: 0.0 in every band of every
+        # arena. Under the previous 0.25 m binning it was informative, rising
+        # from 0.45 at band 0 to 0.69 at band 5, so the measure is sound and
+        # only its resolution is wrong. Restoring it means scoring the halves
+        # on a deliberately coarser grid than the one used for field extent.
+        if len(sh_iou) and float(np.nanmax(sh_iou)) <= 1e-9:
+            raise ValueError(
+                f"[{tag}] Rule 2 requested (SPLIT_HALF_IOU_MIN="
+                f"{C['SPLIT_HALF_IOU_MIN']}) but every split-half IoU is 0, so "
+                f"it would reject the whole library. The analysis bin "
+                f"({C['BIN_M']:.4f} m) is as fine as the sampling lattice, "
+                f"which puts the two half-maps on disjoint bins. Score the "
+                f"halves on a coarser grid before using Rule 2, or run with "
+                f"SPLIT_HALF_IOU_MIN=None.")
         pass_rel = pass_cc & (sh_iou >= C['SPLIT_HALF_IOU_MIN'])
         funnel.append(('rule_2_reliability', int(pass_rel.sum())))
     else:
