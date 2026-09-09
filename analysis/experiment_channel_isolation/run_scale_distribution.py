@@ -119,44 +119,40 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
         'rect_lm8_r0', 'corr_lm8_r0']
 
-# Varying area at fixed shape and landmark count: small, medium, mega, in
-# Harland's proportions rather than in ours.
+# Varying area at fixed shape and landmark count: small, medium, mega.
 #
-#   circ_lm8_rad2p0    r = 2    12.57 m^2   small     wall cover 48%
-#   circ_lm8_r0        r = 3    28.27 m^2   medium    wall cover 32%
-#   circ_lm8_rad6p0    r = 6   113.10 m^2   mega      wall cover 16%
+#   circ_lm8_r0        r = 3     28.27 m^2   small     wall cover 32%
+#   circ_lm8_rad6p0    r = 6    113.10 m^2   medium    wall cover 16%
+#   circ_lm8_rad10p0   r = 10   314.16 m^2   mega      wall cover 10%
 #
-# Three, not six, and spanning 9.0x rather than 64x. Harland's megaspace is
-# 8.8x their small environment, so a 64x sweep is seven times wider than the
-# design it is being compared to, and the extra arenas cost collection without
-# buying a comparison. 9.0x is the closest span the built arenas offer, and
-# circ_lm8_r0 is already collected, so this needs two new datasets.
+# An 11.1x span against Harland's 8.8x. Each arena is sampled at ~N_TARGET
+# positions, so sample count is not a covariate.
 #
-# We match Harland's RATIO, not their absolute areas, and cannot do otherwise.
-# Their megaspace is 18.6 m^2 -- smaller than our medium arena -- and matching
-# it in absolute terms would put the small environment near 2.1 m^2, a disc of
-# radius 0.82 m. The robot's circumscribing radius is 0.31 m and the
-# collection keep-out 0.2 m, so it would barely fit, and eight 0.75 m panels
-# need 6 m of wall against a 5.2 m circumference: they would overlap. The
-# agent is simply larger relative to its arena than a rat is to a room, so
-# ordering and ratio are what transfer.
-#
-# The remaining built arenas (circ_lm8_rad1p25, rad3p5, rad10p0) still work
-# with --envs if a wider span is ever wanted; rad1p25 is the weakest of them,
-# with eight panels covering 76% of its circumference.
-AREA_ENVS = ['circ_lm8_rad2p0', 'circ_lm8_r0', 'circ_lm8_rad6p0']
+# Note the cue-salience confound grows across this sweep and is worst at the
+# top: a fixed 0.75 m panel spans roughly 11 px of a 224 px image from across
+# the r = 10 disc, and the colour channel has previously collapsed to
+# single-digit field counts there. It did not at r = 6 (511 fields), so the
+# collapse may have been an artifact of the older configuration -- but r = 10
+# is 2.8x that area again, and colour is the channel to check first.
+AREA_ENVS = ['circ_lm8_r0', 'circ_lm8_rad6p0', 'circ_lm8_rad10p0']
 
-# A matched-area shape control: the rectangle is 6 x 4.712 m = 28.27 m^2, the
-# same area as circ_lm8_r0, with the same 8 landmarks. Paired against the
-# middle of the area sweep it isolates shape, and it is the only way to tell a
-# scale effect from a boundary-geometry one.
-#
-# It is deliberately NOT part of the area trend. Two arenas at one area, one of
-# them a different shape, would put two points on the same x and let shape leak
-# into a slope that is supposed to be about area alone. scale_trends and the
-# S3 trend lines therefore use the circles only (aspect == 1), and the
-# rectangle is drawn and reported as a comparison at its own area.
 SHAPE_ENVS = ['rect_lm8_r0']
+
+# The Eliav comparison: a 10 x 2 m corridor, 20 m^2, aspect 5:1. Long enough
+# to read as one-dimensional, short enough to stand for the 6 m tunnel segment
+# in which Eliav found mean field size fall from 5.9 m to 1.5 m and the
+# within-neuron size ratio from 4.4 to 1.6 -- their evidence that multiscale
+# coding is a property of a large space rather than of the hippocampus.
+#
+# Deliberately not area-matched to any disc, and excluded from the area trend
+# for the same reason the rectangle is: its aspect is not 1.
+ELIAV_ENVS = ['corr_lm8_r0']
+
+# Eliav's numbers, as field LENGTH along the tunnel -- a one-dimensional
+# width, so ours has to be measured the same way (the field's extent along the
+# long axis) rather than as an area.
+ELIAV_MEAN_LEN_M = {'200 m tunnel': 5.9, '6 m segment': 1.5}
+ELIAV_SIZE_RATIO = {'200 m tunnel': 4.4, '6 m segment': 1.6}
 
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
@@ -430,6 +426,42 @@ def band_table(bank, env, C, tag):
                                    if 'split_half_iou' in g else np.nan),
         ))
     return rows
+
+
+def eliav_lengths(bank, env, tag):
+    """Field LENGTH along the long axis, for comparison with Eliav.
+
+    Eliav report field size as a one-dimensional width in metres along a
+    tunnel, not as an area, so an area cannot be compared to it. In an
+    elongated arena the matching quantity is how far a field extends along the
+    long axis: the projection of its Rule 7 ellipse onto that axis,
+
+        length = 2 * sqrt( (a cos t)^2 + (b sin t)^2 )
+
+    for semi-axes a, b at orientation t. In a disc there is no long axis and
+    the quantity is meaningless, so this returns nothing.
+    """
+    if not len(bank) or env.get('is_circular'):
+        return []
+    long_is_x = (env['x_max'] - env['x_min']) >= (env['y_max'] - env['y_min'])
+    a = bank.semi_major_m.to_numpy(dtype=float)
+    b = bank.semi_minor_m.to_numpy(dtype=float)
+    t = bank.orientation_rad.to_numpy(dtype=float)
+    if not long_is_x:
+        t = t + np.pi / 2.0
+    length = 2.0 * np.sqrt((a * np.cos(t)) ** 2 + (b * np.sin(t)) ** 2)
+    span = float(max(env['x_max'] - env['x_min'], env['y_max'] - env['y_min']))
+    return [dict(tag, arena_length_m=span, n_fields=len(length),
+                 len_mean_m=float(length.mean()),
+                 len_median_m=float(np.median(length)),
+                 len_min_m=float(length.min()), len_max_m=float(length.max()),
+                 len_max_min_ratio=float(length.max() / length.min()),
+                 # Eliav's within-neuron ratio has no equivalent while a
+                 # cluster owns one field; this is the population spread, and
+                 # the two are not the same quantity.
+                 len_p90_p10_ratio=float(np.percentile(length, 90) /
+                                         np.percentile(length, 10)),
+                 frac_of_arena_length=float(np.median(length) / span))]
 
 
 def scale_trends(summary):
@@ -832,6 +864,7 @@ class ScaleDistributionReport(ExperimentReport):
                             f'{self.out_dir}/fits.csv',
                             f'{self.out_dir}/scale_trends.csv',
                             f'{self.out_dir}/band_summary.csv',
+                            f'{self.out_dir}/eliav_lengths.csv',
                             f'{self.out_dir}/threshold_invariance.csv')
                 if os.path.exists(p)]
 
@@ -1166,6 +1199,50 @@ class ScaleDistributionReport(ExperimentReport):
                 '8.8x) for the comparison this experiment is named after.'])))
 
         base = base.sort_values(['env_area_m2', 'channel'])
+        # --- the Eliav comparison, in one dimension -----------------------
+        el = getattr(self, 'eliav', None)
+        if el is not None and len(el):
+            el = at_operating_point(el)
+        if el is not None and len(el):
+            L = ['Eliav report field size as a LENGTH along a tunnel, not as '
+                 'an area, so ours is measured the same way: how far each '
+                 'field reaches along the arena\'s long axis. Only elongated '
+                 'arenas appear here; a disc has no long axis.', '']
+            for env_name, g in el.groupby('env'):
+                span = g.arena_length_m.iloc[0]
+                L.append(f'{env_name} — {span:.1f} m long, '
+                         f'{int(g.n_fields.median())} fields per channel')
+                L.append(f'  median field length   '
+                         f'{g.len_median_m.median():.2f} m  '
+                         f'({100*g.frac_of_arena_length.median():.1f}% of the '
+                         f'arena\'s length)')
+                L.append(f'  mean field length     '
+                         f'{g.len_mean_m.median():.2f} m')
+                L.append(f'  longest / shortest    '
+                         f'{g.len_max_min_ratio.median():.1f}x   '
+                         f'(90th/10th percentile {g.len_p90_p10_ratio.median():.1f}x)')
+            L += ['',
+                  'Eliav, for reference:']
+            for k in ELIAV_MEAN_LEN_M:
+                L.append(f'  {k:14s} mean field {ELIAV_MEAN_LEN_M[k]:.1f} m, '
+                         f'within-neuron size ratio {ELIAV_SIZE_RATIO[k]:.1f}x')
+            L += ['',
+                  'Their 6 m segment is the comparison that matters: a short '
+                  'stretch of the same tunnel, where mean field size fell from '
+                  '5.9 m to 1.5 m and the size ratio from 4.4 to 1.6. That is '
+                  'their evidence that a spread of scales is a property of a '
+                  'LARGE space rather than of the hippocampus, and it is the '
+                  'claim a 10 m corridor can speak to.', '',
+                  'Two mismatches to carry into any comparison. Their ratio is '
+                  'WITHIN a neuron and ours is across the population, because '
+                  'a single-centroid cluster owns one field -- these are '
+                  'different quantities and the population spread is the wider '
+                  'of the two by construction. And their tunnel is a true '
+                  'one-dimensional flight path, while ours is 2 m wide, so a '
+                  'field here has a width the bat\'s did not.']
+            out.append(S('THE ELIAV COMPARISON — field length along the arena',
+                         '\n'.join(L)))
+
         # --- shape at matched area ----------------------------------------
         if 'aspect' in base.columns and (base.aspect != 1.0).any():
             L = []
@@ -1218,13 +1295,16 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--envs', default=','.join(AREA_ENVS + SHAPE_ENVS),
+    p.add_argument('--envs',
+                   default=','.join(AREA_ENVS + SHAPE_ENVS + ELIAV_ENVS),
                    help='default is the area sweep (AREA_ENVS, 12.6-113 m^2, '
                         'the axis Harland vary) plus the matched-area '
                         'rectangle (SHAPE_ENVS) as a shape control. The '
-                        'rectangle is excluded from the area trend by '
-                        'construction. Pass ENVS for the full '
-                        'cue-density/shape control set.')
+                        'rectangle (SHAPE_ENVS, area-matched to the small '
+                        'disc) and the corridor (ELIAV_ENVS, 10 x 2 m). '
+                        'Neither has aspect 1, so both are excluded from the '
+                        'area trend by construction. Pass ENVS for the '
+                        'cue-density control set.')
     p.add_argument('--channels', default=','.join(CHANNELS))
     p.add_argument('--settings',
                    default=','.join(f'{p}:{t:g}' for p, t in SETTINGS),
@@ -1295,7 +1375,7 @@ def main():
     print('=' * 72, flush=True)
 
     banks_all, sum_rows, fit_rows, inv_rows = {}, [], [], []
-    band_rows, env_geom = [], {}
+    band_rows, env_geom, eliav_rows = [], {}, []
     missing = []
     for e in envs:
         data_path = f'{REPO}/data/vpce/collect_data/{e}.h5'
@@ -1346,6 +1426,7 @@ def main():
                 d = describe(bank, env, base_C)
                 sum_rows.append({**tag, **d})
                 band_rows.extend(band_table(bank, env, base_C, tag))
+                eliav_rows.extend(eliav_lengths(bank, env, tag))
                 # Area is Harland's unit; equivalent diameter is the closest
                 # thing we have to Eliav's 1D field width, so both are fitted.
                 for var, x in (('area', bank.area_env_m2),
@@ -1363,6 +1444,9 @@ def main():
     fits = pd.DataFrame(fit_rows)
     inv = pd.DataFrame(inv_rows) if inv_rows else None
     summary.to_csv(f'{out_dir}/summary.csv', index=False)
+    eliav = pd.DataFrame(eliav_rows)
+    if len(eliav):
+        eliav.to_csv(f'{out_dir}/eliav_lengths.csv', index=False)
     bands = pd.DataFrame(band_rows)
     if len(bands):
         bands = bands.sort_values(['env_area_m2', 'channel', 'scale_band'])
@@ -1391,7 +1475,7 @@ def main():
                                   fig_dir=fig_dir, results=summary,
                                   log_path=os.environ.get('REALM_LOG_PATH'))
     rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
-    rep.bands = bands
+    rep.bands, rep.eliav = bands, eliav
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)

@@ -210,32 +210,38 @@ So the default env list is `AREA_ENVS` — small, medium, mega at fixed shape
 and landmark count, each sampled at ~`N_TARGET` positions so sample count is
 not a covariate:
 
-| arena | r | area | span | wall cover |
+| arena | r | area | role | wall cover |
 |---|---|---|---|---|
-| `circ_lm8_rad2p0` | 2 m | 12.57 m² | small | 48% |
-| `circ_lm8_r0` | 3 m | 28.27 m² | medium | 32% |
-| `circ_lm8_rad6p0` | 6 m | 113.10 m² | mega | 16% |
-| `rect_lm8_r0` | 6 × 4.712 m | 28.27 m² | **shape control** | 28% |
+| `circ_lm8_r0` | 3 m | 28.27 m² | small | 32% |
+| `circ_lm8_rad6p0` | 6 m | 113.10 m² | medium | 16% |
+| `circ_lm8_rad10p0` | 10 m | 314.16 m² | mega | 10% |
+| `rect_lm8_r0` | 6 × 4.712 m | 28.27 m² | **shape control** (matched to r = 3) | 28% |
+| `corr_lm8_r0` | 10 × 2 m | 20.00 m² | **Eliav comparison** | 25% |
 
-`rect_lm8_r0` is the matched-area shape control: same area as `circ_lm8_r0`,
-same 8 landmarks, different boundary. It is **excluded from the area trend by
-construction** — two arenas at one area, one of them a different shape, would
-let shape leak into a slope meant to be about area alone. `scale_trends.csv`
-and S3's joined lines use the circles only (`aspect == 1`); the rectangle is
-drawn as an open square at its own area and gets its own report section
-comparing it against the disc.
+**11.1× span, against Harland's 8.8×.** We match their *ratio*, not their
+absolute areas, and cannot do otherwise: their megaspace is 18.6 m², smaller
+than our small arena. The agent is larger relative to its arena than a rat is
+to a room, so ordering and ratio are what transfer.
 
-**9.0×, matching Harland's 8.8×.** We match their *ratio*, not their absolute
-areas, and cannot do otherwise: their megaspace is 18.6 m² — smaller than our
-medium arena — and matching it absolutely would put the small environment at
-~2.1 m², a disc of radius 0.82 m. The robot's circumscribing radius is 0.31 m
-and the keep-out 0.2 m, so it would barely fit, and eight 0.75 m panels need
-6 m of wall against a 5.2 m circumference. The agent is larger relative to its
-arena than a rat is to a room, so ordering and ratio are what transfer.
+**The corridor is the Eliav comparison, not an area control.** Eliav report
+field sizes along a 200 m tunnel and, more usefully, along a 6 m segment of
+it, where mean field size fell from 5.9 m to 1.5 m and the within-neuron size
+ratio from 4.4 to 1.6 — their evidence that a spread of scales belongs to a
+large space rather than to the hippocampus. A 10 × 2 m corridor is the nearest
+this series gets to that short segment. It is deliberately *not* area-matched;
+that is the rectangle's job.
 
-`circ_lm8_rad1p25`, `rad3p5` and `rad10p0` are still built and available via
-`--envs` for a wider span; `rad1p25` is the weakest, with panels covering 76%
-of its circumference.
+Because Eliav measure a one-dimensional width rather than an area, the
+corridor is scored on **field length along the long axis** — the projection of
+each field's ellipse onto that axis — and written to `eliav_lengths.csv`.
+Circular arenas have no long axis and are skipped.
+
+**Cue salience is confounded with area** across the sweep, and worst at the
+top: a 0.75 m panel spans roughly 11 px of a 224 px image from across the
+r = 10 disc, and the colour channel has previously collapsed to single-digit
+field counts there. It did not at r = 6 (511 fields), so that may have been an
+artifact of the older configuration — but colour at r = 10 is the first thing
+to check in any new run.
 
 `ENVS`, the six same-area datasets, is the **control**: it says whether cue
 density (2/4/8/12 landmarks) or arena shape (disc/rectangle/corridor) move the

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="us-ascii"?>
 
-<!-- Rectangular arena 6 m x 4.712 m: same area as circ_lm8_r0 (28.27 m^2) and the same long dimension (6 m = the disc diameter), so shape is the only difference. -->
+<!-- Rectangular arena 6 m x 4.712 m: same area as circ_lm8_r0 (28.27 m^2) and the same long dimension (6 m = the disc diameter), so shape is the only difference. The shape control for the small end of the area sweep. -->
 <!-- x in [-3, 3] (long axis); y in [-2.35619, 2.35619] (short axis).  Area 28.27 m^2. -->
 <!-- Landmark theta = angle of the inward-facing surface normal. -->
 <!-- 8 landmarks at equal arc length around the perimeter, offset by half a spacing. -->

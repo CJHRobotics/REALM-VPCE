@@ -1,65 +1,47 @@
-"""Generate the rectangular and corridor arenas for the geometry sweep.
+"""Generate the rectangular and corridor arenas that sit beside the area sweep.
 
-All three environments in the sweep hold **area** at ~28.3 m^2 (the circle's
-pi * 3^2) and **landmark count** at 8, so geometry is the only thing that
-varies:
+Two arenas, two different jobs. They are no longer both area controls.
 
-    circ_lm8_r0    disc, r = 3           28.27 m^2   aspect 1.0
-    rect_lm8_r0    6 x 4.712             28.27 m^2   aspect 1.27
-    corr_lm8_r0    16.8 x 1.68           28.22 m^2   aspect 10.0
+    rect_lm8_r0   6 x 4.712 m    28.27 m^2   aspect 1.27   SHAPE control
+    corr_lm8_r0   10 x 2 m       20.00 m^2   aspect 5.0    ELIAV comparison
 
-The rectangle also matches the circle's long dimension (6 m = the disc's
-diameter), so it differs from the circle in shape alone. Its aspect is
-therefore exactly 4/pi, as it was at the previous scale.
+**The rectangle is the shape control.** Same area as circ_lm8_r0, the small
+end of the area sweep, and the same long dimension (6 m = the disc diameter),
+so it differs from that disc in shape alone. Its aspect is exactly 4/pi. Pair
+it against the disc and any difference is boundary geometry rather than
+enclosure size.
 
-Scale follows the disc. These were built at 314 m^2 to match circ_lm8_r0 when
-that arena had r = 10; the landmark sweep then dropped to r = 3, the scale the
-model was actually tuned at, and left the geometry arenas eleven times larger
-than the disc they are supposed to be a shape control for. Every dimension
-here is the old one times 0.3, which preserves both aspect ratios exactly and
-keeps the corridor's rounding as it was (16.8 x 1.68 sits 0.18% under the
-disc's area, as 56 x 5.6 did).
+**The corridor is the Eliav comparison, and is deliberately NOT area-matched.**
+Eliav et al. 2021 report field sizes along a 200 m tunnel, and -- the control
+that matters more here -- along a 6 m segment of the same tunnel, where mean
+field size fell from 5.9 m to 1.5 m and the within-neuron size ratio from 4.4
+to 1.6. Their claim is that multiscale coding is a property of a large space
+rather than of the hippocampus. A 10 x 2 m corridor is the closest thing this
+series can offer to that short segment: long enough to be read as
+one-dimensional, short enough to be the small case. Matching it to a disc's
+area would serve a different question and is the rectangle's job.
 
-**Sampling density must NOT be held constant**, and this is the part the
-rescale cannot skip. These grids used a fixed 0.1 m lattice, which was right
-at 314 m^2 (30,142 points) and is ruinous at 28 m^2: the same lattice gives
-about 2,700 positions, and the agglomeration builds its candidate fields out
-of the sampled positions. Sample count is not a free parameter -- at 6,000
-positions the hog channel produces zero fields, every candidate exceeding the
-Rule 9 ceiling. The spacing is therefore solved to hold ~N_TARGET positions,
-matching make_area_sweep_envs and make_landmark_sweep_envs, so N is not a
-variable anywhere in the series:
+At 10 x 2 m the corridor is also a usable space for the robot, which the
+previous 16.8 x 1.68 m build was not: 1.6 m of walkable width after the 0.2 m
+keep-out at each wall, against a 0.31 m circumscribing radius -- about 2.6
+body widths rather than 2.
 
-    rect   spacing 0.0283 m   30,141 positions
-    corr   spacing 0.0264 m   30,429 positions
+Eight 0.75 m panels cover 25% of the 24 m perimeter, between the 31.8% of the
+r = 3 disc and the 15.9% of r = 6, so cue availability is in the same range as
+the sweep rather than an outlier.
 
-Two properties of this scale that belong in the interpretation rather than in
-the geometry:
-
-**The corridor is now narrow in robot units.** 1.68 m wide, less 0.2 m of
-keep-out at each wall, leaves 1.28 m of walkable width against the robot's
-0.31 m circumscribing radius -- about two body widths. That is the honest
-consequence of asking for aspect 10:1 at 28 m^2, and it is the same trade the
-area sweep accepts at r = 1.25, but the corridor is no longer a room the robot
-moves freely in.
-
-**Landmark wall coverage is not constant across the sweep.** Eight 0.75 m
-panels cover 31.8% of the disc's circumference, 28.0% of the rectangle's
-perimeter and 16.2% of the corridor's, because perimeter grows with elongation
-at fixed area. The 2x spread between disc and corridor is unchanged from the
-314 m^2 build, but the absolute coverage is now high enough to matter. Holding
-count, area and coverage at once is not possible; count is held, and coverage
-is reported.
+**Sampling density is not held constant; sample COUNT is.** The spacing is
+solved to put ~N_TARGET positions in every arena, matching
+make_area_sweep_envs and make_landmark_sweep_envs, because field count scales
+with sample count whether or not the model does anything. The corridor lands
+at 0.0226 m spacing and 30,175 positions.
 
 Landmarks are placed at equal arc length around the perimeter, offset by half
-a spacing, mirroring the circ_lm8_r0 convention (where landmark 0 sits at
-22.5 deg = half of the 45 deg spacing). Perimeter is walked counter-clockwise
-from the midpoint of the +x wall, which is the rectangular analogue of the
-circle's theta = 0 start. Flags and colours are the same eight used by
-circ_lm8_r0, so landmark identity is constant across the sweep.
-
-theta is the direction from the landmark toward the interior, matching both
-circ_lm8_r0 and corridor_lm10.
+a spacing, mirroring the circ_lm8_r0 convention. The perimeter is walked
+counter-clockwise from the midpoint of the +x wall, which is the rectangular
+analogue of the circle's theta = 0. Flags and colours are the same eight used
+by circ_lm8_r0, so landmark identity is constant across the series. theta is
+the direction from the landmark toward the interior.
 
     python simulation/worlds/environments/vpce/make_geometry_envs.py
 """
@@ -231,30 +213,32 @@ def build_grid(name, hx, hy):
     return path, X.size, spacing
 
 
-# Derived from RADIUS rather than written out, so the two arenas follow the
-# disc automatically if it moves again.
+# The rectangle follows the disc; the corridor does not.
 #
 #   rect  long dimension = the disc's diameter, so shape is the only
-#         difference from the circle; the short side then falls out of the
-#         area constraint and the aspect is exactly 4/pi.
-#   corr  aspect 10:1 at the same area, rounded to a whole centimetre the way
-#         56 x 5.6 was, which lands 0.18% under the disc.
+#         difference from circ_lm8_r0; the short side falls out of the area
+#         constraint and the aspect is exactly 4/pi.
+#   corr  a fixed 10 x 2 m. Its job is the Eliav comparison, not an area
+#         control, so it is written out rather than derived -- tying it to the
+#         disc would move it every time the sweep moved and would answer the
+#         rectangle's question instead of its own.
 RECT_HX = RADIUS                        # half of the 6 m long dimension
 RECT_HY = AREA / (4.0 * RECT_HX)        # 2.35619
-CORR_HY = round(np.sqrt(AREA / 10.0), 2) / 2.0    # 1.68 m wide
-CORR_HX = 10.0 * CORR_HY                          # aspect 10:1 -> 16.8 m long
+CORR_L, CORR_W = 10.0, 2.0
 
 SPECS = [
     ('rect_lm8_r0', RECT_HX, RECT_HY, 8,
      f'Rectangular arena {2*RECT_HX:g} m x {2*RECT_HY:.3f} m: same area as '
      f'circ_lm8_r0 ({AREA:.2f} m^2) and the same long dimension '
      f'({2*RECT_HX:g} m = the disc diameter), so shape is the only '
-     f'difference.'),
-    ('corr_lm8_r0', CORR_HX, CORR_HY, 8,
-     f'Corridor {2*CORR_HX:g} m x {2*CORR_HY:g} m: same area as circ_lm8_r0 '
-     f'to within 0.2%, at aspect 10:1. The elongated extreme of the geometry '
-     f'sweep. Walkable width is {2*(CORR_HY-MARGIN):.2f} m, about two robot '
-     f'body widths.'),
+     f'difference. The shape control for the small end of the area sweep.'),
+    ('corr_lm8_r0', CORR_L / 2.0, CORR_W / 2.0, 8,
+     f'Corridor {CORR_L:g} m x {CORR_W:g} m, area {CORR_L*CORR_W:.2f} m^2, '
+     f'aspect {CORR_L/CORR_W:g}:1. The Eliav comparison: long enough to read '
+     f'as one-dimensional, short enough to stand for the 6 m tunnel segment '
+     f'in which mean field size fell from 5.9 m to 1.5 m. Deliberately not '
+     f'area-matched to any disc; that is the rectangle\'s job. Walkable '
+     f'width {CORR_W - 2*MARGIN:.2f} m, about 2.6 robot body widths.'),
 ]
 
 if __name__ == '__main__':
