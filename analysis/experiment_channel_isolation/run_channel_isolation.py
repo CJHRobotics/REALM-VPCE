@@ -276,7 +276,7 @@ def main():
                             'median_elongation', 'frag_rate', 'corr_radius_wall',
                             'median_sigma_ratio', 'frac_cand_above_cap',
                             'band_lo', 'runtime_s') if c in metrics_df.columns]
-        # Tagged so slurm/send_report.py keeps these lines in the emailed
+        # Tagged so the old slurm/send_report.py kept these lines in the emailed
         # summary — its filter drops anything it doesn't recognise, and this
         # table is the result.
         for line in metrics_df[cols].to_string(index=False).splitlines():

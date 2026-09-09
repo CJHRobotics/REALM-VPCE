@@ -150,6 +150,10 @@ scancel <jobid>
 
 New experiments build their own report by subclassing `ExperimentReport` in
 `realm_tools/experiment_lib/reporting.py` — the body is composed from the
-experiment's results rather than scraped from the job log. `send_report.py`
-keeps the older log-scraping CLI for job scripts that predate it, sharing the
-same SMTP transport. Every send is a silent no-op without `EMAIL_TO`.
+experiment's results rather than scraped from the job log, and attaches its
+own CSVs and figures. `scale_distribution.sh` mails this way; `collect_data.sh`
+mails through `report_collection.py`, which uses the same SMTP transport.
+Every send is a silent no-op without `EMAIL_TO`.
+
+The older log-scraping CLI (`send_report.py`) was removed with the job scripts
+that used it — no surviving script called it.

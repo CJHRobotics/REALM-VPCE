@@ -1187,8 +1187,9 @@ class ScaleDistributionReport(ExperimentReport):
                 'prerequisite for reading the area sweep, but not a test of '
                 'either published claim.', '',
                 'Run over AREA_ENVS (circ_lm8_r3, circ_lm8_r6, '
-                'circ_lm8_r6 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
-                '8.8x) for the comparison this experiment is named after.'])))
+                'circ_lm8_r10 — 28.3 to 314.2 m^2, 11.1x against '
+                'Harland\'s 8.8x) for the comparison this experiment is '
+                'named after.'])))
 
         base = base.sort_values(['env_area_m2', 'channel'])
         # --- the Eliav comparison, in one dimension -----------------------
