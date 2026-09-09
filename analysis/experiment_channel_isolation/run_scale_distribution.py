@@ -146,6 +146,18 @@ ENVS = ['circ_lm2_r0', 'circ_lm4_r0', 'circ_lm8_r0', 'circ_lm12_r0',
 # with eight panels covering 76% of its circumference.
 AREA_ENVS = ['circ_lm8_rad2p0', 'circ_lm8_r0', 'circ_lm8_rad6p0']
 
+# A matched-area shape control: the rectangle is 6 x 4.712 m = 28.27 m^2, the
+# same area as circ_lm8_r0, with the same 8 landmarks. Paired against the
+# middle of the area sweep it isolates shape, and it is the only way to tell a
+# scale effect from a boundary-geometry one.
+#
+# It is deliberately NOT part of the area trend. Two arenas at one area, one of
+# them a different shape, would put two points on the same x and let shape leak
+# into a slope that is supposed to be about area alone. scale_trends and the
+# S3 trend lines therefore use the circles only (aspect == 1), and the
+# rectangle is drawn and reported as a comparison at its own area.
+SHAPE_ENVS = ['rect_lm8_r0']
+
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
                   'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}
@@ -430,7 +442,11 @@ def scale_trends(summary):
     place there are enough points to test a direction.
     """
     rows = []
-    if summary.env_area_m2.nunique() < 2:
+    # Circles only. A matched-area rectangle in here would put two points on
+    # one x and let boundary shape leak into a slope about area alone.
+    if 'aspect' in summary.columns:
+        summary = summary[summary.aspect == 1.0]
+    if not len(summary) or summary.env_area_m2.nunique() < 2:
         return pd.DataFrame(rows)
     a_lo, a_hi = summary.env_area_m2.min(), summary.env_area_m2.max()
     for col, label, expect_dir, source, says in SCALE_QUANTITIES:
@@ -650,12 +666,25 @@ def fig_distributions(banks_all, fits, envs, chans, fig_dir):
 
 
 def _scale_panel(ax, s, col, ylabel, pct=False):
-    """One quantity against arena area, a line per channel."""
+    """One quantity against arena area, a line per channel.
+
+    Only the circles are joined: the trend is about area at fixed shape. A
+    matched-area rectangle is drawn as an open square at the same x, so it
+    reads as a comparison against the disc beside it rather than as a point
+    on the curve.
+    """
+    circ = s[s.aspect == 1.0] if 'aspect' in s.columns else s
+    other = s[s.aspect != 1.0] if 'aspect' in s.columns else s.iloc[:0]
     for c in sorted(s.channel.unique()):
-        g = s[s.channel == c].sort_values('env_area_m2')
+        g = circ[circ.channel == c].sort_values('env_area_m2')
         if len(g):
             ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], 'o-',
                     ms=5, lw=1.2, color=CHANNEL_COLORS.get(c, '0.4'), label=c)
+        h = other[other.channel == c]
+        if len(h):
+            ax.plot(h.env_area_m2, 100 * h[col] if pct else h[col], 's',
+                    ms=7, mfc='none', mew=1.4,
+                    color=CHANNEL_COLORS.get(c, '0.4'))
     ax.set_xlabel('arena area (m$^2$)')
     ax.set_ylabel(ylabel)
     ax.set_ylim(bottom=0)
@@ -764,8 +793,10 @@ def fig_size_vs_scale(summary, fig_dir):
     for ax in axes:
         ax.legend(fontsize=6, frameon=False, ncol=2)
     fig.suptitle('S3  the size ladder against arena area — does a larger space '
-                 'buy a WIDER range of scales, or a uniformly coarser one?',
-                 fontsize=10)
+                 'buy a WIDER range of scales, or a uniformly coarser one?\n'
+                 'filled circles joined = the area sweep (shape fixed); open '
+                 'squares = a matched-area arena of different shape',
+                 fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     _save(fig, fig_dir, 'S3_size_vs_scale.png')
 
@@ -1135,6 +1166,42 @@ class ScaleDistributionReport(ExperimentReport):
                 '8.8x) for the comparison this experiment is named after.'])))
 
         base = base.sort_values(['env_area_m2', 'channel'])
+        # --- shape at matched area ----------------------------------------
+        if 'aspect' in base.columns and (base.aspect != 1.0).any():
+            L = []
+            # Pair on area to ~0.1 m^2: the rectangle's walls are written to
+            # 4 dp, so its area differs from the disc's pi*r^2 in the fifth
+            # decimal and an exact groupby would never pair them.
+            for area, g in base.groupby(base.env_area_m2.round(1)):
+                circ = g[g.aspect == 1.0]
+                oth = g[g.aspect != 1.0]
+                if not len(circ) or not len(oth):
+                    continue
+                L.append(f'At {area:.1f} m^2, {circ.env.iloc[0]} against '
+                         f'{", ".join(sorted(oth.env.unique()))}:')
+                for col, lbl, pct in (
+                        ('area_median_m2', 'median field area (m^2)', False),
+                        ('coverage_median', 'coverage per field', True),
+                        ('n_fields', 'fields admitted', False),
+                        ('n_bands_occupied', 'bands occupied', False)):
+                    cv_, ov = circ[col].median(), oth[col].median()
+                    f = (lambda v: f'{100*v:.2f}%') if pct else (
+                        lambda v: f'{v:.4g}')
+                    L.append(f'  {lbl:26s} disc {f(cv_):>9s}   '
+                             f'other {f(ov):>9s}   '
+                             f'x{ov/cv_:.2f}' if cv_ else f'  {lbl}: n/a')
+            if L:
+                L += ['',
+                      'Same area, same landmark count, different boundary. A '
+                      'large difference here means the size distribution is '
+                      'reading boundary geometry rather than enclosure scale, '
+                      'and the area trend above should be read with that in '
+                      'mind. This pair is deliberately excluded from the area '
+                      'trend: two arenas at one area, one of them a different '
+                      'shape, would let shape leak into a slope that is meant '
+                      'to be about area alone.']
+                out.append(S('SHAPE AT MATCHED AREA', '\n'.join(L)))
+
         cols = ['env', 'env_area_m2', 'channel', 'n_fields', 'cv_area_pct',
                 'area_min_m2', 'area_median_m2', 'area_max_m2',
                 'area_max_min_ratio', 'coverage_median', 'frac_under_1m2',
@@ -1151,11 +1218,13 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--envs', default=','.join(AREA_ENVS),
-                   help='default is the area sweep (AREA_ENVS, 4.91-314 m^2), '
-                        'the axis Harland vary and the only one on which Figs '
-                        '3F-G and 6E can be read. Pass the six same-area '
-                        'datasets (ENVS) for the cue-density/shape control.')
+    p.add_argument('--envs', default=','.join(AREA_ENVS + SHAPE_ENVS),
+                   help='default is the area sweep (AREA_ENVS, 12.6-113 m^2, '
+                        'the axis Harland vary) plus the matched-area '
+                        'rectangle (SHAPE_ENVS) as a shape control. The '
+                        'rectangle is excluded from the area trend by '
+                        'construction. Pass ENVS for the full '
+                        'cue-density/shape control set.')
     p.add_argument('--channels', default=','.join(CHANNELS))
     p.add_argument('--settings',
                    default=','.join(f'{p}:{t:g}' for p, t in SETTINGS),

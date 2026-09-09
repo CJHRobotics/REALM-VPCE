@@ -215,6 +215,15 @@ not a covariate:
 | `circ_lm8_rad2p0` | 2 m | 12.57 m² | small | 48% |
 | `circ_lm8_r0` | 3 m | 28.27 m² | medium | 32% |
 | `circ_lm8_rad6p0` | 6 m | 113.10 m² | mega | 16% |
+| `rect_lm8_r0` | 6 × 4.712 m | 28.27 m² | **shape control** | 28% |
+
+`rect_lm8_r0` is the matched-area shape control: same area as `circ_lm8_r0`,
+same 8 landmarks, different boundary. It is **excluded from the area trend by
+construction** — two arenas at one area, one of them a different shape, would
+let shape leak into a slope meant to be about area alone. `scale_trends.csv`
+and S3's joined lines use the circles only (`aspect == 1`); the rectangle is
+drawn as an open square at its own area and gets its own report section
+comparing it against the disc.
 
 **9.0×, matching Harland's 8.8×.** We match their *ratio*, not their absolute
 areas, and cannot do otherwise: their megaspace is 18.6 m² — smaller than our

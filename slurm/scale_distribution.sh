@@ -11,6 +11,7 @@
 #   circ_lm8_rad2p0   r = 2    12.57 m^2   small
 #   circ_lm8_r0       r = 3    28.27 m^2   medium   (already collected)
 #   circ_lm8_rad6p0   r = 6   113.10 m^2   mega
+#   rect_lm8_r0       6 x 4.712    28.27 m^2   shape control, matched area
 #
 # 9.0x, against Harland's 8.8x. That is the axis Harland vary, and two of the
 # three targets (Fig 3F-G's scale-dependent form, Fig 6E's CV against area)
@@ -60,11 +61,11 @@
 # are independent, and six of them serially is six times the walltime for no
 # benefit. Submit the fan-out with:
 #
-#   for e in circ_lm8_rad2p0 circ_lm8_r0 circ_lm8_rad6p0; do
+#   for e in circ_lm8_rad2p0 circ_lm8_r0 circ_lm8_rad6p0 rect_lm8_r0; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #
-# then re-run once over all three with --use-cache to get the cross-environment
+# then re-run once over all four with --use-cache to get the cross-environment
 # figures and the single combined report. S2 needs every arena in one run to
 # draw its axis, so that combining pass is not optional here.
 #
