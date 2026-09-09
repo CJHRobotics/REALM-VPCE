@@ -51,9 +51,9 @@ def arena(maze):
 
 
 # Mirrors the fallback in collect_data.py: the landmark-count arenas
-# (circ_lm4/6/10_r0) share the circ_lm_8_r3 grid rather than carrying one
+# (circ_lm4/6/10_r0) share the circ_lm8_r3 grid rather than carrying one
 # each, since they differ only in the number of panels on the wall.
-POSITIONS_FALLBACK = 'circ_lm_8_r3_positions.csv'
+POSITIONS_FALLBACK = 'circ_lm8_r3_positions.csv'
 
 
 def grid(maze):

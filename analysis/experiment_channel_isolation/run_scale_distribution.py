@@ -116,9 +116,9 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 # noon, so no panel sits on a camera view seam.
 # Varying area at fixed shape and landmark count: small, medium, mega.
 #
-#   circ_lm_8_r3        r = 3     28.27 m^2   small     wall cover 32%
-#   circ_lm_8_r6    r = 6    113.10 m^2   medium    wall cover 16%
-#   circ_lm_8_r10   r = 10   314.16 m^2   mega      wall cover 10%
+#   circ_lm8_r3        r = 3     28.27 m^2   small     wall cover 32%
+#   circ_lm8_r6    r = 6    113.10 m^2   medium    wall cover 16%
+#   circ_lm8_r10   r = 10   314.16 m^2   mega      wall cover 10%
 #
 # An 11.1x span against Harland's 8.8x. Each arena is sampled at ~N_TARGET
 # positions, so sample count is not a covariate.
@@ -129,7 +129,7 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 # single-digit field counts there. It did not at r = 6 (511 fields), so the
 # collapse may have been an artifact of the older configuration -- but r = 10
 # is 2.8x that area again, and colour is the channel to check first.
-AREA_ENVS = ['circ_lm_8_r3', 'circ_lm_8_r6', 'circ_lm_8_r10']
+AREA_ENVS = ['circ_lm8_r3', 'circ_lm8_r6', 'circ_lm8_r10']
 
 # The Eliav comparison: a 10 x 2 m corridor, 20 m^2, aspect 5:1. Long enough
 # to read as one-dimensional, short enough to stand for the 6 m tunnel segment
@@ -139,7 +139,7 @@ AREA_ENVS = ['circ_lm_8_r3', 'circ_lm_8_r6', 'circ_lm_8_r10']
 #
 # Deliberately not area-matched to any disc, and excluded from the area trend
 # for the same reason the rectangle is: its aspect is not 1.
-ELIAV_ENVS = ['corr_lm_8_l10w2']
+ELIAV_ENVS = ['corr_lm8_l10w2']
 
 # Eliav's numbers, as field LENGTH along the tunnel -- a one-dimensional
 # width, so ours has to be measured the same way (the field's extent along the
@@ -778,7 +778,7 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
             if i == 0:
                 ax.set_title(c, fontsize=9)
             if j == 0:
-                ax.set_ylabel(f"{e.replace('circ_lm_8_', '').replace('corr_lm_8_', '')}\n"
+                ax.set_ylabel(f"{e.replace('circ_lm8_', '').replace('corr_lm8_', '')}\n"
                               f"{geom.get('env_area', float('nan')):.0f} m$^2$",
                               fontsize=8)
     handles = [plt.Line2D([], [], marker='o', ls='', color=cmap(k / max(nb - 1, 1)),
@@ -1186,8 +1186,8 @@ class ScaleDistributionReport(ExperimentReport):
                 'whether cue density or arena shape move it — a control, and a '
                 'prerequisite for reading the area sweep, but not a test of '
                 'either published claim.', '',
-                'Run over AREA_ENVS (circ_lm_8_r3, circ_lm_8_r6, '
-                'circ_lm_8_r6 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
+                'Run over AREA_ENVS (circ_lm8_r3, circ_lm8_r6, '
+                'circ_lm8_r6 — 12.6 to 113.1 m^2, 9.0x against Harland\'s '
                 '8.8x) for the comparison this experiment is named after.'])))
 
         base = base.sort_values(['env_area_m2', 'channel'])

@@ -10,7 +10,7 @@
 #
 # Usage:
 #   sbatch slurm/render_check.sh                              # baseline
-#   sbatch slurm/render_check.sh circ_lm_8_r3 --no-rendering   # test a flag
+#   sbatch slurm/render_check.sh circ_lm8_r3 --no-rendering   # test a flag
 #
 # Extra arguments go straight to Webots. The report includes a timing
 # estimate measured on the arena's own collection grid, so two runs can be
@@ -52,11 +52,11 @@
 
 set -euo pipefail
 
-MAZE="${1:-circ_lm_8_r3}"
+MAZE="${1:-circ_lm8_r3}"
 shift || true
 # Anything further is passed straight to Webots, so a flag can be tested
 # without editing this script:
-#   sbatch slurm/render_check.sh circ_lm_8_r3 --no-rendering
+#   sbatch slurm/render_check.sh circ_lm8_r3 --no-rendering
 WEBOTS_EXTRA=("$@")
 # Tags the output files and the mail subject so two configurations can be
 # compared rather than overwriting one another.

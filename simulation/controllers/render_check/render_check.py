@@ -42,7 +42,7 @@ from PIL import Image
 from realm_tools.robot_lib.my_robot import MyRobot
 from realm_tools.experiment_lib.reporting import send_email
 
-MAZE = os.environ.get('REALM_MAZE', 'circ_lm_8_r3')
+MAZE = os.environ.get('REALM_MAZE', 'circ_lm8_r3')
 # Distinguishes repeated runs, so two configurations can be compared instead
 # of overwriting each other's output.
 TAG = os.environ.get('REALM_RUN_TAG', '')

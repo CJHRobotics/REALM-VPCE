@@ -1,11 +1,11 @@
 """Generate every environment this experiment uses. One file, four arenas.
 
-    circ_lm_8_r3      disc, r = 3       28.27 m^2   small
-    circ_lm_8_r6      disc, r = 6      113.10 m^2   medium
-    circ_lm_8_r10     disc, r = 10     314.16 m^2   mega
-    corr_lm_8_l10w2   10 x 2 m          20.00 m^2   Eliav comparison
+    circ_lm8_r3      disc, r = 3       28.27 m^2   small
+    circ_lm8_r6      disc, r = 6      113.10 m^2   medium
+    circ_lm8_r10     disc, r = 10     314.16 m^2   mega
+    corr_lm8_l10w2   10 x 2 m          20.00 m^2   Eliav comparison
 
-Naming is `<shape>_lm_<landmarks>_<size>`, where size is `r<radius>` for a
+Naming is `<shape>_lm<landmarks>_<size>`, where size is `r<radius>` for a
 disc and `l<length>w<width>` for a box. It replaces three overlapping
 generators (area sweep, landmark sweep, geometry) that between them produced
 ten arenas under three incompatible conventions, most of which no experiment
@@ -116,7 +116,7 @@ def lattice(usable_area, half_extents):
 # ------------------------------------------------------------------ circles
 
 def build_disc(radius):
-    name = f'circ_lm_{N_LANDMARKS}_r{radius:g}'
+    name = f'circ_lm{N_LANDMARKS}_r{radius:g}'
     a_deg = np.degrees(landmark_angles(N_LANDMARKS))
     area = np.pi * radius ** 2
     cover = 100 * N_LANDMARKS * PANEL / (2 * np.pi * radius)
@@ -175,7 +175,7 @@ def perimeter_walk(hx, hy):
 
 
 def build_box(length, width):
-    name = f'corr_lm_{N_LANDMARKS}_l{length:g}w{width:g}'
+    name = f'corr_lm{N_LANDMARKS}_l{length:g}w{width:g}'
     hx, hy = length / 2.0, width / 2.0
     area = length * width
     per = 2 * (length + width)

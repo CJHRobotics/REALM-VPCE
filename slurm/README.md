@@ -10,7 +10,7 @@ Every script carries a complete `#SBATCH` header, so `sbatch slurm/<name>.sh`
 is all that is needed. Arguments are forwarded to the Python entry point.
 
 ```bash
-sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 slurm/collect_data.sh circ_lm_8_r3
+sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 slurm/collect_data.sh circ_lm8_r3
 ```
 
 ```bash
