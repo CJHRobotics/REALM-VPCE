@@ -758,7 +758,12 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
         if key(e, c) in banks_all and len(banks_all[key(e, c)])] or [np.array([1.0])])
     vmax = float(np.percentile(pooled, 99))
     norm = mcolors.PowerNorm(gamma=0.5, vmin=0.0, vmax=vmax, clip=True)
-    cmap = plt.cm.inferno
+    # Reversed: small fields yellow, large fields purple. The library is
+    # roughly two-thirds finest-band fields, so putting the dark end on the
+    # small ones made the carpet visually dominant and left the rare coarse
+    # fields -- the ones worth looking at -- as pale shapes on white. This way
+    # the numerous small fields recede and the large ones read as solid.
+    cmap = plt.cm.viridis_r
 
     # One frame for everything: the largest half-extent any arena reaches.
     half = 0.0
