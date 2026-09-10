@@ -649,69 +649,68 @@ def prune_orphan_figures(fig_dir):
     return removed
 
 
-def fig_distributions(banks_all, fits, envs, chans, fig_dir):
-    """S1: the size histogram per env x channel with all three fits drawn."""
+def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
+    """S1: the size histogram per arena x channel, with all three fits drawn.
+
+    Arena on the ROW and channel on the COLUMN, each named once. The previous
+    layout put the arena in the title of the top row only and repeated the
+    channel on every row, so rows 2 and below carried no arena label at all
+    and every panel appeared to come from the first environment.
+
+    A channel that collapsed still gets a panel, labelled with its field
+    count. Leaving it blank makes a real failure look like a plotting gap --
+    at r = 10 the colour channel returns single-digit field counts, which is
+    a result worth seeing rather than an absence.
+    """
     envs = [e for e in envs
             if any((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU) in banks_all
                    for c in chans)]
     if not envs:
         return
     fig, axes = plt.subplots(len(envs), len(chans), squeeze=False,
-                             figsize=(3.0 * len(chans), 2.4 * len(envs)))
+                             figsize=(3.0 * len(chans), 2.5 * len(envs)))
+    fo = at_operating_point(fits)
     for i, e in enumerate(envs):
+        area = env_geom.get(e, {}).get('env_area')
         for j, c in enumerate(chans):
             ax = axes[i][j]
+            if i == 0:
+                ax.set_title(c, fontsize=10)
+            if j == 0:
+                label = e if area is None else f'{e}\n{area:.0f} m$^2$'
+                ax.set_ylabel(f'{label}\n\ndensity', fontsize=8)
+            else:
+                ax.set_ylabel('density', fontsize=7)
+            ax.tick_params(labelsize=6)
+            if i == len(envs) - 1:
+                ax.set_xlabel('field area (m$^2$)', fontsize=8)
+
             b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU))
-            if b is None or len(b) < MIN_FIELDS:
-                ax.set_axis_off()
+            n = 0 if b is None else len(b)
+            if n < MIN_FIELDS:
+                # Keep the frame and say why it is empty.
+                ax.set_xticks([]); ax.set_yticks([])
+                ax.text(0.5, 0.5, f'{n} field' + ('' if n == 1 else 's') +
+                        '\ntoo few to fit', transform=ax.transAxes,
+                        ha='center', va='center', fontsize=8, color='#b03030')
                 continue
             x = b.area_env_m2.to_numpy(dtype=float)
-            dens, centres, nb = _hist(x)
+            dens, centres, _ = _hist(x)
             ax.bar(centres, dens, width=(centres[1] - centres[0]) * 0.9,
                    color='0.82', edgecolor='none')
             gx = np.linspace(x.min(), x.max(), 300)
-            fo = at_operating_point(fits)
-            sub = fo[(fo.env == e) & (fo.channel == c) &
-                     (fo.variable == 'area')]
+            sub = fo[(fo.env == e) & (fo.channel == c) & (fo.variable == 'area')]
             for _, row in sub.iterrows():
-                par = json.loads(row.params)
-                ax.plot(gx, FORMS[row.form]['dist'].pdf(gx, *par), lw=1.4,
-                        label=f"{row.form[:4]} r={row.r_hist:.3f}")
-            ax.set_title(f'{e}\n{c}' if i == 0 else c, fontsize=7)
-            ax.tick_params(labelsize=6)
+                ax.plot(gx, FORMS[row.form]['dist'].pdf(gx, *json.loads(row.params)),
+                        lw=1.4, label=f"{row.form[:4]} r={row.r_hist:.3f}")
             ax.legend(fontsize=5, frameon=False)
-            if j == 0:
-                ax.set_ylabel('density', fontsize=7)
-            if i == len(envs) - 1:
-                ax.set_xlabel('field area (m$^2$)', fontsize=7)
-    fig.suptitle('S1  field-size distribution with all three published forms '
-                 f'(EXTENT_PCTL {DEFAULT_PCTL})', fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+            ax.text(0.97, 0.55, f'n={n}', transform=ax.transAxes, ha='right',
+                    fontsize=6, color='0.35')
+    fig.suptitle('S1  field-size distribution per arena and channel, with all '
+                 f'three published forms\narenas in scale order '
+                 f'(EXTENT_PCTL {DEFAULT_PCTL})', fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     _save(fig, fig_dir, 'S1_size_distributions.png')
-
-
-def _scale_panel(ax, s, col, ylabel, pct=False):
-    """One quantity against arena area, a line per channel.
-
-    Only the circles are joined: the trend is about area at fixed shape. A
-    non-circular arena is drawn as an open square at its own area, so it
-    reads as a comparison beside the curve rather than a point on it.
-    """
-    circ = s[s.aspect == 1.0] if 'aspect' in s.columns else s
-    other = s[s.aspect != 1.0] if 'aspect' in s.columns else s.iloc[:0]
-    for c in sorted(s.channel.unique()):
-        g = circ[circ.channel == c].sort_values('env_area_m2')
-        if len(g):
-            ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], 'o-',
-                    ms=5, lw=1.2, color=CHANNEL_COLORS.get(c, '0.4'), label=c)
-        h = other[other.channel == c]
-        if len(h):
-            ax.plot(h.env_area_m2, 100 * h[col] if pct else h[col], 's',
-                    ms=7, mfc='none', mew=1.4,
-                    color=CHANNEL_COLORS.get(c, '0.4'))
-    ax.set_xlabel('arena area (m$^2$)')
-    ax.set_ylabel(ylabel)
-    ax.set_ylim(bottom=0)
 
 
 def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
@@ -1458,7 +1457,7 @@ def main():
     # Scale order, so S1 reads small -> mega down the page.
     envs_by_area = list(summary.sort_values('env_area_m2')
                         .drop_duplicates('env').env)
-    fig_distributions(banks_all, fits, envs_by_area, chans, fig_dir)
+    fig_distributions(banks_all, fits, envs_by_area, chans, env_geom, fig_dir)
     fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir)
     fig_size_vs_scale(summary, fig_dir)
     prune_orphan_figures(fig_dir)
