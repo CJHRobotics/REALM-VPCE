@@ -99,6 +99,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
+import matplotlib.colors as mcolors
 from scipy import stats
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -725,80 +726,114 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
 
 
 def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
-    """S3: the admitted fields drawn on the arena, coloured by scale band.
+    """S2: the admitted fields drawn on the arena, coloured by field area.
 
-    The picture behind the per-band table. Each field is its Rule 7 ellipse --
-    two axes and an orientation -- at its measured position, so the multiscale
-    tiling is visible directly: a dense carpet of band-0 fields with
-    progressively fewer, larger ones above it.
+    Two things are held fixed so the panels can be read against each other.
 
-    Every panel is drawn to its own arena, with a 1 m bar for scale, because
-    the arenas span 9x in area and a common frame would render the smallest
-    one unreadable. Field size RELATIVE to the arena is what the eye should
-    compare across a row.
+    **One physical scale for every panel.** All axes share the extent of the
+    largest arena, so a 28 m^2 disc is drawn a third the width of a 314 m^2
+    one instead of being blown up to fill its own panel. Drawing each arena to
+    its own frame hides the very thing this experiment measures.
+
+    **One colour scale for every panel.** Colour is field area in m^2 under a
+    single normalisation pooled over every arena and channel, so a given
+    colour means the same size everywhere and the growth of fields with the
+    enclosure is visible as the panels warming from top to bottom.
+
+    The normalisation is square-root, not linear. Field areas span about
+    2400-fold, so a linear ramp puts the median field at under 1% of the range
+    and every panel comes out one flat colour. Under a square root the colour
+    tracks field WIDTH rather than area, which spreads the bulk of the
+    population across the ramp while the ticks stay labelled in m^2. The top
+    of the range is the 99th percentile rather than the maximum, so that a
+    handful of ceiling-sized fields do not consume the whole scale; anything
+    above it takes the end colour and the bar says so.
     """
     if not banks_all:
         return
+    key = lambda e, c: (e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU)
+    pooled = np.concatenate([
+        banks_all[key(e, c)].area_env_m2.to_numpy(dtype=float)
+        for e in envs_by_area for c in chans
+        if key(e, c) in banks_all and len(banks_all[key(e, c)])] or [np.array([1.0])])
+    vmax = float(np.percentile(pooled, 99))
+    norm = mcolors.PowerNorm(gamma=0.5, vmin=0.0, vmax=vmax, clip=True)
+    cmap = plt.cm.inferno
+
+    # One frame for everything: the largest half-extent any arena reaches.
+    half = 0.0
+    for e in envs_by_area:
+        g = env_geom.get(e, {})
+        half = max(half, g['env_R'] if g.get('is_circular') else
+                   max(abs(g.get('x_min', 0)), abs(g.get('x_max', 0)),
+                       abs(g.get('y_min', 0)), abs(g.get('y_max', 0))))
+    lim = half * 1.04
+
     n_r, n_c = len(envs_by_area), len(chans)
     fig, axes = plt.subplots(n_r, n_c, squeeze=False,
-                             figsize=(2.7 * n_c, 2.9 * n_r))
-    cmap = plt.cm.viridis
-    nb = max(BANDS) + 1
+                             figsize=(2.6 * n_c, 2.7 * n_r))
     for i, e in enumerate(envs_by_area):
         geom = env_geom.get(e, {})
         for j, c in enumerate(chans):
             ax = axes[i][j]
-            ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
-            b = banks_all.get((e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU))
-            R_ = geom.get('env_R')
-            if R_ is not None:
+            ax.set_aspect('equal')
+            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+            for sp in ax.spines.values():
+                sp.set_color('0.85')
+            if geom.get('is_circular'):
                 ax.add_patch(plt.Circle((geom.get('env_cx', 0.0),
-                                         geom.get('env_cy', 0.0)), R_,
-                                        fill=False, color='0.2', lw=1.2))
-                lim = R_ * 1.08
-                ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
-            else:
-                x0, x1 = geom.get('x_min', -1), geom.get('x_max', 1)
-                y0, y1 = geom.get('y_min', -1), geom.get('y_max', 1)
-                ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0,
-                                           fill=False, color='0.2', lw=1.2))
-                mx = 0.04 * max(x1 - x0, y1 - y0)
-                ax.set_xlim(x0 - mx, x1 + mx); ax.set_ylim(y0 - mx, y1 + mx)
+                                         geom.get('env_cy', 0.0)),
+                                        geom['env_R'], fill=False,
+                                        color='0.25', lw=1.1))
+            elif 'x_min' in geom:
+                ax.add_patch(plt.Rectangle(
+                    (geom['x_min'], geom['y_min']),
+                    geom['x_max'] - geom['x_min'],
+                    geom['y_max'] - geom['y_min'],
+                    fill=False, color='0.25', lw=1.1))
             for lm in geom.get('landmarks', []):
-                ax.plot(lm[0], lm[1], 's', ms=3, color='#d64545', zorder=5)
+                ax.plot(lm[0], lm[1], 's', ms=2, color='#2b6cb0', zorder=5)
+
+            b = banks_all.get(key(e, c))
             if b is not None and len(b):
-                # Coarsest first, so the fine carpet is drawn on top of the
-                # large fields rather than hidden beneath them.
-                for _, r in b.sort_values('radius_env_m', ascending=False).iterrows():
+                # Largest first, so the fine fields stay visible on top.
+                for _, r in b.sort_values('area_env_m2', ascending=False).iterrows():
                     ax.add_patch(Ellipse(
                         (r.centroid_x, r.centroid_y),
                         2 * r.semi_major_m, 2 * r.semi_minor_m,
                         angle=np.degrees(r.orientation_rad),
-                        facecolor=cmap(min(int(r.scale_band), nb - 1) / max(nb - 1, 1)),
-                        edgecolor='none', alpha=0.30, lw=0))
-                ax.text(0.02, 0.02, f'{len(b)}', transform=ax.transAxes,
-                        fontsize=6, color='0.35')
-            # 1 m scale bar, so the arenas stay comparable despite the framing
-            if R_ is not None or 'x_min' in geom:
-                xl = ax.get_xlim(); yl = ax.get_ylim()
-                x_s = xl[0] + 0.06 * (xl[1] - xl[0])
-                y_s = yl[0] + 0.06 * (yl[1] - yl[0])
-                ax.plot([x_s, x_s + 1.0], [y_s, y_s], '-', color='k', lw=1.6)
-                ax.text(x_s, y_s + 0.02 * (yl[1] - yl[0]), '1 m', fontsize=5)
+                        facecolor=cmap(norm(r.area_env_m2)),
+                        edgecolor='none', alpha=0.55, lw=0))
+                ax.text(0.03, 0.03, f'n={len(b)}', transform=ax.transAxes,
+                        fontsize=6, color='0.4')
             if i == 0:
-                ax.set_title(c, fontsize=9)
+                ax.set_title(c, fontsize=10)
             if j == 0:
-                ax.set_ylabel(f"{e.replace('circ_lm8_', '').replace('corr_lm8_', '')}\n"
-                              f"{geom.get('env_area', float('nan')):.0f} m$^2$",
-                              fontsize=8)
-    handles = [plt.Line2D([], [], marker='o', ls='', color=cmap(k / max(nb - 1, 1)),
-                          label=f'band {k}') for k in range(nb)]
-    fig.legend(handles=handles, loc='lower center', ncol=nb, fontsize=7,
-               frameon=False, bbox_to_anchor=(0.5, -0.01))
-    fig.suptitle('S2  admitted fields drawn on the arena, coloured by scale '
-                 'band\neach panel to its own arena with a 1 m bar; the count '
-                 'is bottom-left', fontsize=10)
-    fig.tight_layout(rect=(0, 0.03, 1, 0.94))
+                area = geom.get('env_area', float('nan'))
+                ax.set_ylabel(f'{e}\n{area:.0f} m$^2$', fontsize=8)
+    # A single 5 m bar, since every panel is at the same scale. Placed in axes
+    # fractions above the field count rather than in data coordinates, so it
+    # cannot land on top of the label whatever the arena's extent.
+    ax0 = axes[0][0]
+    x0 = -lim + 0.06 * 2 * lim
+    y0 = -lim + 0.14 * 2 * lim
+    ax0.plot([x0, x0 + 5.0], [y0, y0], '-', color='k', lw=2)
+    ax0.text(x0, y0 + 0.03 * 2 * lim, '5 m', fontsize=6)
+
+    fig.tight_layout(rect=(0, 0, 0.90, 0.94))
+    # Added after tight_layout: a manually placed colour bar is not a
+    # tight_layout-compatible axes and warns if it exists during the call.
+    cax = fig.add_axes([0.92, 0.15, 0.014, 0.7])
+    cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax)
+    cb.set_label('field area (m$^2$)', fontsize=9)
+    cb.ax.tick_params(labelsize=7)
+    ticks = [t for t in (0.05, 0.25, 1, 2, 4, 8) if t <= vmax]
+    cb.set_ticks(ticks + [vmax])
+    cb.set_ticklabels([f'{t:g}' for t in ticks] + [f'$\\geq${vmax:.1f}'])
+    fig.suptitle('S2  admitted fields drawn on the arena, coloured by field '
+                 'area\nevery panel at the same physical scale and the same '
+                 'colour scale', fontsize=11)
     _save(fig, fig_dir, 'S2_field_maps.png')
 
 
