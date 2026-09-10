@@ -842,6 +842,30 @@ def fig_field_maps(banks_all, envs_by_area, chans, env_geom, fig_dir):
     _save(fig, fig_dir, 'S2_field_maps.png')
 
 
+def _scale_panel(ax, s, col, ylabel, pct=False):
+    """One quantity against arena area, a line per channel.
+
+    Only the circles are joined: the trend is about area at fixed shape. An
+    elongated arena is drawn as an open square at its own area, so it reads as
+    a comparison beside the curve rather than a point on it.
+    """
+    circ = s[s.aspect == 1.0] if 'aspect' in s.columns else s
+    other = s[s.aspect != 1.0] if 'aspect' in s.columns else s.iloc[:0]
+    for c in sorted(s.channel.unique()):
+        g = circ[circ.channel == c].sort_values('env_area_m2')
+        if len(g):
+            ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], 'o-',
+                    ms=5, lw=1.2, color=CHANNEL_COLORS.get(c, '0.4'), label=c)
+        h = other[other.channel == c]
+        if len(h):
+            ax.plot(h.env_area_m2, 100 * h[col] if pct else h[col], 's',
+                    ms=7, mfc='none', mew=1.4,
+                    color=CHANNEL_COLORS.get(c, '0.4'))
+    ax.set_xlabel('arena area (m$^2$)')
+    ax.set_ylabel(ylabel)
+    ax.set_ylim(bottom=0)
+
+
 def fig_size_vs_scale(summary, fig_dir):
     """S5: the size ladder against area.
 
