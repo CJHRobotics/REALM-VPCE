@@ -678,9 +678,9 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
                 ax.set_title(c, fontsize=10)
             if j == 0:
                 label = e if area is None else f'{e}\n{area:.0f} m$^2$'
-                ax.set_ylabel(f'{label}\n\ndensity', fontsize=8)
+                ax.set_ylabel(f'{label}\n\n% of fields', fontsize=8)
             else:
-                ax.set_ylabel('density', fontsize=7)
+                ax.set_ylabel('% of fields', fontsize=7)
             ax.tick_params(labelsize=6)
             if i == len(envs) - 1:
                 ax.set_xlabel('field area (m$^2$)', fontsize=8)
@@ -696,13 +696,24 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
                 continue
             x = b.area_env_m2.to_numpy(dtype=float)
             dens, centres, _ = _hist(x)
-            ax.bar(centres, dens, width=(centres[1] - centres[0]) * 0.9,
+            # Plot the percentage of fields in each bin, not a probability
+            # density. np.histogram(density=True) returns counts / (N * width),
+            # which carries units of 1/m^2 and reads as an arbitrary number;
+            # multiplying by the bin width recovers the fraction of fields, so
+            # the bars sum to 100 and each one is directly readable. The
+            # fitted curves are converted the same way, pdf * width * 100,
+            # which is the percentage the form predicts for that bin. r_hist
+            # is unaffected: it is a correlation, and both series are scaled
+            # by the same constant.
+            bw = float(centres[1] - centres[0])
+            ax.bar(centres, 100.0 * dens * bw, width=bw * 0.9,
                    color='0.82', edgecolor='none')
             gx = np.linspace(x.min(), x.max(), 300)
             sub = fo[(fo.env == e) & (fo.channel == c) & (fo.variable == 'area')]
             for _, row in sub.iterrows():
-                ax.plot(gx, FORMS[row.form]['dist'].pdf(gx, *json.loads(row.params)),
-                        lw=1.4, label=f"{row.form[:4]} r={row.r_hist:.3f}")
+                pdf = FORMS[row.form]['dist'].pdf(gx, *json.loads(row.params))
+                ax.plot(gx, 100.0 * bw * pdf, lw=1.4,
+                        label=f"{row.form[:4]} r={row.r_hist:.3f}")
             ax.legend(fontsize=5, frameon=False)
             ax.text(0.97, 0.55, f'n={n}', transform=ax.transAxes, ha='right',
                     fontsize=6, color='0.35')
