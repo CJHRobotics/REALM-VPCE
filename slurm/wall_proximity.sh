@@ -1,11 +1,10 @@
 #!/bin/bash
 #
-# Experiment 3 — are larger place fields further from the walls and landmarks?
+# Experiment 3 — do large place fields sit further from the walls and landmarks?
 #
 # Reads the field libraries Experiment 2 built, in the same four arenas and
-# under the same place-field configuration, and relates each field's area to
-# the distance from its centre to the nearest wall and to the nearest landmark
-# panel face:
+# under the same place-field configuration, and asks where fields of a given
+# size are located:
 #
 #   circ_lm8_r3      r = 3     28.27 m^2   small
 #   circ_lm8_r6      r = 6    113.10 m^2   medium
@@ -18,16 +17,20 @@
 # when they are there and built into it when they are not, with the same code
 # and the same cache key, so the two experiments describe the same fields.
 #
-# A raw size-distance correlation is guaranteed positive by geometry alone --
-# near-wall fields are clipped by the wall, and a large field cannot have its
-# centre near one -- so every rho is tested against a geometric null: each
-# field's own shape dropped at random positions, clipped to the arena and
-# re-measured. Only the excess over that null is attributed to the model. The
-# test is repeated over unclipped fields only (the control for the null's own
-# template bias, which matters most in the corridor), within each scale band,
-# and for landmarks with wall distance partialled out. See the module
-# docstring of
+# Fields are split by area within each library: bottom 50% small, top 10%
+# large. Each field clear of the wall is compared with where its own shape
+# lands at random, placed only where it fits whole, and the test is whether
+# large fields sit further out than that while small ones do not. (Fields the
+# wall cut are left out of the wall test: the library records an ellipse, so
+# their shape beyond the wall is unknown, and guessing it biased the test.) Two random baselines: uniform, and one
+# that also obeys Rule 11's spacing, as the real library had to. Landmarks are
+# tested by position along the wall relative to the panels, so they cannot
+# stand in for wall distance. See the module docstring of
 # analysis/experiment_channel_isolation/run_wall_proximity.py.
+#
+# This replaced a correlation of size with wall distance over the whole
+# library, which found nothing: the small fields, about 60% of every library,
+# sit at every distance and swamp any correlation.
 #
 # Usage:
 #   sbatch slurm/wall_proximity.sh                          # all four arenas
