@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<!-- Circular arena, radius 6 m, area 113.10 m^2, with no landmarks.
+     XML `radius` is the inner walkable radius; the wall material
+     extends outward by `thickness`. The no-landmark control for
+     circ_lm8_r6: same wall, same position grid. -->
+
+<world>
+	<circular_wall radius="6" height="0.5" thickness="0.5" subdivision="128"/>
+
+
+    <train_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+</world>

@@ -1,9 +1,13 @@
-"""Generate every environment this experiment uses. One file, four arenas.
+"""Generate every environment this experiment uses. One file, eight arenas.
 
     circ_lm8_r3      disc, r = 3       28.27 m^2   small
     circ_lm8_r6      disc, r = 6      113.10 m^2   medium
     circ_lm8_r10     disc, r = 10     314.16 m^2   mega
     corr_lm8_l10w2   10 x 2 m          20.00 m^2   Eliav comparison
+    corr_lm8_l10w10  10 x 10 m        100.00 m^2   square, two panels a wall
+    circ_lm0_r3      disc, r = 3       28.27 m^2   no landmarks
+    circ_lm0_r6      disc, r = 6      113.10 m^2   no landmarks
+    corr_lm0_l10w10  10 x 10 m        100.00 m^2   no landmarks
 
 Naming is `<shape>_lm<landmarks>_<size>`, where size is `r<radius>` for a
 disc and `l<length>w<width>` for a box. It replaces three overlapping
@@ -25,6 +29,14 @@ corridor is the nearest this series gets to that short segment: long enough to
 read as one-dimensional, short enough to be the small case. Its dimensions are
 written out rather than derived from a disc, because tying it to one would
 answer a different question.
+
+**The square is the corridor builder at 10 x 10 m.** Eight panels at equal
+arc length around a square perimeter land two on each wall, at its quarter
+points (2.5 m either side of the wall's midpoint).
+
+**The lm0 arenas are no-landmark controls.** Each has exactly the walls and
+position grid of its lm8 counterpart and no panels, so the landmarks are the
+only thing that differs between the pair.
 
 Two constraints govern every arena here.
 
@@ -75,6 +87,8 @@ HALF_THICK  = 0.015     # half a panel's own thickness
 
 RADII       = [3.0, 6.0, 10.0]
 CORR_L, CORR_W = 10.0, 2.0
+SQUARE      = 10.0      # side of the square box, m
+LM0_RADII   = [3.0, 6.0]    # discs that also get a no-landmark copy
 
 
 def fmt(v, prec):
@@ -115,27 +129,33 @@ def lattice(usable_area, half_extents):
 
 # ------------------------------------------------------------------ circles
 
-def build_disc(radius):
-    name = f'circ_lm{N_LANDMARKS}_r{radius:g}'
-    a_deg = np.degrees(landmark_angles(N_LANDMARKS))
+def build_disc(radius, n_landmarks=N_LANDMARKS):
+    name = f'circ_lm{n_landmarks}_r{radius:g}'
     area = np.pi * radius ** 2
-    cover = 100 * N_LANDMARKS * PANEL / (2 * np.pi * radius)
+    cover = 100 * n_landmarks * PANEL / (2 * np.pi * radius)
+    wall = ('     XML `radius` is the inner walkable radius; the wall material\n'
+            '     extends outward by `thickness`.')
+    if n_landmarks:
+        a_deg = np.degrees(landmark_angles(n_landmarks))
+        about = (f'with {n_landmarks} landmarks of {PANEL} m.\n'
+                 f'{wall} Panels sit flush on the inner\n'
+                 f'     face. Interlandmark spacing along the wall is '
+                 f'{2*np.pi*radius/n_landmarks:.2f} m; the panels cover {cover:.1f}% of\n'
+                 f'     the circumference. Landmark bearings are anchored at 90 deg,\n'
+                 f'     off the camera view seams: {np.round(a_deg, 1).tolist()} -->\n\n')
+    else:
+        about = (f'with no landmarks.\n'
+                 f'{wall} The no-landmark control for\n'
+                 f'     circ_lm{N_LANDMARKS}_r{radius:g}: same wall, same position grid. -->\n\n')
     lines = [
         '<?xml version="1.0" encoding="us-ascii"?>\n\n',
-        f'<!-- Circular arena, radius {radius:g} m, area {area:.2f} m^2, with '
-        f'{N_LANDMARKS} landmarks of {PANEL} m.\n'
-        f'     XML `radius` is the inner walkable radius; the wall material\n'
-        f'     extends outward by `thickness`. Panels sit flush on the inner\n'
-        f'     face. Interlandmark spacing along the wall is '
-        f'{2*np.pi*radius/N_LANDMARKS:.2f} m; the panels cover {cover:.1f}% of\n'
-        f'     the circumference. Landmark bearings are anchored at 90 deg,\n'
-        f'     off the camera view seams: {np.round(a_deg, 1).tolist()} -->\n\n',
+        f'<!-- Circular arena, radius {radius:g} m, area {area:.2f} m^2, {about}',
         '<world>\n',
         f'\t<circular_wall radius="{radius:g}" height="{WALL_H}" '
         f'thickness="{WALL_THICK}" subdivision="{SUBDIV}"/>\n\n',
     ]
     r_mount = wall_mount_radius(radius)
-    for k, a in enumerate(landmark_angles(N_LANDMARKS)):
+    for k, a in enumerate(landmark_angles(n_landmarks) if n_landmarks else []):
         x, y, th = r_mount * np.cos(a), r_mount * np.sin(a), a - np.pi
         r, g, b = COLORS[k % len(COLORS)]
         lines.append(
@@ -174,23 +194,38 @@ def perimeter_walk(hx, hy):
     ]
 
 
-def build_box(length, width):
-    name = f'corr_lm{N_LANDMARKS}_l{length:g}w{width:g}'
+# Per-arena sentences for the box comment, placed after the landmark count.
+ELIAV_NOTE = (' The Eliav\n'
+              '     comparison: long enough to read as one-dimensional, short\n'
+              '     enough to stand for the 6 m tunnel segment.')
+SQUARE_NOTE = (' Two panels on\n'
+               '     each wall, at its quarter points.')
+
+
+def build_box(length, width, n_landmarks=N_LANDMARKS, note=''):
+    name = f'corr_lm{n_landmarks}_l{length:g}w{width:g}'
     hx, hy = length / 2.0, width / 2.0
     area = length * width
     per = 2 * (length + width)
-    cover = 100 * N_LANDMARKS * PANEL / per
+    cover = 100 * n_landmarks * PANEL / per
     corners = [(hx, -hy), (hx, hy), (-hx, hy), (-hx, -hy), (hx, -hy)]
+    kind = 'Square' if length == width else 'Corridor'
+    if n_landmarks:
+        about = (f'with {n_landmarks} landmarks of {PANEL} m\n'
+                 f'     covering {cover:.1f}% of the {per:g} m perimeter.{note}')
+        placement = (' Landmark theta is the\n'
+                     '     inward surface normal; panels are at equal arc length around\n'
+                     '     the perimeter, offset by half a spacing.')
+    else:
+        about = (f'with no landmarks.\n'
+                 f'     The no-landmark control for corr_lm{N_LANDMARKS}_l{length:g}w{width:g}: '
+                 f'same walls,\n     same position grid.{note}')
+        placement = ''
     lines = [
         '<?xml version="1.0" encoding="us-ascii"?>\n\n',
-        f'<!-- Corridor {length:g} m x {width:g} m, area {area:.2f} m^2, '
-        f'aspect {length/width:g}:1, with {N_LANDMARKS} landmarks of {PANEL} m\n'
-        f'     covering {cover:.1f}% of the {per:g} m perimeter. The Eliav\n'
-        f'     comparison: long enough to read as one-dimensional, short\n'
-        f'     enough to stand for the 6 m tunnel segment. Walkable width\n'
-        f'     {width - 2*MARGIN:.2f} m after the keep-out. Landmark theta is the\n'
-        f'     inward surface normal; panels are at equal arc length around\n'
-        f'     the perimeter, offset by half a spacing. -->\n\n',
+        f'<!-- {kind} {length:g} m x {width:g} m, area {area:.2f} m^2, '
+        f'aspect {length/width:g}:1, {about} Walkable width\n'
+        f'     {width - 2*MARGIN:.2f} m after the keep-out.{placement} -->\n\n',
         '<world>\n',
     ]
     for (x0, y0), (x1, y1) in zip(corners, corners[1:]):
@@ -200,8 +235,8 @@ def build_box(length, width):
     lines.append('\n')
 
     segs = perimeter_walk(hx, hy)
-    spacing_lm = sum(s[4] for s in segs) / N_LANDMARKS
-    for k in range(N_LANDMARKS):
+    for k in range(n_landmarks):
+        spacing_lm = sum(s[4] for s in segs) / n_landmarks
         s, acc = spacing_lm * (k + 0.5), 0.0
         for (x0, y0, x1, y1, ln, th) in segs:
             if s <= acc + ln or (x0, y0) == segs[-1][:2]:
@@ -254,7 +289,11 @@ def write_grid(name, xs, ys):
 
 
 if __name__ == '__main__':
-    built = [build_disc(r) for r in RADII] + [build_box(CORR_L, CORR_W)]
+    built = ([build_disc(r) for r in RADII]
+             + [build_box(CORR_L, CORR_W, note=ELIAV_NOTE),
+                build_box(SQUARE, SQUARE, note=SQUARE_NOTE)]
+             + [build_disc(r, n_landmarks=0) for r in LM0_RADII]
+             + [build_box(SQUARE, SQUARE, n_landmarks=0)])
     print(f"{'arena':20s} {'area':>9s} {'positions':>10s} {'spacing':>9s} "
           f"{'cue cover':>10s}")
     for name, area, npts, spacing, cover in built:
