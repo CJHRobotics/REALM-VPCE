@@ -13,6 +13,15 @@ is all that is needed. Arguments are forwarded to the Python entry point.
 sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 slurm/collect_data.sh circ_lm8_r3
 ```
 
+`collect_data.sh --submit` is the one exception, run with `bash`: it submits
+one collection job per arena with the flags above (`--exclusive`,
+`STRICT_GPU=1`, `REALM_FORCE=1`), defaulting to the newest arenas in its
+`SUBMIT_MAZES` list.
+
+```bash
+bash slurm/collect_data.sh --submit
+```
+
 ```bash
 sbatch slurm/scale_distribution.sh --envs circ_lm8_r3
 ```

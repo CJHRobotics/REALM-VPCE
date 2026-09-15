@@ -10,10 +10,12 @@
 #   sbatch slurm/collect_data.sh                          # the maze_files list in the controller
 #   sbatch slurm/collect_data.sh circ_lm8_r6                 # one arena
 #   sbatch slurm/collect_data.sh circ_lm8_r3,corr_lm8_l10w2 # several, serially
+#   bash slurm/collect_data.sh --submit                      # one job per arena in SUBMIT_MAZES
+#   bash slurm/collect_data.sh --submit circ_lm0_r3,circ_lm0_r6  # one job per arena listed
 #
 # One arena per job is the better pattern: they are independent, they queue
 # in parallel, and a single serial session over four arenas is four times the
-# walltime for no benefit.
+# walltime for no benefit. --submit does that fan-out for you.
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=collect
@@ -73,6 +75,32 @@
 # --------------------------------------------------------------------------
 
 set -euo pipefail
+
+# --------------------------------------------------------------- submit mode
+# Run with bash on the login node, not with sbatch: it only calls sbatch, once
+# per arena, with the flags collections have always been submitted with:
+#   --exclusive     the job gets the whole node, with no other jobs beside it
+#   STRICT_GPU=1    abort if hardware GL is unavailable, instead of falling
+#                   back to software rendering at 2.5-10 h per arena
+#   REALM_FORCE=1   recollect, OVERWRITING any dataset that already exists
+# These are fixed: --export names both variables, so a value set in the
+# calling shell does not override them. With no list it submits SUBMIT_MAZES,
+# the arenas most recently added to make_envs.py. Other sbatch options go
+# through the environment, since sbatch reads SBATCH_* itself:
+#   SBATCH_PARTITION=Quick bash slurm/collect_data.sh --submit
+SUBMIT_MAZES=circ_lm0_r3,circ_lm0_r6,corr_lm8_l10w10,corr_lm0_l10w10
+if [[ "${1:-}" == "--submit" ]]; then
+    # sbatch records the working directory as SLURM_SUBMIT_DIR, which the
+    # job uses as the repo, so submit from the repo root wherever this is run.
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+    mkdir -p slurm/logs
+    list="${2:-$SUBMIT_MAZES}"
+    for maze in ${list//,/ }; do
+        sbatch --exclusive --export=ALL,STRICT_GPU=1,REALM_FORCE=1 \
+            --job-name="collect-$maze" slurm/collect_data.sh "$maze"
+    done
+    exit 0
+fi
 
 MAZES="${1:-}"
 
