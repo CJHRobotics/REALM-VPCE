@@ -140,16 +140,34 @@ prerequisite for reading Experiment 3.
 | Harland | one field covers ~9–13% of the arena |
 
 The two papers report **different forms for the same quantity**, so all three
-are fitted for every library and all three goodness-of-fit numbers are
-reported side by side. Reporting only a favoured form is the one thing this
-experiment cannot support.
+are fitted for every library, and the best fit is reported beside how well the
+other two do. Reporting only a favoured form is the one thing this experiment
+cannot support.
+
+**Every fit knows the size window.** Rules 8 and 9 admit a field only between
+the floor and the ceiling, so each form's density is renormalised to that
+window before it is fitted — a truncated fit. Without it the comparison is
+rigged: an exponential fitted from zero puts its peak exactly where the floor
+has removed every field, and loses for it. Checked on synthetic libraries of
+known shape, 1500 fields each, cut at the r = 3 window:
+
+| true shape | untruncated fit (50 libraries) | truncated fit (30 libraries) |
+|---|---|---|
+| exponential | log-normal wins 50 | exponential wins 30 |
+| log-normal | not run | log-normal wins 30 |
+| Gaussian | Gaussian wins 50 | Gaussian wins 30 |
+
+The Gaussian's mean is held inside the window. Unconstrained, a Gaussian
+peaking far below the floor shows only its falling tail inside it — an
+exponential under another name — and took 6 of 30 exponential libraries that
+way, with a mean of −43 m².
 
 ## Reported per (environment × channel × setting)
 
-- fits against log-normal, negative exponential and Gaussian
+- the best of log-normal, negative exponential and Gaussian, with fit quality for all three
 - CV of field area and of field radius
 - min, median, max, max/min ratio
-- scale-band occupancy, bands 0–5 (plus a 6+ overflow)
+- scale occupancy, scales 0–5 (plus a 6+ overflow)
 - fraction of the arena covered per field
 
 Goodness of fit is three numbers, because Harland's statistic and a
@@ -158,20 +176,22 @@ model-selection statistic answer different questions:
 | statistic | what it is | how to read it |
 |-----------|-----------|----------------|
 | `r_hist` | Pearson r between the binned density and the fitted pdf at bin centres | **Harland's own statistic** — the only one comparable to their 0.995 and 0.985. A weak discriminator: all three forms clear 0.9 on a heavy-fine-end sample, so never read it alone |
-| `ks`, `ks_p_boot` | KS distance, p from a parametric bootstrap that refits each synthetic sample | the analytic p is anticonservative when parameters came from the same sample. Expect **every** form to be rejected past ~1000 fields; that is normal, not a failure |
-| `aic`, `d_aic` | 2k − 2 logL | the discriminator. `winner` is its argmin |
+| `ks`, `ks_p_boot` | KS distance from the truncated form, p from a parametric bootstrap that draws from and refits that same truncated form | the analytic p is anticonservative when parameters came from the same sample. Expect **every** form to be rejected past ~1000 fields; that is normal, not a failure |
+| `aic`, `d_aic`, `aic_weight` | 2k − 2 logL, its gap to the best, and the Akaike weight | the discriminator. `winner` is the argmin; an `aic_weight` near 1 is a decisive win, near 1/3 means the three forms fit about equally |
 
-## The threshold caveat — settled, no longer swept
+## The threshold caveat — not swept by default
 
 Harland show their exponential fit becomes quasi-linear at a lower
 field-detection threshold, so distribution shape is not threshold-independent
-and the comparison is meaningless without checking ours. It has been checked:
+and the comparison is meaningless without checking ours. What is known:
 
 - `EXTENT_PCTL` saturates at 65 — `run_field_recovery.py`, against ideal place
   cells of known size.
 - The first full run of this experiment swept 50 / 65 / 80 and found
-  log-normal winning on AIC at **every** setting, in all 24 environment ×
-  channel libraries.
+  log-normal winning on AIC at every setting, in all 24 environment × channel
+  libraries. **Those fits ignored the size window** and would have picked
+  log-normal whatever the true shape, so that result says nothing about
+  whether the shape holds across settings. Re-open the sweep to check it.
 - The `ACT_THRESH` invariance check ran at 24 paired runs: identical field
   counts, maximum area difference exactly **0**.
 
@@ -196,28 +216,39 @@ asserting the algebra.
 ## Two caveats the numbers cannot carry on their own
 
 **Truncation.** Rules 8 and 9 bound field size by construction — floor at
-Harland's smallest measured field, ceiling at 20% of arena area — so every fit
-is to a doubly-truncated sample. `frac_at_floor` and `frac_at_ceiling` say how
-much of the distribution is the rule rather than the model. Agreement at the
-fine end is partly assumed rather than found.
+Harland's smallest measured field, ceiling at 20% of arena area. The fits
+account for that window, but the window is still the rule speaking:
+`frac_at_floor` and `frac_at_ceiling` say how much of the distribution rests on
+a bound, and agreement at the fine end is partly assumed rather than found.
 
 **Scale is the primary axis.** Two of the three targets are claims about
 environment *scale*: Fig 3F–G is a scale-dependent shape claim (exponential in
 the megaspace, Gaussian in the small environments) and Fig 6E is CV against
 enclosure area. Neither can be read from datasets that hold area constant.
 
-So the default env list is `AREA_ENVS` — small, medium, mega at fixed shape
-and landmark count, each sampled at ~`N_TARGET` positions so sample count is
-not a covariate:
+The default env list is all eight arenas, each sampled at ~`N_TARGET` positions
+so sample count is not a covariate. Each has one **declared role**, and the
+role alone decides which comparisons it enters:
 
 | arena | size | area | role | cue cover |
 |---|---|---|---|---|
-| `circ_lm8_r3` | r = 3 m | 28.27 m² | small | 32% |
-| `circ_lm8_r6` | r = 6 m | 113.10 m² | medium | 16% |
-| `circ_lm8_r10` | r = 10 m | 314.16 m² | mega | 10% |
-| `corr_lm8_l10w2` | 10 × 2 m | 20.00 m² | **Eliav comparison** | 25% |
+| `circ_lm8_r3` | r = 3 m | 28.27 m² | area sweep, small | 32% |
+| `circ_lm8_r6` | r = 6 m | 113.10 m² | area sweep, medium | 16% |
+| `circ_lm8_r10` | r = 10 m | 314.16 m² | area sweep, mega | 10% |
+| `corr_lm8_l10w2` | 10 × 2 m | 20.00 m² | **Eliav corridor** | 25% |
+| `corr_lm8_l10w10` | 10 × 10 m | 100.00 m² | square, two panels on each wall | 15% |
+| `circ_lm0_r3` | r = 3 m | 28.27 m² | no landmarks, twin of `circ_lm8_r3` | — |
+| `circ_lm0_r6` | r = 6 m | 113.10 m² | no landmarks, twin of `circ_lm8_r6` | — |
+| `corr_lm0_l10w10` | 10 × 10 m | 100.00 m² | no landmarks, twin of `corr_lm8_l10w10` | — |
 
-All four are generated by
+Only the area sweep enters the trend against area, and only the Eliav corridor
+is scored on field length. Roles are declared in `ROLES` rather than read off
+aspect ratio, which would have put the square (aspect 1) on the disc trend and
+into the corridor comparison. Each no-landmark arena has exactly its twin's
+walls and position grid, so the report's landmark-pair section isolates what
+the landmarks do.
+
+All eight are generated by
 `simulation/worlds/environments/vpce/make_envs.py`. Names are
 `<shape>_lm<landmarks>_<size>`, where size is `r<radius>` for a disc and
 `l<length>w<width>` for a box.
@@ -247,34 +278,30 @@ field counts there. It did not at r = 6 (511 fields), so that may have been an
 artifact of the older configuration — but colour at r = 10 is the first thing
 to check in any new run.
 
-`ENVS`, the six same-area datasets, is the **control**: it says whether cue
-density (2/4/8/12 landmarks) or arena shape (disc/rectangle/corridor) move the
-distribution, which is what licenses reading the area sweep as being about
-area. Run it with `--envs "$(...)"` or by passing the names.
-
-S2 picks its x axis from the data: arena area when the runs span at least
-`AREA_SPAN_MIN` (2×), otherwise landmark count and aspect. The corridor is
-28.224 m² against the discs' 28.274, so the test is a span ratio rather than
-`nunique() > 1` — a 0.2% rounding difference must not be read as an area
-axis.
+**The no-landmark twins are the landmark control.** A difference between an
+lm8 arena and its lm0 twin — in field count, median size, scales occupied or
+best-fitting form — can only come from the panels, since walls and positions
+are identical. The report tabulates each pair per channel.
 
 ## Running
 
-```bash
-sbatch slurm/scale_distribution.sh                     # the area sweep (default)
-sbatch slurm/scale_distribution.sh --envs circ_lm8_r3  # one, in parallel
-```
-
-The control run, over the six same-area datasets:
+Fan out one arena per job:
 
 ```bash
-sbatch slurm/scale_distribution.sh --envs circ_lm8_r3,circ_lm8_r6,circ_lm8_r10,corr_lm8_l10w2
+for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10; do sbatch slurm/scale_distribution.sh --envs "$e"; done
 ```
 
-Fan out one arena per job, then re-run over the whole list with `--use-cache`
-for the cross-environment figures and the combined report. S2 needs every
-arena in one run to draw its axis, so the combining pass is not optional when
-the area sweep is the point.
+When all eight have finished, run once over every arena, reusing their
+libraries, for the combined figures and report:
+
+```bash
+sbatch slurm/scale_distribution.sh --use-cache
+```
+
+The combining pass is not optional: the area trend, S2b, S3 and the
+landmark-pair comparison need their arenas in one run. Let the fan-out finish
+first — every run writes the same summary files and figures, so a single-arena
+job that finishes after the combining pass overwrites its output.
 
 Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 `--n-boot`, `--use-cache`, `--no-gpu`, `--no-email`.
@@ -285,59 +312,60 @@ Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 
 | file | contents |
 |------|----------|
-| `summary.csv` | one row per env × channel × setting: CV, extremes, ratio, band occupancy, coverage, truncation |
-| `fits.csv` | one row per env × channel × setting × variable × form: params, `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `winner` |
-| `band_summary.csv` | one row per env × channel × scale band: field count, share of the library, median area and coverage, tiling multiple, CV, median split-half IoU |
-| `scale_trends.csv` | one row per tracked quantity: value at small and mega, mega/small ratio, pooled Spearman against area, the expected direction and its source, and whether ours agrees |
+| `summary.csv` | one row per env × channel × setting: role, CV, extremes, ratio, scale occupancy (`scale0_frac` … `scale6plus_frac`, `n_scales_occupied`), coverage, truncation |
+| `fits.csv` | one row per env × channel × setting × variable × form: params, the window it was truncated to (`trunc_lo`, `trunc_hi`), `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `aic_weight`, `winner` |
+| `scale_summary.csv` | one row per env × channel × scale: field count, share of the library, median area and coverage, tiling multiple, CV, median split-half IoU |
+| `scale_trends.csv` | one row per tracked quantity, over the area sweep only: value at small and mega, mega/small ratio, pooled Spearman against area, the expected direction and its source, and whether ours agrees |
 | `threshold_invariance.csv` | the `ACT_THRESH` check, per paired run |
-| `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row |
+| `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row; its `scale_band` column is the scale |
 
 Fits are run on **area** (Harland's unit) and on **equivalent diameter** (the
 closest thing we have to Eliav's 1D field width).
 
 Figures — `figures/scale_distribution/`
 
-Every figure but S1 is indexed by arena area, so the experiment reads as
-"what changes as scale changes".
-
 | figure | shows |
 |--------|-------|
-| S1 | size histogram per arena × channel, arenas in scale order, all three fits drawn |
-| S2 | admitted fields drawn on the arena as their Rule 7 ellipses, coloured by scale band, each panel to its own arena with a 1 m bar |
-| S3 | median field size, max/min spread and bands occupied, against area |
+| S1 | size histogram per arena × channel on linear axes, each panel stopped at its own 95th percentile (the count beyond is printed, and the tail stays in the fit), all three truncated fits drawn with the best one heavier |
+| S2a | one figure per arena, `S2a_scales_<env>.png`: channels on the rows, scales 0–5 on the columns, each column headed with its radius range in metres |
+| S2b | every field as an outline coloured by scale — light is finest, dark is coarsest, and coarse fields are drawn on top — arena on the row, channel on the column, each arena filling its own panel with a scale bar |
+| S3 | median field size, max/min spread and scales occupied, against area; only the area sweep is joined |
 
 **CV is measured but not plotted, and not compared to Fig 6E.** Pooled across
-bands it describes a six-band mixture spanning two orders of magnitude, and
-its trend across area tracks how many bands are occupied rather than any field
-size. Within a band it is fixed by the band definition — bands are geometric
-in radius at ratio 1.6, so areas span 2.56× and a uniform spread gives
-CV ≈ 25%, which is what we measure (23–32%). Harland's 70–101 sits between the
-two. Neither is comparable until there is a model of how a recording samples
-cells from this library. The numbers are in `band_summary.csv`.
+scales it describes a six-scale mixture spanning two orders of magnitude, and
+its trend across area tracks how many scales are occupied rather than any
+field size. Within a scale it is fixed by the scale definition — scales are
+geometric in radius at ratio 1.6, so areas span 2.56× and a uniform spread
+gives CV ≈ 25%, which is what we measure (23–32%). Harland's 70–101 sits
+between the two. Neither is comparable until there is a model of how a
+recording samples cells from this library. The numbers are in
+`scale_summary.csv`.
 
-The three-form fits are likewise kept in `fits.csv` and the report rather than
-plotted against area: the pooled distribution they fit is the tiling spectrum
-(N(>s) ∝ s⁻¹·¹), not a recorded population, so "which form wins" inherits the
-same non-comparability. S1 shows the raw distribution, which is the honest
-version of that picture.
+**The best-fitting form is reported for comparison with both papers.** The
+report sets it against Harland's megaspace (exponential, at the r = 10 disc),
+Harland's small environments (Gaussian, at the r = 3 disc) and Eliav
+(log-normal). Carry one caveat into that comparison: the pooled distribution
+being fitted is the tiling spectrum
+(N(>s) ∝ s⁻¹·¹), enumerated from a hierarchy rather than recorded from a sample of
+cells, so a matching form is a shared shape, not evidence of a shared process.
 
-Scale-band occupancy is in `summary.csv` (`band0_frac` … `band6plus_frac`) and
-per-band detail in `band_summary.csv`; S3 plots only the count of occupied
-bands. No log axes anywhere — every panel is linear and zero-based, and the
-report attaches only the figures the run actually wrote.
+Scale occupancy is in `summary.csv` (`scale0_frac` … `scale6plus_frac`) and
+per-scale detail in `scale_summary.csv`; S2a draws each scale on its own and S3
+plots the count of occupied scales. No log axes anywhere — every panel is
+linear, and the report attaches only the figures the run actually wrote.
 
-### Read the bands, not the pool
+### Read the scales, not the pool
 
 A field library is a **tiling at every scale**, not a sample of cells. A
-tiling at scale *s* needs ~arena/*s* tiles, so the finest band necessarily
+tiling at scale *s* needs ~arena/*s* tiles, so the finest scale necessarily
 holds most of the library and necessarily sets any pooled median, mean or CV.
-Measured: band 0 is 61–65% of every channel's library, and the pooled median
-coverage (0.26%) is just band 0's.
+Measured: scale 0 is 61–65% of every channel's library, and the pooled median
+coverage (0.26%) is just scale 0's.
 
-Per band the picture is different — bands 4 and 5 sit at ~8% and ~16% of the
-arena, bracketing Harland's 9–13% per cell. **The model does reach their
-scale; the pooled statistic hides it.** `band_summary.csv` and the report's
-per-band table are the numbers comparable to a recorded sample.
+Per scale the picture is different — scales 4 and 5 sit at ~8% and ~16% of
+the arena, bracketing Harland's 9–13% per cell. **The model does reach their
+size; the pooled statistic hides it.** `scale_summary.csv` and the report's
+per-scale table are the numbers comparable to a recorded sample.
 
 Two things follow. Raising the Rule 8 floor is not the fix: the median lands
 at about **2× the floor wherever the floor is put** (measured at 0.12%, 1%, 2%
@@ -345,7 +373,7 @@ and 4% of arena), so choosing the floor chooses the answer. **Rule 2 (split-half
 it rather than returning an empty library. At the lattice bin each bin holds
 one sample, so the two half-maps occupy disjoint bins, every split-half IoU is
 exactly 0, and any threshold rejects everything. It was informative under the
-old 0.25 m binning — median IoU rose from 0.45 at band 0 to 0.69 at band 5,
+old 0.25 m binning — median IoU rose from 0.45 at scale 0 to 0.69 at scale 5,
 which is what made it the principled way to thin the fine end — so the measure
 is sound and only its resolution is wrong. Restoring it means scoring the
 halves on a deliberately coarser grid than the one used for field extent.

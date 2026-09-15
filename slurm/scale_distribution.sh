@@ -5,29 +5,31 @@
 # What shape is our field-size distribution, how does it compare to the three
 # forms in the literature, and how does it move with environment scale?
 #
-# The default env list is the AREA SWEEP -- small, medium and mega at fixed
-# shape and landmark count:
+# The default env list is all eight arenas, each with one role:
 #
-#   circ_lm8_r3        r = 3     28.27 m^2   small    (collected)
-#   circ_lm8_r6    r = 6    113.10 m^2   medium   (collected)
-#   circ_lm8_r10   r = 10   314.16 m^2   mega
-#   corr_lm8_l10w2        10 x 2 m     20.00 m^2   Eliav comparison
+#   circ_lm8_r3       r = 3       28.27 m^2   area sweep, small
+#   circ_lm8_r6       r = 6      113.10 m^2   area sweep, medium
+#   circ_lm8_r10      r = 10     314.16 m^2   area sweep, mega
+#   corr_lm8_l10w2    10 x 2 m    20.00 m^2   Eliav corridor
+#   corr_lm8_l10w10   10 x 10 m  100.00 m^2   square, two panels on each wall
+#   circ_lm0_r3       r = 3       28.27 m^2   no landmarks
+#   circ_lm0_r6       r = 6      113.10 m^2   no landmarks
+#   corr_lm0_l10w10   10 x 10 m  100.00 m^2   no landmarks
 #
-# 11.1x, against Harland's 8.8x. That is the axis Harland vary, and two of the
-# three targets (Fig 3F-G's scale-dependent form, Fig 6E's CV against area)
-# cannot be read on any other. The six same-area datasets are the control:
-# pass them with --envs.
+# Only the three lm8 discs enter the trend against area: 11.1x, against
+# Harland's 8.8x. That is the axis Harland vary, and two of the three targets
+# (Fig 3F-G's scale-dependent form, Fig 6E's CV against area) cannot be read
+# on any other. Each no-landmark arena is compared with its lm8 twin.
 #
-# Everything but S1 is reported against arena area, so the output reads as
-# "what changes as scale changes". Takes the admitted field library per
-# channel and reports, for each:
+# Takes the admitted field library per arena and channel and reports, for each:
 #
-#   * fits against log-normal, negative exponential AND Gaussian, with
-#     goodness of fit for all three — the two source papers disagree about
-#     the form, so fitting only a favoured one would beg the question;
+#   * the best of log-normal, negative exponential and Gaussian, each fitted
+#     within the Rule 8/9 size window, with goodness of fit for all three --
+#     the two source papers disagree about the form, so fitting only a
+#     favoured one would beg the question;
 #   * coefficient of variation of field size (Harland Fig 6E: ~70/85/101);
 #   * min, median, max and max/min ratio;
-#   * scale-band occupancy, bands 0-5;
+#   * scale occupancy, scales 0 (finest) to 5 (coarsest);
 #   * fraction of the arena covered per field (Harland ~9-13%).
 #
 # Analysis only: no Webots, no collection. It reads the HDF5 datasets and
@@ -44,7 +46,7 @@
 # the algebra.
 #
 # Usage:
-#   sbatch slurm/scale_distribution.sh                        # the area sweep
+#   sbatch slurm/scale_distribution.sh                        # all eight arenas
 #   sbatch slurm/scale_distribution.sh --envs circ_lm8_r3     # one, in parallel
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
 #   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
@@ -56,22 +58,27 @@
 #
 # One arena per job is the better pattern here, as for the other analysis
 # jobs: cost is dominated by building a field library per channel, the arenas
-# are independent, and six of them serially is six times the walltime for no
-# benefit. Submit the fan-out with:
+# are independent, and eight of them serially is eight times the walltime for
+# no benefit. Submit the fan-out with:
 #
-#   for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2; do
+#   for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 \
+#            corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #
-# then re-run once over all five with --use-cache to get the cross-environment
-# figures and the single combined report. S2 needs every arena in one run to
-# draw its axis, so that combining pass is not optional here.
+# then re-run once over all eight with --use-cache to get the cross-arena
+# figures and the single combined report. The area trend, S2b, S3 and the
+# landmark-pair comparison need their arenas in one run, so that combining
+# pass is not optional. Let the fan-out finish first: every run writes the
+# same summary files and figures, so a single-arena job that finishes after
+# the combined pass overwrites it.
 #
-# THE THRESHOLD SWEEP IS RETIRED FROM THE DEFAULT. EXTENT_PCTL saturates at 65
-# (run_field_recovery, against ideal cells of known size) and the first full
-# run found log-normal winning on AIC at 50, 65 and 80 alike across all 24
-# libraries, with the ACT_THRESH invariance check exact to 0. Re-open either
-# with --settings if something upstream changes.
+# THE THRESHOLD SWEEP IS NOT IN THE DEFAULT. EXTENT_PCTL saturates at 65
+# (run_field_recovery, against ideal cells of known size), and the ACT_THRESH
+# invariance check was exact to 0. The first full run also found log-normal
+# winning at 50, 65 and 80 alike, but those fits ignored the Rule 8/9 size
+# window and pick log-normal whatever the shape, so whether the shape holds
+# across settings is still open. Re-open the sweep with --settings to check.
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=scale-dist
@@ -86,10 +93,11 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
-# 24h for the all-six default, which is six times the per-arena cost. A
-# single --envs job finishes in a small fraction of that; the wall clock is
-# sized for the serial worst case so the default invocation cannot be killed
-# mid-run.
+# 24h was sized for six arenas run serially. The default is now eight, so do
+# not rely on a bare `sbatch` building every library inside it: fan out one
+# arena per job as above, and keep the all-arena run for the --use-cache
+# combining pass, which reuses every library. A single --envs job finishes in
+# a small fraction of 24h.
 #
 # GPU: the pipeline builds a full pairwise feature distance matrix per
 # channel through rules.feature_sq_distances, which is what the card is for.
