@@ -5,7 +5,7 @@
 # What shape is our field-size distribution, how does it compare to the three
 # forms in the literature, and how does it move with environment scale?
 #
-# The default env list is all eight arenas, each with one role:
+# The default env list is all nine arenas, each with one role:
 #
 #   circ_lm8_r3       r = 3       28.27 m^2   area sweep, small
 #   circ_lm8_r6       r = 6      113.10 m^2   area sweep, medium
@@ -15,6 +15,7 @@
 #   circ_lm0_r3       r = 3       28.27 m^2   no landmarks
 #   circ_lm0_r6       r = 6      113.10 m^2   no landmarks
 #   corr_lm0_l10w10   10 x 10 m  100.00 m^2   no landmarks
+#   corr_lm0_l10w2    10 x 2 m    20.00 m^2   no landmarks
 #
 # Only the three lm8 discs enter the trend against area: 11.1x, against
 # Harland's 8.8x. That is the axis Harland vary, and two of the three targets
@@ -46,7 +47,7 @@
 # the algebra.
 #
 # Usage:
-#   sbatch slurm/scale_distribution.sh                        # all eight arenas
+#   sbatch slurm/scale_distribution.sh                        # all nine arenas
 #   sbatch slurm/scale_distribution.sh --envs circ_lm8_r3     # one, in parallel
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
 #   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
@@ -58,15 +59,16 @@
 #
 # One arena per job is the better pattern here, as for the other analysis
 # jobs: cost is dominated by building a field library per channel, the arenas
-# are independent, and eight of them serially is eight times the walltime for
+# are independent, and nine of them serially is nine times the walltime for
 # no benefit. Submit the fan-out with:
 #
 #   for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 \
-#            corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10; do
+#            corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10 \
+#            corr_lm0_l10w2; do
 #       sbatch slurm/scale_distribution.sh --envs "$e"
 #   done
 #
-# then re-run once over all eight with --use-cache to get the cross-arena
+# then re-run once over all nine with --use-cache to get the cross-arena
 # figures and the single combined report. The area trend, S2b, S3 and the
 # landmark-pair comparison need their arenas in one run, so that combining
 # pass is not optional. Let the fan-out finish first: every run writes the

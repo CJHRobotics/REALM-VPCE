@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="us-ascii"?>
+
+<!-- Corridor 10 m x 2 m, area 20.00 m^2, aspect 5:1, with no landmarks.
+     The no-landmark control for corr_lm8_l10w2: same walls,
+     same position grid. Walkable width
+     1.60 m after the keep-out. -->
+
+<world>
+    <wall x1=" 5.0000" y1="-1.0000" x2=" 5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1=" 5.0000" y1=" 1.0000" x2="-5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1=" 1.0000" x2="-5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1="-1.0000" x2=" 5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+
+
+    <train_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </train_start_positions>
+
+    <test_start_positions>
+        <pos x="0.0" y="0.0" theta="0.0"/>
+    </test_start_positions>
+
+    <goal id="0" x="0.0" y="0.0"/>
+</world>

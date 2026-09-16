@@ -84,11 +84,17 @@ set -euo pipefail
 #                   back to software rendering at 2.5-10 h per arena
 #   REALM_FORCE=1   recollect, OVERWRITING any dataset that already exists
 # These are fixed: --export names both variables, so a value set in the
-# calling shell does not override them. With no list it submits SUBMIT_MAZES,
-# the arenas most recently added to make_envs.py. Other sbatch options go
-# through the environment, since sbatch reads SBATCH_* itself:
+# calling shell does not override them. With no list it submits SUBMIT_MAZES.
+# Other sbatch options go through the environment, since sbatch reads SBATCH_*
+# itself:
 #   SBATCH_PARTITION=Quick bash slurm/collect_data.sh --submit
-SUBMIT_MAZES=circ_lm0_r3,circ_lm0_r6,corr_lm8_l10w10,corr_lm0_l10w10
+#
+# SUBMIT_MAZES is the re-collection set for the wall-appearance fix: the four
+# box arenas, whose walls were rendering as the wall PROTO's black marble
+# instead of the flat black the circular arenas use, and the four discs they
+# are compared against, so every dataset in the pair comes from one build of
+# the simulator. REALM_FORCE=1 above is what lets them overwrite.
+SUBMIT_MAZES=circ_lm8_r3,circ_lm8_r6,circ_lm0_r3,circ_lm0_r6,corr_lm8_l10w2,corr_lm0_l10w2,corr_lm8_l10w10,corr_lm0_l10w10
 if [[ "${1:-}" == "--submit" ]]; then
     # sbatch records the working directory as SLURM_SUBMIT_DIR, which the
     # job uses as the repo, so submit from the repo root wherever this is run.

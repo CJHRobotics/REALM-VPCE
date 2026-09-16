@@ -9,10 +9,14 @@
      the perimeter, offset by half a spacing. -->
 
 <world>
-    <wall x1=" 5.0000" y1="-1.0000" x2=" 5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1=" 5.0000" y1=" 1.0000" x2="-5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1="-5.0000" y1=" 1.0000" x2="-5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1="-5.0000" y1="-1.0000" x2=" 5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 5.0000" y1="-1.0000" x2=" 5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1=" 5.0000" y1=" 1.0000" x2="-5.0000" y2=" 1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1=" 1.0000" x2="-5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1="-1.0000" x2=" 5.0000" y2="-1.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
 
     <landmark type="panel" x=" 4.5000" y=" 0.9850" theta="-1.570796" height="0.75" width="0.75"
               texture="../protos/world_objects/textures/flags/flag_0.png"

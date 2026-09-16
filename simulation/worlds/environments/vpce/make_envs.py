@@ -1,4 +1,4 @@
-"""Generate every environment this experiment uses. One file, eight arenas.
+"""Generate every environment this experiment uses. One file, nine arenas.
 
     circ_lm8_r3      disc, r = 3       28.27 m^2   small
     circ_lm8_r6      disc, r = 6      113.10 m^2   medium
@@ -8,6 +8,7 @@
     circ_lm0_r3      disc, r = 3       28.27 m^2   no landmarks
     circ_lm0_r6      disc, r = 6      113.10 m^2   no landmarks
     corr_lm0_l10w10  10 x 10 m        100.00 m^2   no landmarks
+    corr_lm0_l10w2   10 x 2 m          20.00 m^2   no landmarks
 
 Naming is `<shape>_lm<landmarks>_<size>`, where size is `r<radius>` for a
 disc and `l<length>w<width>` for a box. It replaces three overlapping
@@ -37,6 +38,14 @@ points (2.5 m either side of the wall's midpoint).
 **The lm0 arenas are no-landmark controls.** Each has exactly the walls and
 position grid of its lm8 counterpart and no panels, so the landmarks are the
 only thing that differs between the pair.
+
+**Every wall is matte black, box and disc alike.** A box wall written with
+neither a colour nor a texture falls through to the wall PROTO's own
+appearance -- black marble veined with gold -- while a circular wall defaults
+to flat black, so the corridor and the square were the only arenas carrying a
+textured wall, inside every box-against-disc comparison. Box walls now carry
+WALL_RGB explicitly. Datasets collected before this change cannot be compared
+with ones collected after it.
 
 Two constraints govern every arena here.
 
@@ -80,6 +89,13 @@ PANEL       = 0.75      # fixed physical cue size, m
 WALL_H      = 0.5
 WALL_THICK  = 0.5       # circular wall
 WALL_W      = 0.012     # box wall
+# Box walls carry an explicit colour so they match the circular wall, whose
+# parser default is black. Without one a box wall falls through to the wall
+# PROTO's own appearance -- black marble veined with gold -- so the corridor
+# and the square were the only arenas with a textured wall, a difference
+# nothing in the experiment asked for and which sat inside every box-versus-
+# disc comparison.
+WALL_RGB    = (0.0, 0.0, 0.0)
 SUBDIV      = 128
 MARGIN      = 0.2       # collection keep-out from the wall, m
 N_TARGET    = 30147     # positions per arena, held constant
@@ -231,7 +247,9 @@ def build_box(length, width, n_landmarks=N_LANDMARKS, note=''):
     for (x0, y0), (x1, y1) in zip(corners, corners[1:]):
         lines.append(f'    <wall x1="{fmt(x0,4)}" y1="{fmt(y0,4)}" '
                      f'x2="{fmt(x1,4)}" y2="{fmt(y1,4)}" type="boundary" '
-                     f'height="{WALL_H}" width="{WALL_W}"/>\n')
+                     f'height="{WALL_H}" width="{WALL_W}"\n'
+                     f'          red="{WALL_RGB[0]:.2f}" green="{WALL_RGB[1]:.2f}" '
+                     f'blue="{WALL_RGB[2]:.2f}"/>\n')
     lines.append('\n')
 
     segs = perimeter_walk(hx, hy)
@@ -293,7 +311,8 @@ if __name__ == '__main__':
              + [build_box(CORR_L, CORR_W, note=ELIAV_NOTE),
                 build_box(SQUARE, SQUARE, note=SQUARE_NOTE)]
              + [build_disc(r, n_landmarks=0) for r in LM0_RADII]
-             + [build_box(SQUARE, SQUARE, n_landmarks=0)])
+             + [build_box(SQUARE, SQUARE, n_landmarks=0),
+                build_box(CORR_L, CORR_W, n_landmarks=0)])
     print(f"{'arena':20s} {'area':>9s} {'positions':>10s} {'spacing':>9s} "
           f"{'cue cover':>10s}")
     for name, area, npts, spacing, cover in built:

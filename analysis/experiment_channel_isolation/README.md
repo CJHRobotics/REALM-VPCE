@@ -226,7 +226,7 @@ environment *scale*: Fig 3F–G is a scale-dependent shape claim (exponential in
 the megaspace, Gaussian in the small environments) and Fig 6E is CV against
 enclosure area. Neither can be read from datasets that hold area constant.
 
-The default env list is all eight arenas, each sampled at ~`N_TARGET` positions
+The default env list is all nine arenas, each sampled at ~`N_TARGET` positions
 so sample count is not a covariate. Each has one **declared role**, and the
 role alone decides which comparisons it enters:
 
@@ -240,6 +240,7 @@ role alone decides which comparisons it enters:
 | `circ_lm0_r3` | r = 3 m | 28.27 m² | no landmarks, twin of `circ_lm8_r3` | — |
 | `circ_lm0_r6` | r = 6 m | 113.10 m² | no landmarks, twin of `circ_lm8_r6` | — |
 | `corr_lm0_l10w10` | 10 × 10 m | 100.00 m² | no landmarks, twin of `corr_lm8_l10w10` | — |
+| `corr_lm0_l10w2` | 10 × 2 m | 20.00 m² | no landmarks, twin of `corr_lm8_l10w2` | — |
 
 Only the area sweep enters the trend against area, and only the Eliav corridor
 is scored on field length. Roles are declared in `ROLES` rather than read off
@@ -288,10 +289,10 @@ are identical. The report tabulates each pair per channel.
 Fan out one arena per job:
 
 ```bash
-for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10; do sbatch slurm/scale_distribution.sh --envs "$e"; done
+for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10 corr_lm0_l10w2; do sbatch slurm/scale_distribution.sh --envs "$e"; done
 ```
 
-When all eight have finished, run once over every arena, reusing their
+When all nine have finished, run once over every arena, reusing their
 libraries, for the combined figures and report:
 
 ```bash

@@ -38,11 +38,20 @@ Walls are defined by two endpoints. The parser computes the center, length, and 
 | `type` | yes | — | `boundary` or `obstacle` |
 | `height` | no | `0.3` | Wall height in meters |
 | `width` | no | `0.012` | Wall thickness in meters |
-| `texture` | no | proto default | Path to texture image, relative to the world file |
+| `texture` | no | — | Path to texture image, relative to the world file |
+| `red`, `green`, `blue` | no | — | Flat RGB color (0–1). All three must be given, or none |
 
 **`boundary`** walls define the outer enclosure. **`obstacle`** walls are internal.
 
-If `texture` is omitted the `wall.proto` default (black marble) is used.
+Appearance is decided in this order: `texture` if given, otherwise a flat
+`red`/`green`/`blue` color if all three are given, otherwise the `wall.proto`
+default — **black marble veined with gold**.
+
+That default is easy to inherit without meaning to. A `circular_wall` with no
+color falls back to flat **black** instead, so a box arena and a disc arena
+written the same way do not look alike, and any comparison between them
+carries a wall-material difference. Every VPCE arena now sets
+`red`/`green`/`blue` to `0.0` so both shapes match.
 
 ---
 

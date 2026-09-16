@@ -30,8 +30,8 @@ maze_file_dir = 'simulation/worlds/environments/vpce/'
 
 # The arenas this experiment uses. Three discs spanning 11.1x in area
 # against Harland's 8.8x, at fixed shape and fixed landmark count, a 10 x 2 m
-# corridor as the Eliav comparison, a 10 x 10 m square, and no-landmark (lm0)
-# copies of two discs and the square.
+# corridor as the Eliav comparison, a 10 x 10 m square, and a no-landmark
+# (lm0) copy of two discs, the square and the corridor.
 #
 #   circ_lm8_r3       28.27 m^2   small
 #   circ_lm8_r6      113.10 m^2   medium
@@ -41,6 +41,7 @@ maze_file_dir = 'simulation/worlds/environments/vpce/'
 #   circ_lm0_r3       28.27 m^2   circ_lm8_r3 without landmarks
 #   circ_lm0_r6      113.10 m^2   circ_lm8_r6 without landmarks
 #   corr_lm0_l10w10  100.00 m^2   corr_lm8_l10w10 without landmarks
+#   corr_lm0_l10w2    20.00 m^2   corr_lm8_l10w2 without landmarks
 #
 # Every grid carries ~30,100 positions regardless of area, so sample count is
 # not a variable -- at a constant 0.1 m spacing these would have ranged from
@@ -53,7 +54,8 @@ maze_file_dir = 'simulation/worlds/environments/vpce/'
 # is a property of fixed-size cues rather than a defect.
 maze_files = ['circ_lm8_r3', 'circ_lm8_r6', 'circ_lm8_r10',
               'corr_lm8_l10w2', 'corr_lm8_l10w10',
-              'circ_lm0_r3', 'circ_lm0_r6', 'corr_lm0_l10w10']
+              'circ_lm0_r3', 'circ_lm0_r6', 'corr_lm0_l10w10',
+              'corr_lm0_l10w2']
 
 # Overridable so one arena can be collected per SLURM job and the sweep run
 # in parallel, instead of serially inside a single long Webots session.

@@ -40,7 +40,8 @@ class Environment:
         for i, w in enumerate(walls):
             wall = Wall(w['x1'], w['y1'], w['x2'], w['y2'],
                         height=w['height'], width=w['width'],
-                        wall_type=w['wall_type'], texture=w['texture'], id=i)
+                        wall_type=w['wall_type'], texture=w['texture'],
+                        color=w.get('color'), id=i)
             if w['wall_type'] == 'boundary':
                 self.boundary_walls.append(wall)
             else:
@@ -122,13 +123,15 @@ class StartingPosition(EnvironmentPoint):
 
 
 class Wall:
-    def __init__(self, x1, y1, x2, y2, height=0.3, width=0.012, wall_type='obstacle', texture=None, id=0):
+    def __init__(self, x1, y1, x2, y2, height=0.3, width=0.012, wall_type='obstacle',
+                 texture=None, color=None, id=0):
         self.x1, self.y1 = x1, y1
         self.x2, self.y2 = x2, y2
         self.height = height
         self.width = width
         self.wall_type = wall_type
         self.texture = texture
+        self.color = color
         self.id = id
         self.length = math.dist((x1, y1), (x2, y2))
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -148,6 +151,16 @@ class Wall:
             node += (
                 f' appearance PBRAppearance {{ '
                 f'baseColorMap ImageTexture {{ url ["{self.texture}"] }} '
+                f'metalness 0 roughness 0.5 }}'
+            )
+        elif self.color is not None:
+            # Flat colour, written exactly as CircularWall writes its own. With
+            # neither a texture nor a colour the wall PROTO's default
+            # appearance applies instead, which is a marble texture.
+            r, g, b = self.color
+            node += (
+                f' appearance PBRAppearance {{ '
+                f'baseColor {r:.2f} {g:.2f} {b:.2f} '
                 f'metalness 0 roughness 0.5 }}'
             )
         return node + ' }'

@@ -75,14 +75,14 @@ a scale-dependent shape claim -- exponential in the megaspace, Gaussian in the
 small environments -- and Fig 6E is CV against enclosure area. Neither can be
 read from datasets that hold area constant.
 
-The default is all eight arenas, each sampled at ~N_TARGET positions so sample
+The default is all nine arenas, each sampled at ~N_TARGET positions so sample
 count is not a covariate. Each has one declared role, and the role alone
 decides which comparisons it enters:
 
   area sweep      circ_lm8_r3, _r6, _r10   the only arenas on the area trend
   Eliav corridor  corr_lm8_l10w2           the only arena scored on length
   square          corr_lm8_l10w10          10 x 10 m, two panels on each wall
-  no landmarks    circ_lm0_r3, circ_lm0_r6, corr_lm0_l10w10
+  no landmarks    circ_lm0_r3, circ_lm0_r6, corr_lm0_l10w10, corr_lm0_l10w2
                                            each compared with its lm8 twin
 
 Roles are declared rather than read off aspect ratio. Aspect was the old test,
@@ -173,7 +173,8 @@ SQUARE_ENVS = ['corr_lm8_l10w10']
 
 # No-landmark copies. Each has exactly the walls and position grid of its lm8
 # twin and no panels, so the landmarks are the only difference within a pair.
-NO_LANDMARK_ENVS = ['circ_lm0_r3', 'circ_lm0_r6', 'corr_lm0_l10w10']
+NO_LANDMARK_ENVS = ['circ_lm0_r3', 'circ_lm0_r6', 'corr_lm0_l10w10',
+                    'corr_lm0_l10w2']
 
 ALL_ENVS = AREA_ENVS + ELIAV_ENVS + SQUARE_ENVS + NO_LANDMARK_ENVS
 
@@ -1812,7 +1813,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--envs',
                    default=','.join(ALL_ENVS),
-                   help='default is all eight arenas (ALL_ENVS). Each has a '
+                   help='default is all nine arenas (ALL_ENVS). Each has a '
                         'declared role in ROLES that decides which comparisons '
                         'it enters: only the area sweep is on the area trend, '
                         'only the Eliav corridor is scored on length, and each '

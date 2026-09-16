@@ -2,6 +2,15 @@ import xml.etree.ElementTree as ET
 
 
 def parse_wall(xml_wall):
+    """One <wall>. Colour is optional and has no default.
+
+    `circular_wall` defaults its colour to black, but a box wall cannot: with
+    no colour and no texture the wall PROTO's own appearance applies, and
+    silently changing that would repaint every existing world. So colour is
+    None unless the XML asks for one, and only then does the wall get a flat
+    appearance of its own.
+    """
+    rgb = [xml_wall.get(k) for k in ('red', 'green', 'blue')]
     return {
         'x1':        float(xml_wall.get('x1')),
         'y1':        float(xml_wall.get('y1')),
@@ -11,6 +20,7 @@ def parse_wall(xml_wall):
         'width':     float(xml_wall.get('width', 0.012)),
         'wall_type': xml_wall.get('type', 'obstacle'),
         'texture':   xml_wall.get('texture', None),
+        'color':     None if any(c is None for c in rgb) else [float(c) for c in rgb],
     }
 
 

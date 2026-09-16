@@ -6,10 +6,14 @@
      9.60 m after the keep-out. -->
 
 <world>
-    <wall x1=" 5.0000" y1="-5.0000" x2=" 5.0000" y2=" 5.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1=" 5.0000" y1=" 5.0000" x2="-5.0000" y2=" 5.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1="-5.0000" y1=" 5.0000" x2="-5.0000" y2="-5.0000" type="boundary" height="0.5" width="0.012"/>
-    <wall x1="-5.0000" y1="-5.0000" x2=" 5.0000" y2="-5.0000" type="boundary" height="0.5" width="0.012"/>
+    <wall x1=" 5.0000" y1="-5.0000" x2=" 5.0000" y2=" 5.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1=" 5.0000" y1=" 5.0000" x2="-5.0000" y2=" 5.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1=" 5.0000" x2="-5.0000" y2="-5.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
+    <wall x1="-5.0000" y1="-5.0000" x2=" 5.0000" y2="-5.0000" type="boundary" height="0.5" width="0.012"
+          red="0.00" green="0.00" blue="0.00"/>
 
 
     <train_start_positions>
