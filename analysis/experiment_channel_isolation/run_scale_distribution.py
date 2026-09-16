@@ -252,14 +252,26 @@ HIST_PCTL = 95             # S1 shows each library up to this percentile
 # surface, which the legend and each panel's "best:" label relieve.
 FORM_COLORS = {'lognormal': '#2a78d6', 'exponential': '#eb6834',
                'gaussian': '#1baf7a'}
-# Scales are ordered, so they take one hue from light (finest, the most
-# numerous) to dark (coarsest, the rarest): the many fine fields recede and the
-# few coarse ones stand out. The ramp cannot give six steps that are all
-# visibly apart -- each step is ~0.047 in OKLab lightness against a 0.06
-# target, so six colours force one single-step pair. That pair is scales 4-5,
-# the two rarest, and line width separates them as well. Scales 0-4 are two
-# steps apart.
-SCALE_COLORS = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281', '#0d366b']
+# Field size runs along a colour gradient, not a single hue: viridis reversed,
+# so a small field is green and a large one deep purple, through teal and blue
+# on the way, with lightness falling steadily. A one-hue blue ramp was tried
+# first and could not hold six separable scales -- consecutive steps sat ~0.047
+# apart in OKLab lightness against a 0.06 target -- and read as flat besides.
+#
+# The ramp starts a quarter of the way in, the first point whose colour clears
+# 2:1 contrast against the surface (#5cc863, 2.06:1). Viridis reversed opens on
+# yellow, which measures 1.63:1: an outline that faint is barely visible, and
+# it would have been the finest fields wearing it, the most numerous ones.
+#
+# A deliberate departure from "one hue for magnitude": viridis is monotone in
+# lightness and colour-blind safe, the figure carries a colourbar to read it
+# by, and colour here encodes size alone, never identity.
+SIZE_CMAP = mcolors.LinearSegmentedColormap.from_list(
+    'vpce_size', matplotlib.colormaps['viridis_r'](np.linspace(0.25, 1.0, 256)))
+# One colour per scale for S2a, taken from the middle of that scale's slice of
+# the same ramp, so a scale's panel there matches the colour its fields take in
+# S2b.
+SCALE_COLORS = [mcolors.to_hex(SIZE_CMAP(t)) for t in np.linspace(0.08, 0.92, 6)]
 # Kept thin: at 1.7 pt the few scale-5 outlines were the darkest, heaviest ink
 # in a panel of thousands and buried everything finer.
 SCALE_LINEWIDTHS = [0.3, 0.4, 0.5, 0.65, 0.85, 1.1]
@@ -1156,28 +1168,48 @@ def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
 
 
 def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
-    """S2b: every admitted field as an outline coloured by scale, all arenas.
+    """S2b: every admitted field drawn on the arena, coloured by its own size.
 
     Arena on the row, channel on the column. Each arena fills its own panel so
     the finest fields of the small arenas stay visible; the bar on each row
     gives that row's size. Row heights follow each arena's shape, so the
     corridor is a short wide row rather than a strip in a square of blank.
 
-    Fields are outlines over a near-transparent fill. A solid ellipse hides
-    whatever lies beneath it, and with thousands of overlapping fields per
-    library only the top layer could be seen.
+    Each field is a near-transparent fill under a strong outline, both taking
+    the same colour: the field's radius on a light-to-dark ramp, read off the
+    colourbar in metres. A solid fill hides whatever lies beneath it, and with
+    thousands of overlapping fields per library only the top layer would show.
 
-    Scale runs light (0, finest) to dark (5, coarsest) on one hue, and line
-    width grows with it. Fine fields are drawn first and coarse fields last,
-    so the rare coarse fields sit on top of the carpet of fine ones rather
-    than beneath it.
+    The ramp is logarithmic, which is what keeps the scales legible within it.
+    Scales are geometric in radius at ratio 1.6, so each occupies an equal
+    slice of the colour axis, while a field at the top of its scale still
+    reads darker than one at the bottom -- which six flat class colours could
+    not show. One ramp serves every panel, so a colour means the same size in
+    every arena and the r = 10 disc's fields really are drawn darker than the
+    r = 3 disc's.
+
+    Line width grows with scale as a second cue, and fine fields are drawn
+    first so the rare coarse ones sit on top of the carpet rather than under
+    it.
     """
     key = lambda e, c: (e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU)
     envs = [e for e in envs if any(key(e, c) in banks_all for c in chans)]
     if not envs:
         return
+    pooled = np.concatenate(
+        [banks_all[key(e, c)].radius_env_m.to_numpy(dtype=float)
+         for e in envs for c in chans
+         if key(e, c) in banks_all and len(banks_all[key(e, c)])]
+        or [np.array([0.1, 1.0])])
+    lo = max(float(np.min(pooled)), 1e-3)
+    hi = max(float(np.max(pooled)), lo * 1.01)
+    norm = mcolors.LogNorm(vmin=lo, vmax=hi, clip=True)
+
     frames = [_map_frame(env_geom.get(e, {})) for e in envs]
-    ratios = [f[2] for f in frames]
+    # Row heights follow each arena's shape, but never fall below what a row's
+    # own label needs: a 10 x 2 m corridor row is a third the height of a disc
+    # row, and at that height its rotated label runs into its neighbour's.
+    ratios = [max(f[2], 0.55) for f in frames]
     fig, axes = plt.subplots(len(envs), len(chans), squeeze=False,
                              figsize=(2.5 * len(chans),
                                       sum(2.5 * r + 0.35 for r in ratios) + 1.2),
@@ -1195,10 +1227,13 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
                 g = b[b.scale_band == s] if n else None
                 if g is None or not len(g):
                     continue
+                # One colour per field, from its own radius: a wash for the
+                # fill, the same colour at full strength for the outline.
+                rgba = SIZE_CMAP(norm(g.radius_env_m.to_numpy(dtype=float)))
+                face, edge = rgba.copy(), rgba.copy()
+                face[:, 3], edge[:, 3] = 0.05, 0.95
                 ax.add_collection(PatchCollection(
-                    _field_ellipses(g),
-                    facecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.04)],
-                    edgecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.9)],
+                    _field_ellipses(g), facecolors=face, edgecolors=edge,
                     linewidths=SCALE_LINEWIDTHS[s], zorder=2 + s))
             _count_label(ax, n)
             if i == 0:
@@ -1207,20 +1242,38 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
                 ax.set_ylabel(_env_label(e, geom), fontsize=7.5, color=INK_2)
                 _scale_bar(ax, lim_x, lim_y)
 
+    # Colour is the size ramp now, so the legend shows the other cue: line
+    # width by scale. Drawing these keys in a ramp colour would claim a size
+    # each scale does not have, since a scale spans a range of sizes and its
+    # position on the ramp moves with the arena.
     labels = [f'scale {s}' + (' (finest)' if s == 0 else
                               ' (coarsest)' if s == SCALES[-1] else '')
               for s in SCALES] + ['landmark']
-    handles = ([Line2D([], [], color=SCALE_COLORS[s],
-                       lw=max(1.4, 1.6 * SCALE_LINEWIDTHS[s])) for s in SCALES]
+    handles = ([Line2D([], [], color=INK_2, lw=max(0.8, 1.8 * SCALE_LINEWIDTHS[s]))
+                for s in SCALES]
                + [Line2D([], [], color=INK, marker='s', ms=4, ls='')])
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
-    fig.suptitle('S2b  admitted fields as outlines, coloured by scale\n'
-                 'each arena fills its own panel (see the bar on each row); '
-                 'coarser scales are darker, thicker and drawn on top',
+    fig.suptitle('S2b  admitted fields, coloured by field size\n'
+                 'green small to purple large, on one logarithmic ramp shared '
+                 'by every panel; line width grows with scale and coarse '
+                 'fields are drawn on top; each arena fills its own panel',
                  fontsize=10, color=INK, y=1 - 0.08 / height)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.95 / height))
+    fig.tight_layout(rect=(0, 0, 0.93, 1 - 0.95 / height))
+    # Added after tight_layout: a manually placed colour bar is not a
+    # tight_layout-compatible axes and warns if it exists during the call.
+    # A short bar centred on the figure. Stretched over the full height it
+    # reads as a ninth column of data rather than a key.
+    cax = fig.add_axes([0.945, 0.40, 0.011, 0.20])
+    cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SIZE_CMAP), cax=cax)
+    cb.set_label('field radius (m)', fontsize=9, color=INK_2)
+    ticks = [t for t in (0.1, 0.2, 0.5, 1, 2, 5, 10) if lo <= t <= hi]
+    if ticks:
+        cb.set_ticks(ticks)
+        cb.set_ticklabels([f'{t:g}' for t in ticks])
+    cb.ax.tick_params(labelsize=7, colors=MUTED)
+    cb.outline.set_visible(False)
     # 130 dpi: at 150 this one figure was 11 MB of antialiased outlines.
     _save(fig, fig_dir, 'S2b_field_outlines.png', dpi=130)
 
