@@ -41,10 +41,14 @@ ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0 -- so these are the same
 libraries that experiment reports, and the audit describes those fields rather
 than a re-tuned copy of them.
 
+The default is every arena against every channel, one figure per arena. That
+is 48 libraries and roughly a day and a half in one job, so the usual way to
+run it is one job per arena -- see slurm/prune_audit.sh --submit.
+
 Usage
-    python run_prune_audit.py                          # the collapses, plus controls
+    python run_prune_audit.py                          # every arena, every channel
+    python run_prune_audit.py --envs corr_lm0_l10w2    # one arena, six channels
     python run_prune_audit.py --pairs corr_lm0_l10w2:hog
-    python run_prune_audit.py --envs corr_lm0_l10w2    # every channel of one arena
 """
 
 import argparse
@@ -71,16 +75,13 @@ from realm_tools.experiment_lib.reporting import ExperimentReport   # noqa: E402
 
 PCTL, THRESH = SD.SETTINGS[0]
 
-# The libraries that motivated the audit, each paired with the same channel
-# where it works, so an empty funnel can be read against a healthy one.
-DEFAULT_PAIRS = [
-    ('corr_lm0_l10w2', 'hog'),        ('corr_lm8_l10w2', 'hog'),
-    ('corr_lm0_l10w2', 'spatial'),    ('corr_lm8_l10w2', 'spatial'),
-    ('corr_lm0_l10w2', 'visual'),     ('corr_lm0_l10w2', 'color'),
-    ('corr_lm8_l10w10', 'color'),     ('corr_lm0_l10w10', 'color'),
-    ('corr_lm0_l10w10', 'spatial'),   ('corr_lm8_l10w10', 'spatial'),
-    ('corr_lm0_l10w10', 'visual'),    ('circ_lm8_r6', 'color'),
-]
+# Every arena against every channel. A collapse only means something beside
+# the same channel where it works, and which pairs those are is not known in
+# advance -- the square's colour channel collapses with panels and recovers
+# without them, the corridor's does the opposite. Arenas with no dataset are
+# skipped with a note rather than failing the run.
+def default_pairs():
+    return [(e, c) for e in SD.ALL_ENVS for c in SD.CHANNELS]
 
 INK, INK_2, MUTED = SD.INK, SD.INK_2, SD.MUTED
 RULE_GRAY, SURFACE = SD.RULE_GRAY, SD.SURFACE
@@ -117,7 +118,7 @@ def parse_pairs(args):
         for e in args.envs.split(','):
             if e.strip():
                 pairs += [(e.strip(), c) for c in chans]
-    return pairs or list(DEFAULT_PAIRS)
+    return pairs or default_pairs()
 
 
 def build_library(env_name, cname, blocks, xy, env, base_C, device, verbose=True):
@@ -263,7 +264,7 @@ def diagnose(pair, scales):
 
 
 def fig_funnels(scales_df, pairs_df, fig_dir):
-    """One panel per library: how many candidates each rule lets through.
+    """One figure per arena, one panel per channel: what each rule lets through.
 
     Five bars per scale -- the candidates built at that scale, then what
     survives size, contiguity, competition and coverage in turn. Counts on a
@@ -271,58 +272,66 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
     and a bar of zero beside a bar of hundreds is the answer. The number that
     survives all four is printed, since it is often too small to see.
 
-    The two end categories belong to the size rule alone: a field below the
-    floor or above the ceiling has no scale of its own to be drawn at.
+    The axis starts at scale 0. Candidates below the size floor are counted in
+    the CSV but not drawn: a tree produces them in the thousands, and a first
+    bar that tall flattens every scale beside it. Above the ceiling stays, as
+    a handful of oversized fields worth seeing.
+
+    Per arena rather than one figure for everything: every arena against every
+    channel is 48 panels, which is a wall of small multiples nobody reads. Six
+    channels of one arena fit a page, and that is the comparison being made.
     """
-    pairs = list(pairs_df.itertuples())
-    if not pairs:
-        return None
-    n_c = min(3, len(pairs))
-    n_r = int(np.ceil(len(pairs) / n_c))
-    fig, axes = plt.subplots(n_r, n_c, squeeze=False,
-                             figsize=(5.0 * n_c, 3.1 * n_r + 1.0))
-    fig.patch.set_facecolor(SURFACE)
-    cats = ['< floor'] + [str(s) for s in SD.SCALES] + ['> ceiling']
-    w = 0.17
-    for ax_i, pr in enumerate(pairs):
-        ax = axes[ax_i // n_c][ax_i % n_c]
-        ax.set_facecolor(SURFACE)
-        d = scales_df[(scales_df.env == pr.env) & (scales_df.channel == pr.channel)]
-        d = d.set_index('scale').reindex(cats)
-        x = np.arange(len(cats))
-        for k, (col, colour) in enumerate(zip(COUNT_COLUMNS, BAR_COLORS)):
-            ax.bar(x + (k - 2) * w, d[col].fillna(0).to_numpy(), width=w * 0.9,
-                   color=colour, edgecolor=SURFACE, linewidth=0.4, zorder=2)
-        for xi, v in zip(x, d.n_pass_coverage.fillna(0).to_numpy()):
-            ax.text(xi + 2 * w, max(v, 0), f'{int(v)}', ha='center', va='bottom',
-                    fontsize=6, color=INK_2)
-        for side in ('top', 'right'):
-            ax.spines[side].set_visible(False)
-        for side in ('left', 'bottom'):
-            ax.spines[side].set_color(RULE_GRAY)
-        ax.set_xticks(x)
-        ax.set_xticklabels(cats, fontsize=7)
-        ax.tick_params(labelsize=7, colors=MUTED)
-        ax.set_xlabel('scale (0 finest)', fontsize=8, color=INK_2)
-        ax.set_ylabel('candidates', fontsize=8, color=INK_2)
-        ax.set_title(f'{pr.env} · {pr.channel} — {pr.pass_coverage} admitted',
-                     fontsize=9, color=INK)
-    for ax_i in range(len(pairs), n_r * n_c):
-        axes[ax_i // n_c][ax_i % n_c].set_visible(False)
-    height = fig.get_figheight()
-    fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in BAR_COLORS],
-               BAR_LABELS, loc='upper center', ncol=len(BAR_LABELS), frameon=False,
-               fontsize=8, bbox_to_anchor=(0.5, 1 - 0.48 / height))
-    fig.suptitle("P1  which rule takes each scale's candidates\n"
-                 'bars left to right: built at that scale, then what survives '
-                 'size, contiguity, competition and coverage',
-                 fontsize=10, color=INK, y=1 - 0.06 / height)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
-    path = os.path.join(fig_dir, 'P1_prune_funnels.png')
-    fig.savefig(path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    print(f'  {path}', flush=True)
-    return path
+    cats = [str(s) for s in SD.SCALES] + ['> ceiling']
+    w, paths = 0.17, []
+    for env_name in pairs_df.env.drop_duplicates():
+        rows = list(pairs_df[pairs_df.env == env_name].itertuples())
+        n_c = min(3, len(rows))
+        n_r = int(np.ceil(len(rows) / n_c))
+        fig, axes = plt.subplots(n_r, n_c, squeeze=False,
+                                 figsize=(5.0 * n_c, 3.1 * n_r + 1.1))
+        fig.patch.set_facecolor(SURFACE)
+        for ax_i, pr in enumerate(rows):
+            ax = axes[ax_i // n_c][ax_i % n_c]
+            ax.set_facecolor(SURFACE)
+            d = scales_df[(scales_df.env == pr.env) & (scales_df.channel == pr.channel)]
+            d = d.set_index('scale').reindex(cats)
+            x = np.arange(len(cats))
+            for k, (col, colour) in enumerate(zip(COUNT_COLUMNS, BAR_COLORS)):
+                ax.bar(x + (k - 2) * w, d[col].fillna(0).to_numpy(), width=w * 0.9,
+                       color=colour, edgecolor=SURFACE, linewidth=0.4, zorder=2)
+            for xi, v in zip(x, d.n_pass_coverage.fillna(0).to_numpy()):
+                ax.text(xi + 2 * w, max(v, 0), f'{int(v)}', ha='center',
+                        va='bottom', fontsize=6, color=INK_2)
+            for side in ('top', 'right'):
+                ax.spines[side].set_visible(False)
+            for side in ('left', 'bottom'):
+                ax.spines[side].set_color(RULE_GRAY)
+            ax.set_xticks(x)
+            ax.set_xticklabels(cats, fontsize=7)
+            ax.tick_params(labelsize=7, colors=MUTED)
+            ax.set_xlabel('scale (0 finest)', fontsize=8, color=INK_2)
+            ax.set_ylabel('candidates', fontsize=8, color=INK_2)
+            ax.set_title(f'{pr.channel} — {pr.pass_coverage} admitted',
+                         fontsize=9, color=INK)
+        for ax_i in range(len(rows), n_r * n_c):
+            axes[ax_i // n_c][ax_i % n_c].set_visible(False)
+        height = fig.get_figheight()
+        fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in BAR_COLORS],
+                   BAR_LABELS, loc='upper center', ncol=len(BAR_LABELS),
+                   frameon=False, fontsize=8,
+                   bbox_to_anchor=(0.5, 1 - 0.48 / height))
+        fig.suptitle(f"P1  {env_name}: which rule takes each scale's candidates\n"
+                     'bars left to right: built at that scale, then what '
+                     'survives size, contiguity, competition and coverage; '
+                     'candidates under the size floor are in the CSV, not drawn',
+                     fontsize=10, color=INK, y=1 - 0.06 / height)
+        fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
+        path = os.path.join(fig_dir, f'P1_prune_funnels_{env_name}.png')
+        fig.savefig(path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f'  {path}', flush=True)
+        paths.append(path)
+    return paths
 
 
 class PruneAuditReport(ExperimentReport):
@@ -396,8 +405,9 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--pairs', default='',
-                   help='env:channel pairs, comma separated. Default is the '
-                        'collapsed libraries plus controls (DEFAULT_PAIRS).')
+                   help='env:channel pairs, comma separated. Default is every '
+                        'arena against every channel; arenas with no dataset '
+                        'are skipped with a note.')
     p.add_argument('--envs', default='',
                    help='audit every channel of these arenas, comma separated')
     p.add_argument('--channels', default=','.join(SD.CHANNELS),
@@ -458,6 +468,12 @@ def main():
         pair_rows.append(prow)
         diagnoses.append(diagnose(prow, rows))
         print(f'  {diagnoses[-1]}', flush=True)
+        # Written after every library: 48 of these outlast a 24 h walltime only
+        # if a timeout leaves the finished ones on disk.
+        pd.DataFrame(scale_rows_all).to_csv(f'{out_dir}/prune_audit_scales.csv',
+                                            index=False)
+        pd.DataFrame(pair_rows).to_csv(f'{out_dir}/prune_audit_pairs.csv',
+                                       index=False)
 
     if not pair_rows:
         print('\nNothing audited. Datasets missing: ' + (', '.join(missing) or 'none'))
@@ -469,13 +485,13 @@ def main():
     pairs_df.to_csv(f'{out_dir}/prune_audit_pairs.csv', index=False)
 
     print('\nfigures:', flush=True)
-    fig_path = fig_funnels(scales_df, pairs_df, fig_dir)
+    fig_paths = fig_funnels(scales_df, pairs_df, fig_dir)
 
     rep_obj = PruneAuditReport(env_name=','.join(sorted({e for e, _ in pairs})),
                                out_dir=out_dir, fig_dir=fig_dir, results=pairs_df,
                                log_path=os.environ.get('REALM_LOG_PATH'))
     rep_obj.scales, rep_obj.diagnoses = scales_df, diagnoses
-    rep_obj.figure_paths = [fig_path]
+    rep_obj.figure_paths = fig_paths
     if missing:
         print(f'\n!! datasets not found, skipped: {", ".join(sorted(set(missing)))}')
     print('\n' + rep_obj.compose(), flush=True)
@@ -483,7 +499,7 @@ def main():
         rep_obj.send()
     print(f'\nscales -> {out_dir}/prune_audit_scales.csv'
           f'\npairs  -> {out_dir}/prune_audit_pairs.csv'
-          f'\nfigure -> {fig_path}')
+          f'\nfigures -> {fig_dir} ({len(fig_paths)})')
     return 0
 
 

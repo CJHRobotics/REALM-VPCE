@@ -447,27 +447,34 @@ libraries those reports describe.
 
 ## Running
 
-```bash
-sbatch slurm/prune_audit.sh
-```
-
-The default pair list is the collapsed libraries above, each with the same
-channel where it works, so an empty funnel can be read against a healthy one.
-Narrow it with `--pairs env:channel,...` or audit a whole arena with
-`--envs`:
+Fan out one job per arena — the usual way. Run it with `bash`, not `sbatch`:
+it only calls `sbatch`, once per arena.
 
 ```bash
-sbatch slurm/prune_audit.sh --pairs corr_lm0_l10w2:hog,corr_lm8_l10w2:hog
+bash slurm/prune_audit.sh --submit
 ```
+
+That submits the eight arenas that have datasets, six libraries each, and they
+finish in the time the slowest one takes. A bare `sbatch slurm/prune_audit.sh`
+audits every arena against every channel in a single job instead — 48
+libraries, around ninety minutes, well inside its 24 h. Narrow it with
+`--envs` or `--pairs`:
 
 ```bash
 sbatch slurm/prune_audit.sh --envs corr_lm0_l10w2
 ```
 
+```bash
+sbatch slurm/prune_audit.sh --pairs corr_lm0_l10w2:hog,corr_lm8_l10w2:hog
+```
+
 Cost is one field library per pair — the Gram matrix, the Ward tree and the
 readout, the same work Experiment 2 does per channel. There is no cache to
 reuse: the banks Experiment 2 writes hold the survivors, and this needs the
-candidates that never became survivors, which are never stored.
+candidates that never became survivors, which are never stored. Measured on
+GAIVI: two arenas, twelve libraries, twenty minutes. The CSVs are rewritten
+after every library, so a job that stops early still leaves behind the
+libraries it finished.
 
 ## Outputs
 
@@ -478,10 +485,16 @@ candidates that never became survivors, which are never stored.
 | `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, then how many survived size, contiguity, competition and coverage, with the coverage the scale reached against the coverage it needed, and a plain-language verdict |
 | `prune_audit_pairs.csv` | one row per library: the totals through all four rules, the candidate radius range against the size window, fragmentation rate, median `sigma_ratio`, and which scales survived |
 
-Figure — `figures/prune_audit/P1_prune_funnels.png`: one panel per library,
-five bars per scale — the candidates built there, then what survives size,
-contiguity, competition and coverage, each rule in its own colour. Counts on a
-linear axis, because the question is whether anything came through at all.
+Figures — `figures/prune_audit/P1_prune_funnels_<env>.png`, one per arena:
+one panel per channel, five bars per scale — the candidates built there, then
+what survives size, contiguity, competition and coverage, each rule in its own
+colour. Counts on a linear axis, because the question is whether anything came
+through at all. Per arena rather than one sheet of 48 panels, since six
+channels of one arena is the comparison being made.
+
+The axis starts at scale 0. Candidates below the size floor are counted in
+`prune_audit_scales.csv` but not drawn — a tree produces them in the
+thousands, and a first bar that tall flattens every scale beside it.
 
 **`sigma_ratio` near 1** means a node's members are as far apart in feature
 space as two random locations are: the response is flat, and a flat response

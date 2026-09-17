@@ -35,16 +35,22 @@
 # same libraries the reports do.
 #
 # Usage:
-#   sbatch slurm/prune_audit.sh                       # the collapsed pairs, plus controls
+#   bash   slurm/prune_audit.sh --submit               # one job per arena -- the usual way
+#   bash   slurm/prune_audit.sh --submit corr_lm0_l10w2,corr_lm8_l10w2
+#   sbatch slurm/prune_audit.sh                        # every arena in one job, ~90 min
+#   sbatch slurm/prune_audit.sh --envs corr_lm0_l10w2  # one arena, six channels
 #   sbatch slurm/prune_audit.sh --pairs corr_lm0_l10w2:hog
-#   sbatch slurm/prune_audit.sh --pairs corr_lm8_l10w10:color,circ_lm8_r6:color
-#   sbatch slurm/prune_audit.sh --envs corr_lm0_l10w2  # every channel of one arena
 #
 # Cost is a field library per pair: the Gram matrix, the Ward tree and the
 # readout, the same work Experiment 2 does per channel. There is no cache to
-# reuse -- the banks it writes are the survivors, and this needs the candidates
-# that did not become survivors, which are never stored. Twelve pairs is
-# roughly two arenas of Experiment 2, well inside the walltime.
+# reuse -- the banks Experiment 2 writes hold the survivors, and this needs the
+# candidates that never became survivors, which are never stored.
+#
+# Every arena against every channel is 48 libraries, which measured about
+# ninety minutes in one job -- well inside the walltime. --submit exists to get
+# them back sooner rather than to fit them in: eight arenas in parallel finish
+# in the time the slowest one takes. Either way the CSVs are rewritten after
+# every library, so a job that does stop early leaves what it finished.
 #
 # ------------------------------------------------------------- SLURM header
 #SBATCH --job-name=prune-audit
@@ -59,6 +65,9 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=chamilton4@usf.edu
 #
+# 24 h is ample. Measured on GAIVI: two arenas, twelve libraries, twenty
+# minutes, so every arena against every channel lands near an hour and a half.
+#
 # Any GPU: rules.feature_sq_distances checks free VRAM and falls back to the
 # CPU for the widest channels, so a small card costs time, not correctness.
 # 128G because the feature matrix, its pairwise block and the candidate
@@ -69,6 +78,25 @@
 # --------------------------------------------------------------------------
 
 set -euo pipefail
+
+# --------------------------------------------------------------- submit mode
+# Run with bash on the login node, not with sbatch: it only calls sbatch, once
+# per arena, so eight arenas finish in the time the slowest takes rather than
+# in sequence. With no list it
+# submits every arena that has a dataset -- circ_lm8_r10 is left out because it
+# has none, and a job with nothing to audit exits non-zero and mails a failure.
+SUBMIT_ENVS=circ_lm8_r3,circ_lm0_r3,circ_lm8_r6,circ_lm0_r6,corr_lm8_l10w2,corr_lm0_l10w2,corr_lm8_l10w10,corr_lm0_l10w10
+if [[ "${1:-}" == "--submit" ]]; then
+    # sbatch records the working directory as SLURM_SUBMIT_DIR, which the job
+    # uses as the repo, so submit from the repo root wherever this is run.
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+    mkdir -p slurm/logs
+    list="${2:-$SUBMIT_ENVS}"
+    for e in ${list//,/ }; do
+        sbatch --job-name="prune-audit-$e" slurm/prune_audit.sh --envs "$e"
+    done
+    exit 0
+fi
 
 EXTRA_ARGS=("$@")
 
