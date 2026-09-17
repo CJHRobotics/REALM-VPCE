@@ -429,14 +429,14 @@ Every candidate node is followed to the stage it died at:
 
 | outcome | what it means |
 |---|---|
-| no candidate | the tree produced no node whose field lands at this scale. The channel cannot localise to that size at all, and nothing downstream could have saved it |
-| Rule 8/9 size | the mask fell below the floor or above the ceiling, so it never had a scale |
-| Rule 1 | the mask was in pieces — the largest connected patch held under `CC_FRAC_MIN` of it. This is what an incoherent response looks like: a channel that cannot separate two distant places responds in both, and the field fragments |
-| Rule 11 | a larger field of the same scale already claimed the ground. Routine, and the main reason counts fall with scale |
-| Rule 12 | the scale cleared competition but its survivors covered less than `TILING_FRAC_MIN` of the floor, so the whole scale went. This is how a scale disappears wholesale rather than thinning |
+| no candidate | the tree produced no field of that size at all. Not a rule at work: the channel cannot localise to it, and nothing downstream could have saved it |
+| **size** | the field fell below the floor or above the ceiling, so it never had a scale of its own. Size therefore shows only at the two ends of the scale axis |
+| **contiguity** | the field came out in pieces — the largest connected patch held under `CC_FRAC_MIN` of it. This is what an incoherent response looks like: a channel that cannot separate two distant places responds in both, and the field fragments |
+| **competition** | a larger field of the same scale already claimed the ground. Routine, and the main reason counts fall with scale |
+| **coverage** | the scale cleared competition but its survivors covered less than `TILING_FRAC_MIN` of the floor, so the whole scale went. This is how a scale disappears wholesale rather than thinning |
 
 The counts come from the rules engine itself — `rules.admit_fields` records
-which candidates survived each stage — rather than from a second
+which candidates survived each rule — rather than from a second
 implementation that could drift from it. Those records are arrays, and the
 JSON report Experiment 2 writes already drops arrays, so they cost nothing
 there.
@@ -475,11 +475,12 @@ candidates that never became survivors, which are never stored.
 
 | file | contents |
 |------|----------|
-| `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, how many were whole, how many won competition, how many were admitted, the scale's coverage, and a plain-language verdict |
-| `prune_audit_pairs.csv` | one row per library: the funnel totals, the candidate radius range against the Rule 8/9 window, fragmentation rate, median `sigma_ratio`, and which scales Rule 12 kept |
+| `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, then how many survived size, contiguity, competition and coverage, with the coverage the scale reached against the coverage it needed, and a plain-language verdict |
+| `prune_audit_pairs.csv` | one row per library: the totals through all four rules, the candidate radius range against the size window, fragmentation rate, median `sigma_ratio`, and which scales survived |
 
 Figure — `figures/prune_audit/P1_prune_funnels.png`: one panel per library,
-four bars per scale (built, whole, won competition, admitted). Counts on a
+five bars per scale — the candidates built there, then what survives size,
+contiguity, competition and coverage, each rule in its own colour. Counts on a
 linear axis, because the question is whether anything came through at all.
 
 **`sigma_ratio` near 1** means a node's members are as far apart in feature

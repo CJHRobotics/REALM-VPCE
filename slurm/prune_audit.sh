@@ -11,16 +11,20 @@
 #   corr_lm8_l10w10  color                  7 fields, all at one coarse scale
 #   corr_lm0_l10w10  spatial, visual        18 and 7 fields, coarse only
 #
-# For every candidate node the audit records the stage it died at:
+# Every candidate is followed through the four rules, and the audit reports
+# which one took it:
 #
-#   no candidate    the tree never produced a node whose field lands at this
-#                   scale -- the channel cannot localise to that size at all
-#   rule 8/9 size   the mask fell below the floor or above the ceiling
-#   rule 1          the mask was in pieces; the largest connected patch held
-#                   less than CC_FRAC_MIN of it
-#   rule 11         a larger field of the same scale already claimed the spot
-#   rule 12         the scale survived competition but its fields covered less
-#                   than TILING_FRAC_MIN of the floor, so the scale was dropped
+#   size          the field fell below the floor or above the ceiling, so it
+#                 never had a scale of its own
+#   contiguity    the field came out in pieces; the largest connected patch
+#                 held less than CC_FRAC_MIN of it
+#   competition   a larger field of the same scale already claimed the ground
+#   coverage      the scale survived competition but its fields covered less
+#                 than TILING_FRAC_MIN of the floor, so the scale was dropped
+#
+# One outcome is not a rule: a scale can have no candidates at all, because
+# the tree never produced a field that size. Nothing downstream could have
+# saved it.
 #
 # The counts come from the rules engine itself, which now records which
 # candidates survived each stage, rather than from a second implementation of

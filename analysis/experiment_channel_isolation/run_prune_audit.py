@@ -12,22 +12,25 @@ built a candidate of that size, whether the candidates were built and came out
 in pieces, or whether they were whole and lost to a later rule. Those have
 different causes and different fixes, and this separates them.
 
-Every candidate node is followed to the stage it died at:
+Every candidate is followed through the four rules, and the audit reports
+which one took it:
 
-  no candidate    the tree produced no node whose field lands at this scale.
-                  The channel cannot localise to that size: its extents come
-                  out somewhere else entirely.
-  Rule 8/9 size   the mask fell below the floor or above the ceiling, so it
-                  never had a scale.
-  Rule 1          the mask was in pieces -- the largest connected patch held
-                  under CC_FRAC_MIN of it. This is what an incoherent response
-                  looks like: a channel that cannot tell two distant places
-                  apart lights up in both, and the mask fragments.
-  Rule 11         a larger field of the same scale had already claimed the
-                  ground. Routine, and the main reason counts fall with scale.
-  Rule 12         the scale cleared competition but its survivors covered less
-                  than TILING_FRAC_MIN of the floor, so the whole scale went.
-                  This is how a scale disappears wholesale rather than thins.
+  size          the field came out smaller than the floor or larger than the
+                ceiling. These are the only candidates with no scale of their
+                own, so they sit at the two ends of the scale axis.
+  contiguity    the field came out in pieces -- the largest connected patch
+                held under CC_FRAC_MIN of it. This is what an incoherent
+                response looks like: a channel that cannot tell two distant
+                places apart responds in both, and the field fragments.
+  competition   a larger field of the same scale had already claimed the
+                ground. Routine, and the main reason counts fall with scale.
+  coverage      the scale cleared competition, but its survivors covered less
+                than TILING_FRAC_MIN of the floor, so the whole scale went.
+                This is how a scale disappears wholesale rather than thinning.
+
+One outcome is not a rule at all: a scale can have no candidates to begin
+with, because the tree never produced a field of that size. Nothing
+downstream could have saved it, and no threshold would bring it back.
 
 The counts come from the rules engine itself, which records the survivors of
 each stage, rather than from a second implementation here that could drift
@@ -79,12 +82,23 @@ DEFAULT_PAIRS = [
     ('corr_lm0_l10w10', 'visual'),    ('circ_lm8_r6', 'color'),
 ]
 
-# Stage colours: one hue, light to dark, because the stages are ordered.
-STAGE_COLORS = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab']
-STAGE_LABELS = ['candidates at this scale', 'whole (Rule 1)',
-                'won competition (Rule 11)', 'admitted (Rule 12)']
 INK, INK_2, MUTED = SD.INK, SD.INK_2, SD.MUTED
 RULE_GRAY, SURFACE = SD.RULE_GRAY, SD.SURFACE
+
+# Four hues, one per rule, rather than four steps of one hue. What a reader
+# asks here is *which* rule took a library, and that is identity, not
+# magnitude; one hue in four steps makes neighbouring rules hard to tell apart
+# at a glance. Checked with a palette validator at its strictest setting,
+# since any two bars in a group can be compared: worst colour-blind pair
+# dE 9.2, worst normal-vision pair 16.3. Aqua sits just under 3:1 against the
+# surface, which the printed counts relieve. Candidates are grey -- a starting
+# count, not a rule.
+RULE_NAMES = ['size', 'contiguity', 'competition', 'coverage']
+RULE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7']
+COUNT_COLUMNS = ['n_candidates', 'n_pass_size', 'n_pass_contiguity',
+                 'n_pass_competition', 'n_pass_coverage']
+BAR_COLORS = [RULE_GRAY] + RULE_COLORS
+BAR_LABELS = ['candidates'] + [f'passed {n}' for n in RULE_NAMES]
 
 
 def parse_pairs(args):
@@ -125,7 +139,13 @@ def build_library(env_name, cname, blocks, xy, env, base_C, device, verbose=True
 
 
 def scale_rows(rep, C, tag):
-    """One row per scale: how many candidates reached it, and what took them."""
+    """One row per scale: how many candidates reached it, and which rule took them.
+
+    The two end rows are the size rule's own casualties. A field below the
+    floor or above the ceiling has no scale of its own, so it cannot appear in
+    a numbered row; within a scale, size has nothing left to reject, and the
+    other three rules do the work.
+    """
     area = np.asarray(rep['cand_area'], dtype=float)
     band = np.asarray(rep['cand_band'], dtype=int)
     r_eq = np.asarray(rep['cand_r_eq'], dtype=float)
@@ -142,40 +162,45 @@ def scale_rows(rep, C, tag):
         return float(np.median(x[sel])) if sel.any() else np.nan
 
     rows = []
-    # Out of the window entirely: these never had a scale to belong to.
-    for label, sel in (('below floor', ~pass_size & (area < rep['area_min'])),
-                       ('above ceiling', ~pass_size & (area > rep['area_max']))):
-        rows.append(dict(tag, scale=label, n_candidates=int(sel.sum()),
-                         n_whole=0, n_won_competition=0, n_admitted=0,
-                         median_radius_m=med(r_eq, sel), median_cc_frac=med(cc_frac, sel),
+    for label, sel, why in (
+            ('< floor', ~pass_size & (area < rep['area_min']),
+             'size: smaller than the floor'),
+            ('> ceiling', ~pass_size & (area > rep['area_max']),
+             'size: larger than the ceiling')):
+        n = int(sel.sum())
+        rows.append(dict(tag, scale=label, n_candidates=n, n_pass_size=0,
+                         n_pass_contiguity=0, n_pass_competition=0,
+                         n_pass_coverage=0, median_radius_m=med(r_eq, sel),
+                         median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
-                         coverage_after_rule11=np.nan, tiling_threshold=thr,
-                         scale_kept=False, verdict='outside the Rule 8/9 window'))
-    for s in SD.SCALES:
-        sel = pass_size & (band == s)
+                         coverage_reached=np.nan, coverage_needed=thr,
+                         scale_kept=False, verdict=why if n else 'none'))
+    for sc in SD.SCALES:
+        sel = pass_size & (band == sc)
         whole = sel & pass_cc
         won = sel & kept11
         adm = sel & kept12
-        cov = float(coverage.get(s, np.nan)) if isinstance(coverage, dict) else np.nan
-        n, n_whole, n_won, n_adm = map(int, (sel.sum(), whole.sum(), won.sum(), adm.sum()))
+        cov = float(coverage.get(sc, np.nan)) if isinstance(coverage, dict) else np.nan
+        n, n_wh, n_won, n_adm = map(int, (sel.sum(), whole.sum(), won.sum(), adm.sum()))
         if n == 0:
             v = 'no candidate reached this scale'
-        elif n_whole == 0:
-            v = 'every mask was in pieces, rejected by Rule 1'
+        elif n_wh == 0:
+            v = f'contiguity took all {n}: every field came out in pieces'
         elif n_won == 0:
-            v = 'every whole mask lost Rule 11 competition'
+            v = f'competition took all {n_wh}: every whole field lost its ground'
         elif n_adm == 0:
-            v = (f'Rule 12 dropped the scale: {100*cov:.0f}% coverage against '
-                 f'the {100*thr:.0f}% it needs' if np.isfinite(cov) else
-                 'Rule 12 dropped the scale')
+            v = (f'coverage dropped the scale: {100*cov:.0f}% of the floor '
+                 f'against the {100*thr:.0f}% it needs' if np.isfinite(cov)
+                 else 'coverage dropped the scale')
         else:
             v = f'{n_adm} admitted'
-        rows.append(dict(tag, scale=str(s), n_candidates=n, n_whole=n_whole,
-                         n_won_competition=n_won, n_admitted=n_adm,
-                         median_radius_m=med(r_eq, sel), median_cc_frac=med(cc_frac, sel),
+        rows.append(dict(tag, scale=str(sc), n_candidates=n, n_pass_size=n,
+                         n_pass_contiguity=n_wh, n_pass_competition=n_won,
+                         n_pass_coverage=n_adm, median_radius_m=med(r_eq, sel),
+                         median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
-                         coverage_after_rule11=cov, tiling_threshold=thr,
-                         scale_kept=bool(lo <= s <= hi), verdict=v))
+                         coverage_reached=cov, coverage_needed=thr,
+                         scale_kept=bool(lo <= sc <= hi), verdict=v))
     return rows
 
 
@@ -189,16 +214,18 @@ def pair_row(rep, C, env, tag, n_admitted):
         tag,
         env_area_m2=float(env['env_area']),
         n_candidates=int(rep['n_candidates']),
-        after_size=int(funnel.get('rule_8_9_size', 0)),
-        after_contiguity=int(funnel.get('rule_1_contiguity', 0)),
-        after_competition=int(funnel.get('rule_11_competition', 0)),
-        admitted=int(n_admitted),
+        # The engine's own funnel keys, reported under the four names the
+        # papers use: size, contiguity, competition, coverage.
+        pass_size=int(funnel.get('rule_8_9_size', 0)),
+        pass_contiguity=int(funnel.get('rule_1_contiguity', 0)),
+        pass_competition=int(funnel.get('rule_11_competition', 0)),
+        pass_coverage=int(n_admitted),
         frac_below_floor=float(np.mean(~pass_size & (area < rep['area_min']))),
         frac_above_ceiling=float(np.mean(~pass_size & (area > rep['area_max']))),
         cand_radius_min_m=float(r_eq.min()) if len(r_eq) else np.nan,
         cand_radius_median_m=float(np.median(r_eq)) if len(r_eq) else np.nan,
         cand_radius_max_m=float(r_eq.max()) if len(r_eq) else np.nan,
-        rule8_floor_radius_m=float(rep['r_min']), rule9_ceiling_radius_m=float(rep['r_max']),
+        floor_radius_m=float(rep['r_min']), ceiling_radius_m=float(rep['r_max']),
         median_cc_frac=float(rep['median_cc_frac']),
         frag_rate=float(rep['frag_rate']),
         median_sigma_ratio=float(rep['median_sigma_ratio']),
@@ -210,37 +237,42 @@ def pair_row(rep, C, env, tag, n_admitted):
 def diagnose(pair, scales):
     """The sentence a reader wants: which rule emptied this library, if any."""
     env_name, cname = pair['env'], pair['channel']
-    if pair['admitted'] >= SD.MIN_FIELDS and all(
-            r['n_admitted'] for r in scales if r['scale'].isdigit() and r['n_candidates']):
-        return f'{env_name} {cname}: healthy, {pair["admitted"]} fields'
+    numbered = [r for r in scales if r['scale'].isdigit()]
+    if pair['pass_coverage'] >= SD.MIN_FIELDS and all(
+            r['n_pass_coverage'] for r in numbered if r['n_candidates']):
+        return f'{env_name} {cname}: healthy, {pair["pass_coverage"]} fields'
     if pair['n_candidates'] == 0:
         return f'{env_name} {cname}: the tree produced no candidate at all'
-    if pair['after_size'] == 0:
-        return (f'{env_name} {cname}: every candidate fell outside the Rule 8/9 '
-                f'window ({100*pair["frac_below_floor"]:.0f}% below the floor, '
-                f'{100*pair["frac_above_ceiling"]:.0f}% above the ceiling); the '
-                f'channel localises to a size the rules do not admit')
-    if pair['after_contiguity'] == 0:
-        return (f'{env_name} {cname}: {pair["after_size"]} candidates were the '
-                f'right size but none was whole -- every mask fragmented '
-                f'(median largest piece {100*pair["median_cc_frac"]:.0f}% of the '
-                f'mask), so Rule 1 took the library')
-    empty = [r for r in scales if r['scale'].isdigit() and r['n_candidates']
-             and not r['n_admitted']]
+    if pair['pass_size'] == 0:
+        return (f'{env_name} {cname}: size took the library -- every candidate '
+                f'fell outside the window ({100*pair["frac_below_floor"]:.0f}% '
+                f'under the floor, {100*pair["frac_above_ceiling"]:.0f}% over '
+                f'the ceiling). The channel localises to a size the rules do '
+                f'not admit')
+    if pair['pass_contiguity'] == 0:
+        return (f'{env_name} {cname}: contiguity took the library -- '
+                f'{pair["pass_size"]} candidates were the right size but none '
+                f'was whole (median largest piece '
+                f'{100*pair["median_cc_frac"]:.0f}% of the field)')
+    empty = [r for r in numbered if r['n_candidates'] and not r['n_pass_coverage']]
     if empty:
         which = ', '.join(r['scale'] for r in empty)
         return (f'{env_name} {cname}: scale(s) {which} were built and emptied -- '
                 + '; '.join(f'scale {r["scale"]}: {r["verdict"]}' for r in empty[:3]))
-    return f'{env_name} {cname}: {pair["admitted"]} fields, nothing emptied'
+    return f'{env_name} {cname}: {pair["pass_coverage"]} fields, nothing emptied'
 
 
 def fig_funnels(scales_df, pairs_df, fig_dir):
-    """One panel per library: how many candidates survive each rule, per scale.
+    """One panel per library: how many candidates each rule lets through.
 
-    Counts, not fractions, and a linear axis: the question is whether anything
-    at all came through, and a bar of zero height against a bar of thousands is
-    exactly the answer. The number admitted is printed where it would otherwise
-    be invisible.
+    Five bars per scale -- the candidates built at that scale, then what
+    survives size, contiguity, competition and coverage in turn. Counts on a
+    linear axis, because the question is whether anything came through at all,
+    and a bar of zero beside a bar of hundreds is the answer. The number that
+    survives all four is printed, since it is often too small to see.
+
+    The two end categories belong to the size rule alone: a field below the
+    floor or above the ceiling has no scale of its own to be drawn at.
     """
     pairs = list(pairs_df.itertuples())
     if not pairs:
@@ -248,44 +280,44 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
     n_c = min(3, len(pairs))
     n_r = int(np.ceil(len(pairs) / n_c))
     fig, axes = plt.subplots(n_r, n_c, squeeze=False,
-                             figsize=(4.6 * n_c, 3.0 * n_r + 0.9))
+                             figsize=(5.0 * n_c, 3.1 * n_r + 1.0))
     fig.patch.set_facecolor(SURFACE)
-    digits = [str(s) for s in SD.SCALES]
-    for ax_i, p in enumerate(pairs):
+    cats = ['< floor'] + [str(s) for s in SD.SCALES] + ['> ceiling']
+    w = 0.17
+    for ax_i, pr in enumerate(pairs):
         ax = axes[ax_i // n_c][ax_i % n_c]
         ax.set_facecolor(SURFACE)
-        d = scales_df[(scales_df.env == p.env) & (scales_df.channel == p.channel)]
-        d = d[d.scale.isin(digits)].set_index('scale').reindex(digits)
-        x = np.arange(len(digits))
-        for k, (col, colour) in enumerate(zip(
-                ['n_candidates', 'n_whole', 'n_won_competition', 'n_admitted'],
-                STAGE_COLORS)):
-            ax.bar(x + (k - 1.5) * 0.2, d[col].fillna(0).to_numpy(), width=0.19,
+        d = scales_df[(scales_df.env == pr.env) & (scales_df.channel == pr.channel)]
+        d = d.set_index('scale').reindex(cats)
+        x = np.arange(len(cats))
+        for k, (col, colour) in enumerate(zip(COUNT_COLUMNS, BAR_COLORS)):
+            ax.bar(x + (k - 2) * w, d[col].fillna(0).to_numpy(), width=w * 0.9,
                    color=colour, edgecolor=SURFACE, linewidth=0.4, zorder=2)
-        for xi, v in zip(x, d.n_admitted.fillna(0).to_numpy()):
-            ax.text(xi + 0.3, max(v, 0), f'{int(v)}', ha='center', va='bottom',
+        for xi, v in zip(x, d.n_pass_coverage.fillna(0).to_numpy()):
+            ax.text(xi + 2 * w, max(v, 0), f'{int(v)}', ha='center', va='bottom',
                     fontsize=6, color=INK_2)
         for side in ('top', 'right'):
             ax.spines[side].set_visible(False)
         for side in ('left', 'bottom'):
             ax.spines[side].set_color(RULE_GRAY)
-        ax.set_xticks(x); ax.set_xticklabels(digits)
+        ax.set_xticks(x)
+        ax.set_xticklabels(cats, fontsize=7)
         ax.tick_params(labelsize=7, colors=MUTED)
         ax.set_xlabel('scale (0 finest)', fontsize=8, color=INK_2)
         ax.set_ylabel('candidates', fontsize=8, color=INK_2)
-        ax.set_title(f'{p.env} · {p.channel} — {p.admitted} admitted',
+        ax.set_title(f'{pr.env} · {pr.channel} — {pr.pass_coverage} admitted',
                      fontsize=9, color=INK)
     for ax_i in range(len(pairs), n_r * n_c):
         axes[ax_i // n_c][ax_i % n_c].set_visible(False)
     height = fig.get_figheight()
-    fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in STAGE_COLORS],
-               STAGE_LABELS, loc='upper center', ncol=4, frameon=False,
-               fontsize=8, bbox_to_anchor=(0.5, 1 - 0.45 / height))
-    fig.suptitle('P1  where each scale\'s candidates die, per library\n'
-                 'bars left to right: built at this scale, survived Rule 1, '
-                 'survived Rule 11, admitted after Rule 12',
+    fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in BAR_COLORS],
+               BAR_LABELS, loc='upper center', ncol=len(BAR_LABELS), frameon=False,
+               fontsize=8, bbox_to_anchor=(0.5, 1 - 0.48 / height))
+    fig.suptitle("P1  which rule takes each scale's candidates\n"
+                 'bars left to right: built at that scale, then what survives '
+                 'size, contiguity, competition and coverage',
                  fontsize=10, color=INK, y=1 - 0.06 / height)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.75 / height))
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
     path = os.path.join(fig_dir, 'P1_prune_funnels.png')
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -302,7 +334,7 @@ class PruneAuditReport(ExperimentReport):
         p = self.results
         if p is None or not len(p):
             return 'no libraries audited'
-        empty = int((p.admitted < SD.MIN_FIELDS).sum())
+        empty = int((p.pass_coverage < SD.MIN_FIELDS).sum())
         return f'{len(p)} libraries, {empty} empty or near-empty'
 
     def figures(self):
@@ -322,34 +354,41 @@ class PruneAuditReport(ExperimentReport):
             ['One line per library, in the order they were audited.', '']
             + [f'  {d}' for d in self.diagnoses]))]
 
-        cols = ['env', 'channel', 'n_candidates', 'after_size', 'after_contiguity',
-                'after_competition', 'admitted', 'median_cc_frac',
+        cols = ['env', 'channel', 'n_candidates', 'pass_size', 'pass_contiguity',
+                'pass_competition', 'pass_coverage', 'median_cc_frac',
                 'median_sigma_ratio', 'scales_kept']
-        out.append(S('THE FUNNEL, PER LIBRARY', self.table(p[cols])))
+        out.append(S('THE FOUR RULES, PER LIBRARY', self.table(p[cols])))
 
         for r in p.itertuples():
             d = sc[(sc.env == r.env) & (sc.channel == r.channel)]
-            cols2 = ['scale', 'n_candidates', 'n_whole', 'n_won_competition',
-                     'n_admitted', 'median_radius_m', 'coverage_after_rule11', 'verdict']
+            cols2 = ['scale', 'n_candidates', 'n_pass_size', 'n_pass_contiguity',
+                     'n_pass_competition', 'n_pass_coverage', 'median_radius_m',
+                     'coverage_reached', 'verdict']
             out.append(S(f'{r.env} · {r.channel}', self.table(d[cols2])))
 
         out.append(S('HOW TO READ IT', '\n'.join([
-            'candidates   nodes of the tree whose field landed at that scale, '
-            'so a zero here means the channel never localised to that size at '
-            'all -- nothing downstream could have saved it.',
-            'whole        survived Rule 1. Masks that fragment are the '
-            'signature of a channel that cannot separate two distant places: '
-            'it responds in both, and the field comes out in pieces.',
-            'won          survived Rule 11. Falling counts here are normal and '
-            'are how the ladder thins with scale.',
-            'admitted     survived Rule 12, which drops a whole scale whose '
-            'survivors cover less than half the floor. A scale that reaches '
-            'this row with candidates but no admissions was emptied wholesale, '
-            'not thinned.', '',
-            'sigma_ratio near 1 means a node\'s members are as far apart in '
-            'feature space as two random locations are: the response is flat, '
-            'and a flat response makes a mask that either fills the arena or '
-            'breaks up.'])))
+            'Each row follows one scale through the four rules, in order.', '',
+            'candidates    fields the tree built at that scale. A zero here is '
+            'not a rule at work: the channel never localised to that size, and '
+            'nothing downstream could have changed it.',
+            'size          the floor and the ceiling. A field outside them has '
+            'no scale of its own, so size only ever shows at the two ends of '
+            'the axis -- and a library whose candidates all land there is one '
+            'localising to a size the rules do not admit.',
+            'contiguity    a field must be one connected patch. Fields that '
+            'fragment are the signature of a channel that cannot separate two '
+            'distant places: it responds in both, and the field breaks apart.',
+            'competition   same-scale neighbours suppress each other. Counts '
+            'falling here is normal, and is how the ladder thins with scale.',
+            'coverage      a scale whose survivors cover too little floor is '
+            'dropped whole. A scale with candidates but nothing admitted was '
+            'emptied wholesale rather than thinned.', '',
+            'median_sigma_ratio near 1 means a node\'s members are as far '
+            'apart in feature space as two random locations are: the response '
+            'is flat, and a flat response makes a field that either fills the '
+            'arena or breaks into pieces. It is the input-side number to read '
+            'when contiguity is taking everything.'])))
+
         return '\n'.join(out)
 
 
