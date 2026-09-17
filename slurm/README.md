@@ -31,6 +31,7 @@ sbatch slurm/scale_distribution.sh --envs circ_lm8_r3
 | `collect_data.sh` | `collect` | 24 h | 32 G | `gpu:1` | renders one arena headless in Webots and writes its feature dataset, via `simulation/controllers/collect_data`. Needs the Singularity image; `_webots_env.sh` sets it up |
 | `scale_distribution.sh` | `scale-dist` | 24 h | 128 G | `gpu:1` | Experiment 2 — field-size distribution against enclosure scale, via `analysis/experiment_channel_isolation/run_scale_distribution.py` |
 | `wall_proximity.sh` | `wall-prox` | 24 h | 128 G | `gpu:1` | Experiment 3 — whether large fields sit further from walls and landmarks than their own shape would by chance, against uniform and Rule 11-spaced random placements, via `analysis/experiment_channel_isolation/run_wall_proximity.py`. Reuses Experiment 2's cached libraries; with them present it needs far less than the header asks |
+| `prune_audit.sh` | `prune-audit` | 24 h | 128 G | `gpu:1` | why a library is empty: follows every candidate to the rule that pruned it, scale by scale, via `analysis/experiment_channel_isolation/run_prune_audit.py`. Rebuilds the libraries it audits, since no cache holds the candidates that were rejected |
 | `render_check.sh` | `render-chk` | 1 h | 16 G | `gpu:1` | is the headless renderer actually producing images? Run this before a long collection |
 
 `check_dataset.py` and `report_collection.py` are helpers called by

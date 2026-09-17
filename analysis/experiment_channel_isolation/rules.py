@@ -776,6 +776,14 @@ def assign_bands(radii, r_min, ratio):
     return np.clip(b, 0, None).astype(int)
 
 
+def _index_mask(idx, n):
+    """Indices -> boolean mask over all n candidates."""
+    m = np.zeros(n, dtype=bool)
+    if len(idx):
+        m[np.asarray(idx, dtype=int)] = True
+    return m
+
+
 def rule11_competition(order, cx, cy, r_mean, band, sep):
     """Rule 11 — within a scale band, a field suppresses nearby peers.
 
@@ -1059,10 +1067,10 @@ def admit_fields(ctx, cfg=None, verbose=True):
 
     # Rule 11 — larger and more reliable fields claim their territory first.
     order = surviving[np.lexsort((-sh_iou[surviving], -r_eq[surviving]))]
-    kept = rule11_competition(order, cx, cy, r_mean, band, C['SAME_SCALE_SEPARATION'])
-    funnel.append(('rule_11_competition', len(kept)))
+    kept11 = rule11_competition(order, cx, cy, r_mean, band, C['SAME_SCALE_SEPARATION'])
+    funnel.append(('rule_11_competition', len(kept11)))
 
-    kept, coverage, band_range = rule12_tiling(kept, band, masks, G, C)  # Rule 12
+    kept, coverage, band_range = rule12_tiling(kept11, band, masks, G, C)  # Rule 12
     funnel.append(('rule_12_tiling', len(kept)))
 
     if verbose:
@@ -1130,6 +1138,15 @@ def admit_fields(ctx, cfg=None, verbose=True):
         median_split_half_iou=float(np.median(sh_iou[pass_cc])) if pass_cc.any() else 0.0,
         cand_cc_frac=cc_frac, cand_split_half_iou=sh_iou,
         cand_pass_size=pass_size, cand_r_eq=r_eq, cand_elongation=elong,
+        # Which candidates survived each stage, so an audit can ask where a
+        # scale's candidates died -- at size, at contiguity, in competition,
+        # or with the whole scale at tiling -- without re-implementing the
+        # rules and drifting from them (run_prune_audit.py). Callers that dump
+        # this report to JSON already drop arrays, so it costs nothing there.
+        cand_area=area, cand_band=band, cand_cx=cx, cand_cy=cy,
+        cand_pass_contiguity=pass_cc,
+        cand_kept_rule11=_index_mask(kept11, n_cand),
+        cand_kept_rule12=_index_mask(kept, n_cand),
         grid=dict(gx=G['gx'], gy=G['gy'], bin_area=G['bin_area']),
     )
     return bank_df, kept_mu, report

@@ -401,3 +401,88 @@ are computed **once per channel** and reused across every setting — the sweep
 costs one `prepare_candidates` and one `admit_fields` per setting, not a full
 rebuild. That reuse is also what makes the sweep strictly like-for-like: every
 setting is scored against an identical tree and identical candidates.
+
+---
+
+# Prune audit: which rule empties a library
+
+`run_prune_audit.py` — analysis only, no collection.
+
+Experiment 2 reports what survived. This reports what did not, and at which
+rule. It exists because several libraries collapse in ways a field count
+cannot explain:
+
+| library | fields | the same channel elsewhere |
+|---|---|---|
+| `corr_lm0_l10w2` hog, spatial, visual | 0, 0, 0 | 370, 266, 432 in the same corridor **with** panels |
+| `corr_lm8_l10w10` color | 7, one coarse scale | 291 in the same square **without** panels |
+| `corr_lm0_l10w10` spatial, visual | 18, 7 | 485, 534 with panels |
+
+A count says a library is empty. It does not say whether the tree never built
+a candidate that size, whether the candidates were built and came out in
+pieces, or whether they were whole and lost to a later rule. Those have
+different causes and different fixes.
+
+## What it follows
+
+Every candidate node is followed to the stage it died at:
+
+| outcome | what it means |
+|---|---|
+| no candidate | the tree produced no node whose field lands at this scale. The channel cannot localise to that size at all, and nothing downstream could have saved it |
+| Rule 8/9 size | the mask fell below the floor or above the ceiling, so it never had a scale |
+| Rule 1 | the mask was in pieces — the largest connected patch held under `CC_FRAC_MIN` of it. This is what an incoherent response looks like: a channel that cannot separate two distant places responds in both, and the field fragments |
+| Rule 11 | a larger field of the same scale already claimed the ground. Routine, and the main reason counts fall with scale |
+| Rule 12 | the scale cleared competition but its survivors covered less than `TILING_FRAC_MIN` of the floor, so the whole scale went. This is how a scale disappears wholesale rather than thinning |
+
+The counts come from the rules engine itself — `rules.admit_fields` records
+which candidates survived each stage — rather than from a second
+implementation that could drift from it. Those records are arrays, and the
+JSON report Experiment 2 writes already drops arrays, so they cost nothing
+there.
+
+Configuration is Experiment 2's operating point exactly (EXTENT_PCTL 65,
+ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0), so the audit describes the same
+libraries those reports describe.
+
+## Running
+
+```bash
+sbatch slurm/prune_audit.sh
+```
+
+The default pair list is the collapsed libraries above, each with the same
+channel where it works, so an empty funnel can be read against a healthy one.
+Narrow it with `--pairs env:channel,...` or audit a whole arena with
+`--envs`:
+
+```bash
+sbatch slurm/prune_audit.sh --pairs corr_lm0_l10w2:hog,corr_lm8_l10w2:hog
+```
+
+```bash
+sbatch slurm/prune_audit.sh --envs corr_lm0_l10w2
+```
+
+Cost is one field library per pair — the Gram matrix, the Ward tree and the
+readout, the same work Experiment 2 does per channel. There is no cache to
+reuse: the banks Experiment 2 writes hold the survivors, and this needs the
+candidates that never became survivors, which are never stored.
+
+## Outputs
+
+`data_cache/prune_audit/`
+
+| file | contents |
+|------|----------|
+| `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, how many were whole, how many won competition, how many were admitted, the scale's coverage, and a plain-language verdict |
+| `prune_audit_pairs.csv` | one row per library: the funnel totals, the candidate radius range against the Rule 8/9 window, fragmentation rate, median `sigma_ratio`, and which scales Rule 12 kept |
+
+Figure — `figures/prune_audit/P1_prune_funnels.png`: one panel per library,
+four bars per scale (built, whole, won competition, admitted). Counts on a
+linear axis, because the question is whether anything came through at all.
+
+**`sigma_ratio` near 1** means a node's members are as far apart in feature
+space as two random locations are: the response is flat, and a flat response
+makes a mask that either fills the arena or breaks into pieces. It is the
+input-side number to read when Rule 1 is taking everything.
