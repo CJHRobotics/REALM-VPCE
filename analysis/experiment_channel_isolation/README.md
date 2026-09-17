@@ -487,3 +487,128 @@ linear axis, because the question is whether anything came through at all.
 space as two random locations are: the response is flat, and a flat response
 makes a mask that either fills the arena or breaks into pieces. It is the
 input-side number to read when Rule 1 is taking everything.
+
+---
+
+# Experiment 4: elongation and orientation against wall proximity
+
+`run_wall_elongation.py` — are place fields more elongated the closer they sit
+to a wall, and do they line up with it? Asked per channel, and asked
+separately of round arenas and straight-walled ones.
+
+Runs on all eight collected arenas — four discs (r = 3 and r = 6, with and
+without panels), two 10 × 10 m squares, two 10 × 2 m corridors — reading
+Experiment 2's field libraries unchanged, from its cache and under its cache
+key. Arena shape is declared per arena, never inferred: an lm0 disc has
+exactly its lm8 twin's outline, and aspect ratio cannot tell a square from a
+disc.
+
+## Read this before reading any number it produces
+
+Rule 7 fits a field's ellipse to the second moments of its **mask**, and the
+mask stops at the wall (`& G['in_env']`). A field reaching past the wall is
+cut, and a cut blob's moments are elongated **along** the wall. Both of this
+experiment's measures therefore come out positive near a wall in a pipeline
+containing no anisotropy at all: **a raw curve of elongation against wall
+distance is a picture of the arena's outline, not a result.**
+
+A second bias rides with the first. A large field cannot sit near a wall
+without being cut, so near-wall fields are small fields, and a small field's
+axis ratio is estimated from few bins, where it is noisier and biased upward.
+
+Everything in the analysis is machinery for measuring the distance between the
+raw curve and what clipping alone predicts. Figures E1 and E4 show both curves
+side by side; start there.
+
+## Two arms
+
+| | population | null | status |
+|---|---|---|---|
+| **Arm A** | fields whose recorded ellipse, grown by one bin, lies wholly on the floor | each shape held rigid and moved somewhere it still fits whole — Experiment 3's placement null, uniform and Rule 11 tiling | nothing clipped these fields, so nothing needs correcting. **The arm to believe.** |
+| **Arm B** | every field | the library's own clear fields as donors, re-laid at 12 orientations, dropped at random, cut by the floor and re-measured; each real field matched to placements of the same **visible** area at the same wall distance | keeps the near-wall fields Arm A must drop. Carries a residual bias — **needs `--calibration`** |
+
+Arm A is unbiased by construction but cannot speak for the near-wall
+population that matters most: at the wall, only small fields fit whole. Arm B
+covers that population at the cost of needing its null to reproduce the
+clipping rather than avoid it.
+
+Arm B is tested on the **near minus far difference** of its excess, not on the
+excess itself: the level depends on the donor pool's size mix, and donors have
+to fit whole, which under-represents large fields. This mirrors Experiment 3,
+which tests LARGE minus SMALL rather than LARGE.
+
+Two things are measured for each field. **Elongation** is semi-major /
+semi-minor, averaged in logs so a difference is a factor. **Alignment** is
+cos(2 × the angle between the major axis and the nearest wall's tangent): +1
+the field lies along the wall, −1 it points straight at it, 0 no relation —
+the angle is doubled because an axis has no direction. Each is tested both as
+a near-minus-far difference and as a **level** over every field, because a
+preference that does not vary with distance is invisible to the first, and for
+alignment that is the likelier shape of a real effect.
+
+The near/far cut is a **tercile of each arm's own fields**, not a fixed
+distance, and the tables print it in metres. A fixed cut cannot work: a field
+has to fit whole to be in Arm A, which in the 2 m corridor puts its nearest
+field 0.38 m from the wall, so a fixed near-wall bin there holds nothing.
+Wall distance is normalised over the range a field's centre can actually
+occupy — 0 is as near the wall as the collection keep-out (0.2 m) allows, 1 is
+the disc's centre or the rectangle's midline. Dividing by the half-width
+instead put the corridor's whole near-wall bin inside the keep-out and every
+corridor statistic came out empty.
+
+## The calibration is not optional for Arm B
+
+`--synthetic` replaces every library with fields of known shape — areas
+resampled from the real library, same arena, same channel, same count — and
+reruns the whole pipeline. `round` is circular fields at random orientations,
+where every scrap of elongation and alignment is the wall cutting a circle, so
+whatever the arms report is bias; `planted` has elongation rising toward the
+wall with the major axis on the tangent, so what the arms report is power.
+
+`--calibration <round summary.csv>` subtracts that measured bias from every
+statistic and re-derives each p from the corrected value against the same null
+standard deviation. Raw values stay in `summary.csv` as `*_excess_raw`.
+
+`clipped_shape`, the vectorised code that measures a null placement, is checked
+against `rules.field_shape` itself on 240 real masks per arena, clipped ones
+included, and the run aborts if they differ by more than 1e-8. Without that
+check a difference between two implementations would read as the effect.
+
+## Running
+
+Submit through `slurm/wall_elongation.sh`, which documents the full sequence:
+the real run first (to cache the libraries), then the two calibration runs,
+then the run to read, with `--calibration` pointing at the `round` summary. Do
+not fan out one arena per job unless the libraries have to be built — the
+shape contrast, E3 and E7 all need their arenas in one run.
+
+## Outputs
+
+`data_cache/wall_elongation/` (plus `_synthetic_round` / `_synthetic_planted`)
+
+| file | contents |
+|------|----------|
+| `summary.csv` | one row per arena × channel: every statistic with its null mean, sd, 95% range, p and BH q; field and donor counts; the near/far cuts in metres; `pool_unrepresented_frac` |
+| `arena_summary.csv` | channels averaged per arena against the conservative null sd (the perfectly-correlated value), with z, p and q |
+| `shape_contrast.csv` | circular against rectangular, and disc / square / corridor separately, per statistic |
+| `profiles.csv` | per arena × channel × distance bin: the raw level, the null's level, the excess and the null's 95% range |
+| `fields.csv` | every field with its elongation, orientation, alignment, wall distance, distance bin, whether it is clear of the wall, and its Arm B excess |
+
+Figures — `figures/wall_elongation/`
+
+| figure | shows |
+|--------|-------|
+| `E1` / `E4` | elongation and alignment against wall distance: measured (solid) against what clipping alone predicts (dashed), per arena, per channel. **The gap is the only candidate result.** |
+| `E2` / `E5` | the same two, as excess beyond the clipping-matched null, with the null's 95% band |
+| `E3` | Arm A, one row per library, near minus far against the null's range — the clean result, needing no correction |
+| `E6` | the angle to the nearest wall, near-wall against far, one panel per arena shape, channels pooled |
+| `E7` | the round-against-straight-walled answer: one point per arena, both arms, both measures |
+
+## Compute
+
+With Experiment 2's libraries cached, no feature blocks are loaded and the GPU
+goes unused — `--mem=32G --gres=gpu:0` is enough. Cost is the null machinery:
+per library, two rigid placement nulls of 1000 draws (Arm A) and a pool of
+150k clipped, re-measured placements (Arm B), over eight arenas × six
+channels. Walltime is dominated by re-ranking a template per donor and
+orientation, worst in the arenas holding the largest fields.
