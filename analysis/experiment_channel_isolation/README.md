@@ -642,6 +642,24 @@ sbatch slurm/scale_distribution.sh --tiling-frac-min 0
 11's competition is kept, however little of the floor it covers. Any
 intermediate value relaxes rather than disables it.
 
+
+The prune audit takes the same flag, so the audit of the relaxed libraries can
+sit beside the relaxed Experiment 2:
+
+```bash
+sbatch slurm/prune_audit.sh --tiling-frac-min 0
+```
+
+Worth knowing before spending the GPU time: Rules 8/9 (size), 1 (contiguity)
+and 11 (competition) all sit **upstream** of Rule 12 and none of them reads the
+coverage threshold, so their counts come out identical to the operating-point
+audit, field for field. Only the coverage column changes — at 0 it deletes
+nothing, so `pass_coverage` equals `pass_competition` and P1's fourth bar
+matches its third by construction. And `coverage_reached` is computed *before*
+the threshold is applied, so the operating-point audit already records which
+scales the coverage test was cutting and by how much. The relaxed audit is
+worth running as the audit *of* the relaxed libraries, not as a new measurement
+of the rules.
 > **On the rule number.** Rule 4 in this codebase is *spatial weighting*
 > (merge cost = feature distance + `LAMBDA` × space) and is already off at the
 > operating point (`LAMBDA` 0), so toggling it changes nothing. The coverage

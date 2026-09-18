@@ -344,7 +344,11 @@ class PruneAuditReport(ExperimentReport):
         if p is None or not len(p):
             return 'no libraries audited'
         empty = int((p.pass_coverage < SD.MIN_FIELDS).sum())
-        return f'{len(p)} libraries, {empty} empty or near-empty'
+        tf = getattr(self, 'tiling_frac_min', SD.DEFAULT_TILING)
+        pre = ('' if abs(tf - SD.DEFAULT_TILING) < 1e-12 else
+               '[Rule 12 coverage OFF] ' if tf <= 0 else
+               f'[Rule 12 coverage {tf:g}] ')
+        return f'{pre}{len(p)} libraries, {empty} empty or near-empty'
 
     def figures(self):
         return [f for f in getattr(self, 'figure_paths', []) if f and os.path.exists(f)]
@@ -358,6 +362,37 @@ class PruneAuditReport(ExperimentReport):
         p, sc = self.results, self.scales
         if p is None or not len(p):
             return 'No libraries were audited.'
+        tf = getattr(self, 'tiling_frac_min', SD.DEFAULT_TILING)
+        pre = []
+        if abs(tf - SD.DEFAULT_TILING) > 1e-12:
+            pre = [self.section(
+                'RULE 12 IS NOT AT ITS DEFAULT IN THIS RUN', '\n'.join([
+                    f'TILING_FRAC_MIN = {tf:g}, against the usual '
+                    f'{SD.DEFAULT_TILING:g}.'
+                    + (' The coverage requirement is DISABLED.' if tf <= 0
+                       else ' The coverage requirement is relaxed.'), '',
+                    'WHAT THIS RUN CAN AND CANNOT TELL YOU. Rules 8/9 (size), '
+                    '1 (contiguity) and 11 (competition) all sit UPSTREAM of '
+                    'Rule 12 and none of them reads the coverage threshold, so '
+                    'their counts in every table below are identical to the '
+                    'operating-point audit\'s, to the field. Nothing new is '
+                    'being reported about them.', '',
+                    'What changes is the coverage column: at 0 no scale is '
+                    'deleted, so pass_coverage equals pass_competition '
+                    'everywhere and P1\'s fourth bar matches its third by '
+                    'construction. The `coverage_reached` column is computed '
+                    'before the threshold is applied and so is unchanged too '
+                    '-- which means the operating-point audit already tells '
+                    'you which scales the coverage test was cutting and by '
+                    'how much. The value of this run is as the audit OF the '
+                    'relaxed libraries, to sit beside the relaxed Experiment '
+                    '2, rather than as a new measurement of the rules.'])) ]
+        if pre:
+            return '\n'.join(pre + [self._body_main()])
+        return self._body_main()
+
+    def _body_main(self):
+        p, sc = self.results, self.scales
         S = self.section
         out = [S('WHAT EMPTIED EACH LIBRARY', '\n'.join(
             ['One line per library, in the order they were audited.', '']
@@ -415,6 +450,18 @@ def parse_args():
     p.add_argument('--subsample', type=int, default=0,
                    help='positions to subsample -- a quick look, not comparable '
                         'to a full run')
+    p.add_argument('--tiling-frac-min', type=float, default=SD.DEFAULT_TILING,
+                   metavar='FRAC',
+                   help='Rule 12 (tiling stop): the fraction of the floor a '
+                        'scale must cover, unioned, to survive. 0 DISABLES '
+                        'the coverage requirement. Default '
+                        f'{SD.DEFAULT_TILING:g}. Any value but the default '
+                        'sends the audit to ..._tf<value> so it cannot '
+                        'overwrite the operating point\'s. NOTE that the '
+                        'first three rules sit upstream of Rule 12 and do not '
+                        'read this, so their counts come out identical to the '
+                        'operating-point audit and only the coverage column '
+                        'changes.')
     p.add_argument('--no-gpu', action='store_true')
     p.add_argument('--no-email', action='store_true')
     return p.parse_args()
@@ -423,12 +470,18 @@ def parse_args():
 def main():
     args = parse_args()
     pairs = parse_pairs(args)
-    out_dir = f'{REPO}/data_cache/prune_audit'
-    fig_dir = f'{HERE}/figures/prune_audit'
+    # Same suffix rule as Experiment 2's, from the same helper: empty at the
+    # default so the existing audit keeps its paths, and a separate directory
+    # for anything else so a relaxed run cannot overwrite it.
+    suffix = SD.tiling_suffix(args.tiling_frac_min)
+    out_dir = f'{REPO}/data_cache/prune_audit{suffix}'
+    fig_dir = f'{HERE}/figures/prune_audit{suffix}'
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
 
-    base_C = R.resolve_cfg(dict(LAMBDA=0.0, RANDOM_SEED=0, USE_GPU=not args.no_gpu))
+    base_C = R.resolve_cfg(dict(LAMBDA=0.0, RANDOM_SEED=0,
+                                USE_GPU=not args.no_gpu,
+                                TILING_FRAC_MIN=float(args.tiling_frac_min)))
     device = R.pick_device(use_gpu=not args.no_gpu)
     rng = np.random.default_rng(0)
 
@@ -436,6 +489,16 @@ def main():
     print('Prune audit | which rule empties a library, scale by scale')
     print(f'  pairs    : {len(pairs)}')
     print(f'  operating point: EXTENT_PCTL {PCTL}, ACT_THRESH {THRESH}, Rule 2 off')
+    print(f'  Rule 12  : coverage >= {base_C["TILING_FRAC_MIN"]:g}'
+          + ('  (the operating point)' if not suffix else
+             '  <-- the coverage requirement is DISABLED'
+             if base_C['TILING_FRAC_MIN'] <= 0 else '  <-- RELAXED'))
+    if suffix:
+        print(f'             outputs go to ...{suffix}')
+        print('             the first three rules sit upstream of Rule 12 and')
+        print('             do not read it, so their counts will match the')
+        print('             operating-point audit exactly; only the coverage')
+        print('             column changes.')
     print('=' * 72, flush=True)
 
     scale_rows_all, pair_rows, diagnoses, missing = [], [], [], []
@@ -492,6 +555,7 @@ def main():
                                log_path=os.environ.get('REALM_LOG_PATH'))
     rep_obj.scales, rep_obj.diagnoses = scales_df, diagnoses
     rep_obj.figure_paths = fig_paths
+    rep_obj.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
     if missing:
         print(f'\n!! datasets not found, skipped: {", ".join(sorted(set(missing)))}')
     print('\n' + rep_obj.compose(), flush=True)
