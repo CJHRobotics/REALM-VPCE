@@ -603,9 +603,25 @@ Figures — `figures/field_geometry/`
 | figure | shows |
 |--------|-------|
 | `G1` | elongation by scale, one box per scale, one panel per arena |
-| `G2` | elongation against wall distance, every field coloured by scale, with the binned median for all fields and for the uncut ones |
-| `G3` | the same for the angle to the wall, with 45° marked |
-| `G4` | every correlation at a glance: rho per arena × channel, both subsets side by side |
+| `G2` | elongation against wall distance: grey IQR band and black median for the whole library, plus the median within each scale |
+| `G3` | the same for the angle to the wall, with 45° (no preference) marked |
+| `G4` | every correlation as a grid — arenas × channels, one panel per pair, rho printed in each cell, `*` for q < 0.05, last column pools an arena's channels |
+
+No panel shares a y axis with another: the arenas differ by 5× in radius and
+16× in area, so one scale across all eight compresses the small arenas into a
+strip. Every panel carries its own ticks.
+
+G2 and G3 show a median and an interquartile band rather than a point per
+field — at ten thousand-odd fields the cloud buried its own median and the eye
+read the densest region as the trend. The per-scale median lines keep the
+stratification the band hides, so a trend can be seen to hold *inside* a scale
+rather than being the scales sliding past each other.
+
+The figures show the **all-fields** subset only. That is a presentation
+choice, not a loss of evidence: both subsets stay in `correlations.csv`, and
+the report prints how far apart they ever get (max and median |Δrho|, and
+whether any sign differs). If a future run moves those numbers, the subset
+column belongs back in the tables.
 
 
 ---

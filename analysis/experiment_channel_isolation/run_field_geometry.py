@@ -127,6 +127,10 @@ INK, MUTED, RULE_GRAY, SURFACE = SD.INK, SD.MUTED, SD.RULE_GRAY, SD.SURFACE
 # ellipse does not reach past the wall. Where the two curves coincide -- the
 # good case -- one colour would simply hide the other.
 CLEAR_COLOR = '#c1440e'
+# Arena shape is an identity with three values, so three hues taken from far
+# apart on the circle rather than three shades of one. Used for G4's row
+# labels, so the disc / square / corridor grouping is readable off the grid.
+SHAPE_COLORS = {'disc': '#1b6ca8', 'square': '#c1440e', 'corridor': '#6a3d9a'}
 
 PCTL, THRESH = SD.SETTINGS[0]
 IOU = None
@@ -427,7 +431,15 @@ def _envs_in_order(fields):
                                  float(area.get(e, 0.0)), e))
 
 
-def _panels(envs, sharey=True):
+def _panels(envs, sharey=False):
+    """A panel per arena, each free to scale its own y axis.
+
+    Not shared. The arenas differ by 5x in radius and 16x in area, so one axis
+    across all eight compresses the small arenas into a strip to leave headroom
+    for the large ones, and the shape of the thing being plotted stops being
+    visible in most of the panels. Every panel carries its own ticks, so no
+    scale is hidden by this -- it just has to be read per panel.
+    """
     ncol = int(np.ceil(len(envs) / 2)) if len(envs) > 4 else len(envs)
     nrow = int(np.ceil(len(envs) / ncol))
     fig, axes = plt.subplots(nrow, ncol, squeeze=False, sharey=sharey,
@@ -488,54 +500,68 @@ def fig_elongation_by_scale(fields, name):
     _save(fig, name)
 
 
-def _binned_median(x, y, edges):
-    """Median of y in bins of x, with the bin centres. For the trend line."""
+def _binned_quantiles(x, y, edges, min_n=8, qs=(25, 50, 75)):
+    """Quantiles of y in bins of x, with the bin centres.
+
+    A bin holding fewer than `min_n` fields is dropped rather than drawn: a
+    median of four fields is not a trend, and in the outer bins of a disc --
+    a thin annulus -- that is what would otherwise be plotted.
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
-    cx, cy = [], []
+    cx, out = [], [[] for _ in qs]
     for lo, hi in zip(edges[:-1], edges[1:]):
         sel = (x >= lo) & (x < hi) & np.isfinite(y)
-        if sel.sum() >= 8:
+        if sel.sum() >= min_n:
             cx.append(0.5 * (lo + hi))
-            cy.append(float(np.median(y[sel])))
-    return np.array(cx), np.array(cy)
-
+            for k, q in enumerate(qs):
+                out[k].append(float(np.percentile(y[sel], q)))
+    return np.array(cx), [np.array(o) for o in out]
 
 def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
     """G2 / G3: a measure against wall distance, one panel per arena.
 
-    Every field as a point, coloured by its scale; the black line is the
-    median in bins of distance, which is what the Spearman is picking up. The
-    open points are the fields whose ellipse reaches past the wall, whose
-    recorded shape is a cut shape -- if the trend lives only in those, it is
-    the arena's outline talking.
+    The grey band is the interquartile range of the whole library in bins of
+    wall distance and the black line its median, which is what the Spearman
+    picks up. The coloured lines are the median within each scale, so the
+    stratification the band hides stays readable and a trend can be seen to
+    hold inside a scale rather than being the scales sliding past each other.
+
+    This replaced one point per field coloured by scale. At ten thousand-odd
+    fields the cloud was ink rather than information: it buried its own median,
+    the scales overplotted each other in whatever order they were drawn, and
+    the eye read the densest region as the trend.
     """
     envs = _envs_in_order(fields)
     fig, axes, ncol = _panels(envs)
-    edges = np.linspace(0.0, 1.0, 9)
+    edges = np.linspace(0.0, 1.0, 11)
+    leg = None
     for ax, e in zip(axes, envs):
         fe = fields[fields.env == e]
         x = fe.wall_dist_norm.to_numpy(dtype=float)
         y = fe[ycol].to_numpy(dtype=float)
-        cut = fe.crosses_wall.to_numpy(dtype=bool)
-        for s in SCALES:
-            sel = (fe.scale.to_numpy() == s)
-            if not sel.any():
-                continue
-            ax.plot(x[sel & ~cut], y[sel & ~cut], '.', ms=1.8, alpha=0.5,
-                    color=SCALE_COLORS[s], label=_scale_label(s), zorder=2)
-            ax.plot(x[sel & cut], y[sel & cut], '.', ms=1.8, alpha=0.18,
-                    color=SCALE_COLORS[s], zorder=1)
-        bx, by = _binned_median(x, y, edges)
+        bx, (q25, q50, q75) = _binned_quantiles(x, y, edges)
         if len(bx):
-            ax.plot(bx, by, '-', color=INK, lw=1.7, zorder=4,
+            ax.fill_between(bx, q25, q75, color='0.74', alpha=0.6, lw=0,
+                            zorder=1, label='IQR, all fields')
+            ax.plot(bx, q50, '-', color=INK, lw=2.0, zorder=4,
                     label='median, all fields')
-        bx, by = _binned_median(x[~cut], y[~cut], edges)
-        if len(bx):
-            ax.plot(bx, by, '--', color=CLEAR_COLOR, lw=1.5, zorder=5,
-                    label='median, clear of wall')
+            leg = leg or ax
+        for sc in SCALES:
+            sel = (fe.scale.to_numpy() == sc)
+            if sel.sum() < MIN_N:
+                continue
+            # A per-scale median wants more than the band does before it is
+            # worth a line: it is one sixth of the library spread over the
+            # same bins, and at ten fields a bin the angle measure in
+            # particular -- which ranges over 90 degrees -- draws noise.
+            sx, (sm,) = _binned_quantiles(x[sel], y[sel], edges, min_n=15,
+                                          qs=(50,))
+            if len(sx) >= 4:
+                ax.plot(sx, sm, '-', lw=1.1, alpha=0.9, zorder=3,
+                        color=SCALE_COLORS[sc], label=_scale_label(sc))
         if hline is not None:
-            ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':')
+            ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':', zorder=0)
         ax.set_xlim(0, 1)
         ax.set_title(e, fontsize=9, color=INK)
         ax.set_xlabel('wall distance: 0 = as near as a field can sit,\n'
@@ -543,63 +569,112 @@ def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
     for i, ax in enumerate(axes):
         if i % ncol == 0:
             ax.set_ylabel(ylabel, fontsize=8, color=INK)
-    axes[0].legend(fontsize=5, frameon=False, ncol=2, loc='best',
-                   markerscale=3)
+    if leg is not None:
+        leg.legend(fontsize=5, frameon=False, ncol=2, loc='best')
     fig.suptitle(title, fontsize=10, color=INK)
     fig.tight_layout(rect=(0, 0, 1, 0.9))
     _save(fig, name)
 
 
 def fig_rho_summary(corr, name):
-    """G4: every correlation at a glance.
+    """G4: every correlation as a grid, one panel per pair.
 
-    One row per arena and channel, one column per pair, filled and outlined by
-    rho. The two subsets sit side by side in each cell's column block, so a
-    pair whose sign survives restricting to the uncut fields is visible
-    without reading the table.
+    Rows are arenas in reading order, columns are channels, and the last column
+    is that arena with its channels pooled. The number in each cell is the
+    Spearman rho and a star marks q < ALPHA; colour only makes the pattern
+    visible at a glance, so nothing depends on reading it precisely.
+
+    This replaced a 48-row forest plot of three panels with two markers per
+    row. The information was all there and little of it was legible: row labels
+    at 5.5 pt, arena and channel structure impossible to see because both were
+    folded onto one axis, and a second marker per row -- the clear-of-wall
+    subset -- doubling the ink to show a difference that turns out not to
+    exist. Only the all-fields subset is drawn now. Both are still in
+    correlations.csv, and the report quantifies how closely they agree, so
+    dropping it from the figure is a presentation choice and not a loss of
+    evidence.
     """
-    c = corr[corr.grouping == 'env x channel']
+    c = corr[(corr.grouping == 'env x channel') & (corr.subset == 'all fields')]
+    ce = corr[(corr.grouping == 'env') & (corr.subset == 'all fields')]
     if not len(c):
         return
-    labels = [f'{r.env}  {r.channel}' for r in
-              c[['env', 'channel']].drop_duplicates().itertuples()]
-    fig, axes = plt.subplots(1, len(PAIRS), squeeze=False, sharey=True,
-                             figsize=(3.3 * len(PAIRS),
-                                      max(3.0, 0.20 * len(labels) + 1.4)))
-    order = sorted(c.env.unique(),
-                   key=lambda e: SHAPE_ORDER.get(arena_shape(e), 3))
-    keys = [(e, ch_) for e in order for ch_ in CHANNELS
-            if ((c.env == e) & (c.channel == ch_)).any()]
-    y = np.arange(len(keys))
+    envs = sorted(c.env.unique(),
+                  key=lambda e: (SHAPE_ORDER.get(arena_shape(e), 3), e))
+    chans = [ch_ for ch_ in CHANNELS if (c.channel == ch_).any()]
+    cols = chans + ['all']
+
+    def panel_vmax(label):
+        """The colour range for one panel: symmetric about zero, scaled to
+        that panel's own numbers.
+
+        PER PANEL, not shared. The three pairs are not on a common scale --
+        one of them regularly reaches rho 0.85 while the others live inside
+        +-0.15 -- so a single range washes the small ones to a uniform white
+        and the pattern that is actually being looked for disappears. Colour
+        here is a cue for reading a panel, and every cell prints its exact
+        value, so a range that differs between panels costs nothing. Each
+        panel states its own range in its title.
+        """
+        v = np.concatenate([
+            c[c.pair == label].rho.to_numpy(dtype=float),
+            ce[ce.pair == label].rho.to_numpy(dtype=float)])
+        v = v[np.isfinite(v)]
+        return (max(0.05, float(np.ceil(np.abs(v).max() * 20) / 20))
+                if len(v) else 0.05)
+
+    fig, axes = plt.subplots(1, len(PAIRS), squeeze=False,
+                             figsize=(3.7 * len(PAIRS),
+                                      0.34 * len(envs) + 2.6))
     for ax, (_, _, label) in zip(axes[0], PAIRS):
-        ax.axvline(0, color=RULE_GRAY, lw=0.9)
-        for subset, mark, off in (('all fields', 'o', -0.16),
-                                  ('clear of wall', 's', 0.16)):
-            v, yy = [], []
-            for i, (e, ch_) in enumerate(keys):
-                row = c[(c.env == e) & (c.channel == ch_) &
-                        (c.pair == label) & (c.subset == subset)]
-                if len(row) and np.isfinite(row.rho.iloc[0]):
-                    v.append(float(row.rho.iloc[0]))
-                    yy.append(i + off)
-            if v:
-                ax.plot(v, yy, mark, ms=3.4, alpha=0.9,
-                        color=INK if subset == 'all fields' else CLEAR_COLOR,
-                        label=subset)
-        ax.set_title(label, fontsize=8.5, color=INK)
-        ax.set_xlim(-1, 1)
-        ax.set_xlabel('Spearman rho', fontsize=7.5, color=MUTED)
-        ax.tick_params(labelsize=6, colors=MUTED)
+        vmax = panel_vmax(label)
+        M = np.full((len(envs), len(cols)), np.nan)
+        Q = np.full((len(envs), len(cols)), np.nan)
+        for i, e in enumerate(envs):
+            for j, col in enumerate(cols):
+                src = ce if col == 'all' else c
+                sel = (src.env == e) & (src.pair == label)
+                if col != 'all':
+                    sel &= (src.channel == col)
+                row = src[sel]
+                if len(row):
+                    M[i, j] = float(row.rho.iloc[0])
+                    Q[i, j] = float(row.q.iloc[0])
+        ax.imshow(M, cmap='RdBu_r', vmin=-vmax, vmax=vmax,
+                  aspect='auto', interpolation='nearest')
+        for i in range(len(envs)):
+            for j in range(len(cols)):
+                if not np.isfinite(M[i, j]):
+                    ax.text(j, i, '--', ha='center', va='center', fontsize=6,
+                            color=MUTED)
+                    continue
+                star = '*' if np.isfinite(Q[i, j]) and Q[i, j] < ALPHA else ''
+                shade = INK if abs(M[i, j]) < 0.62 * vmax else '#ffffff'
+                ax.text(j, i, f'{M[i, j]:+.2f}{star}', ha='center',
+                        va='center', fontsize=6.2, color=shade)
+        # The pooled column is a different grouping, so it gets a rule rather
+        # than sitting in the grid as though it were another channel.
+        ax.axvline(len(chans) - 0.5, color=SURFACE, lw=3.0)
+        ax.set_xticks(range(len(cols)))
+        ax.set_xticklabels(cols, fontsize=6.5, rotation=45, ha='right',
+                           color=MUTED)
+        ax.set_yticks(range(len(envs)))
+        ax.set_yticklabels(envs, fontsize=6.5)
+        for i, e in enumerate(envs):
+            ax.get_yticklabels()[i].set_color(
+                SHAPE_COLORS.get(arena_shape(e), INK))
+        ax.set_title(f'{label}\ncolour spans +-{vmax:g}', fontsize=8.5,
+                     color=INK)
+        ax.tick_params(length=0)
         for sp in ax.spines.values():
-            sp.set_color(RULE_GRAY)
-    axes[0][0].set_yticks(y)
-    axes[0][0].set_yticklabels([f'{e}  {c_}' for e, c_ in keys], fontsize=5.5)
-    axes[0][0].set_ylim(-0.8, len(keys) - 0.2)
-    axes[0][-1].legend(fontsize=6.5, frameon=False, loc='lower right')
+            sp.set_visible(False)
+    for ax in axes[0][1:]:
+        ax.set_yticklabels([])
     fig.suptitle('G4  every correlation, per arena and channel\n'
-                 'black = all fields, orange = only the fields whose ellipse '
-                 'does not reach past the wall', fontsize=10, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
+                 f'the number in each cell is the Spearman rho, * = q < '
+                 f'{ALPHA:g}. Last column pools an arena\'s channels; blue '
+                 f'negative, red positive; arena labels coloured by shape.',
+                 fontsize=10, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
     _save(fig, name)
 
 
@@ -626,15 +701,63 @@ class FieldGeometryReport(ExperimentReport):
                             f'{self.out_dir}/descriptives.csv')
                 if os.path.exists(p)]
 
-    def _table(self, grouping, cols, pairs=None, max_rows=64):
-        c = self.corr[self.corr.grouping == grouping]
+    #: |d rho| above this, or a sign flip at a rho this large, counts as the
+    #: two subsets disagreeing -- at which point the figures showing only one
+    #: of them is no longer a safe simplification.
+    AGREE_TOL = 0.05
+
+    def _subset_agreement(self):
+        """How far apart the two subsets' correlations ever get, and whether
+        that is small enough to justify plotting only one of them.
+
+        The figures show the all-fields subset alone. That is defensible only
+        while the clear-of-wall subset agrees with it, so this measures the
+        agreement rather than asserting it, and the verdict below is derived
+        from the measurement. Both subsets stay in correlations.csv either way.
+
+        A sign flip only counts when one of the two correlations is at least
+        AGREE_TOL in magnitude: where the true value is near zero the sign is
+        the sign of noise, and counting those would make a null result look
+        like a disagreement.
+
+        Returns (lines, agree) -- agree is False if any pair exceeds the
+        tolerance on either count.
+        """
+        c = self.corr
+        L, agree = [], True
+        for _, _, label in PAIRS:
+            a = c[(c.pair == label) & (c.subset == 'all fields')]
+            b = c[(c.pair == label) & (c.subset == 'clear of wall')]
+            keys = [k for k in ('grouping', 'env', 'channel', 'scale')
+                    if k in a.columns and k in b.columns]
+            m = a.merge(b, on=keys, suffixes=('_all', '_clear'))
+            d = (m.rho_all - m.rho_clear).abs()
+            ok = np.isfinite(d)
+            if not ok.any():
+                L.append(f'  {label:32s} (nothing to compare)')
+                continue
+            big = np.maximum(m.rho_all.abs(), m.rho_clear.abs()) >= self.AGREE_TOL
+            flip = int((((m.rho_all > 0) != (m.rho_clear > 0)) & big & ok).sum())
+            worst = float(d[ok].max())
+            bad = worst > self.AGREE_TOL or flip > 0
+            agree &= not bad
+            L.append(f'  {label:32s} max |d rho| {worst:.3f}, median '
+                     f'{float(d[ok].median()):.3f} over {int(ok.sum())} '
+                     f'groupings; material sign flips {flip}'
+                     + ('   <-- DISAGREES' if bad else ''))
+        return L, agree
+
+    def _table(self, grouping, cols, pairs=None, max_rows=64,
+               subset='all fields'):
+        c = self.corr[(self.corr.grouping == grouping) &
+                      (self.corr.subset == subset)]
         if not len(c):
             return ['  (nothing reportable)']
         L = []
         for _, _, label in (PAIRS if pairs is None else pairs):
             L.append(f'  {label}')
             head = '    ' + ' '.join(f'{k:>{w}s}' for k, w in cols)
-            L.append(head + f' {"subset":>14s} {"n":>7s} {"rho":>7s} '
+            L.append(head + f' {"n":>7s} {"rho":>7s} '
                             f'{"p":>9s} {"q":>9s}')
             g = c[c.pair == label]
             if 'env' in g:
@@ -655,7 +778,7 @@ class FieldGeometryReport(ExperimentReport):
                 rho = f'{r.rho:+7.3f}' if np.isfinite(r.rho) else f'{"--":>7s}'
                 p = f'{r.p:9.2g}' if np.isfinite(r.p) else f'{"--":>9s}'
                 q = f'{r.q:9.2g}' if np.isfinite(r.q) else f'{"--":>9s}'
-                L.append(f'{vals} {r.subset:>14s} {r.n:7d} {rho} {p} {q}')
+                L.append(f'{vals} {r.n:7d} {rho} {p} {q}')
                 shown += 1
             L.append('')
         return L
@@ -681,24 +804,37 @@ class FieldGeometryReport(ExperimentReport):
             f'EXTENT_PCTL {PCTL}, ACT_THRESH {THRESH:g}, Rule 2 off, '
             f'LAMBDA 0. Descriptive: no null model and no resampling.'])))
 
-        out.append(S('READ THE TWO SUBSETS TOGETHER', '\n'.join([
+        agree_lines, agree = self._subset_agreement()
+        out.append(S('THE CLIPPING CHECK, AND WHY IT IS NOT IN THE TABLES',
+                     '\n'.join([
             'Rule 7 fits a field\'s ellipse to the second moments of its '
             'MASK, and the mask is intersected with the floor. A field whose '
             'shape reaches past the wall is cut, and a cut blob\'s moments '
-            'are elongated ALONG the wall. So both wall correlations are '
-            'partly the arena\'s outline rather than the fields.', '',
-            'Every correlation is therefore reported twice. "all fields" is '
-            'every admitted field. "clear of wall" keeps only those whose '
-            'recorded ellipse does not reach the wall -- dist_to_wall_m is '
-            'less than reach_to_wall_m, the ellipse\'s own extent toward it '
-            '-- so nothing cut their shape.', '',
-            'Where the two agree, the result stands. Where they disagree, the '
-            'trend is in the cut fields and that is what the correlation '
-            'found.',
+            'are elongated ALONG the wall. So both wall correlations could be '
+            'partly the arena\'s outline rather than the fields, and every '
+            'correlation is computed twice: over all admitted fields, and over '
+            'the ones whose recorded ellipse does not reach the wall '
+            '(dist_to_wall_m below reach_to_wall_m, the ellipse\'s own extent '
+            'toward it), whose shapes nothing cut.', '',
             f'Fields whose ellipse reaches past the wall: '
             f'{100 * float(self.fields.crosses_wall.mean()):.1f}% overall, '
             f'{100 * float(d.frac_crosses_wall.max()):.1f}% in the worst '
-            f'arena x channel x scale cell.'])))
+            f'arena x channel x scale cell.', '',
+            'How far apart the two subsets come out, per pair:'] +
+            agree_lines + [
+            '', ('THE TWO SUBSETS AGREE to within '
+                 f'|d rho| {self.AGREE_TOL:g} with no material sign flip, so '
+                 'the tables and figures below show the all-fields subset '
+                 'alone and nothing is lost by it.') if agree else
+            ('THE TWO SUBSETS DO NOT AGREE on every pair -- see the flagged '
+             'rows above. The tables and figures below still show the '
+             'all-fields subset alone, so for a flagged pair read the '
+             'clear-of-wall rows out of correlations.csv before drawing any '
+             'conclusion from it: a trend that lives only in the fields the '
+             'wall cut is the arena\'s outline, not the fields.'),
+            '', 'Both subsets are in correlations.csv regardless, which is '
+            'what makes showing one of them a presentation choice rather than '
+            'a claim taken on trust.'])))
 
         out.append(S('WHAT THE NUMBERS MEAN', '\n'.join([
             'scale             0 finest to 5 coarsest, geometric in radius.',
@@ -855,13 +991,15 @@ def main():
     print('\nfigures:', flush=True)
     fig_elongation_by_scale(fields, 'G1_elongation_by_scale.png')
     _vs_distance(fields, 'elongation', 'G2_elongation_vs_wall.png',
-                 'G2  elongation against wall distance\nsolid = median of all '
-                 'fields, dashed = median of the fields whose ellipse does '
-                 'not reach past the wall', 'elongation (a/b)', hline=1.0)
+                 'G2  elongation against wall distance\ngrey = IQR of the '
+                 'library, black = its median, coloured = the median within '
+                 'each scale; dotted = 1.0, a circular field',
+                 'elongation (a/b)', hline=1.0)
     _vs_distance(fields, 'angle_to_wall_deg', 'G3_angle_vs_wall.png',
-                 'G3  angle between a field\'s long axis and the nearest wall, '
-                 'against wall distance\n0 = points straight at the wall, '
-                 '90 = lies along it', 'angle to wall normal (deg)', hline=45.0)
+                 'G3  angle between a field\'s long axis and the nearest '
+                 'wall, against wall distance\n0 = points straight at the '
+                 'wall, 90 = lies along it; dotted = 45, no preference',
+                 'angle to wall normal (deg)', hline=45.0)
     fig_rho_summary(corr, 'G4_correlation_summary.png')
     prune_orphan_figures()
 
