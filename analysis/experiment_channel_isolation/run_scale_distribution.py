@@ -226,25 +226,39 @@ SETTINGS = [(65, 0.5)]
 # the rest lands in the CSVs. None = Rule 2 off, the series default.
 PRIMARY_IOU = None
 
-# Rule 12's coverage requirement, as the rules define it. Read from there
-# rather than written down again, so the two cannot drift apart. A run at any
-# other value is a DIFFERENT EXPERIMENT and is kept apart from this one
-# everywhere: its own cache directory, its own figure directory, its own bank
-# filenames, and its own line in the report. See --tiling-frac-min.
+# Rule 12's coverage threshold, as the rules define it. Read from there
+# rather than written down again, so the two cannot drift apart. It is 0 --
+# coverage is measured and reported, NOT enforced, and is not one of the three
+# admission rules. A run at any other value restores the filter and is a
+# DIFFERENT EXPERIMENT, kept apart from this one everywhere: its own cache
+# directory, its own figure directory, and its own line in the report. See
+# --tiling-frac-min.
 DEFAULT_TILING = float(R.DEFAULT_CFG['TILING_FRAC_MIN'])
 
 
-def tiling_suffix(tiling_frac_min):
-    """The path suffix a coverage setting earns, empty at the default.
+def coverage_tag(tiling_frac_min):
+    """The coverage setting as it appears in a bank FILENAME, always present.
 
-    Empty at the default on purpose: every bank Experiment 2 has already
-    cached stays findable under the name it already has, and every other
-    script in the series that reads those banks by name keeps working. A
-    relaxed library is the thing that gets a new name, because it is the new
-    thing.
+    Unconditional, and that is the point. When Rule 12 stopped being an
+    admission rule the default moved from 0.50 to 0, so a filename carrying no
+    coverage marker -- as every bank built before that change does -- would be
+    claimed by the new default and read back as a library it is not. Two
+    different libraries must never be able to share a name. An old
+    `..._roff_bank.csv` matches no key this function can produce, so it is
+    inert rather than dangerous.
+    """
+    return f'_cov{float(tiling_frac_min):g}'
+
+
+def tiling_suffix(tiling_frac_min):
+    """The DIRECTORY suffix a coverage setting earns, empty at the default.
+
+    Empty at the default so the standard model's outputs live in the unadorned
+    path every other script points at. Restoring the filter sends a run
+    somewhere else entirely, because it is a different experiment.
     """
     tf = float(tiling_frac_min)
-    return '' if abs(tf - DEFAULT_TILING) < 1e-12 else f'_tf{tf:g}'
+    return '' if abs(tf - DEFAULT_TILING) < 1e-12 else f'_cov{tf:g}'
 
 
 def at_operating_point(df):
@@ -870,9 +884,8 @@ def build_banks(env_name, cname, blocks, xy, env, settings, ious, base_C,
     """
     def _key(p, t, iou):
         r = 'off' if iou is None else f'{iou:g}'
-        # The coverage setting joins the filename as well as the directory, so
-        # a bank still says what it is if it is ever looked at on its own.
-        cov = tiling_suffix(base_C.get('TILING_FRAC_MIN', DEFAULT_TILING))
+        # The coverage setting is always in the name -- see coverage_tag.
+        cov = coverage_tag(base_C.get('TILING_FRAC_MIN', DEFAULT_TILING))
         return f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}{cov}_bank.csv'
 
     want = {(p, t, iou): _key(p, t, iou)
@@ -1478,66 +1491,32 @@ class ScaleDistributionReport(ExperimentReport):
         # drawn from a different set of libraries.
         tf = getattr(self, 'tiling_frac_min', DEFAULT_TILING)
         if abs(tf - DEFAULT_TILING) > 1e-12:
-            out.append(S('RULE 12 IS NOT AT ITS DEFAULT IN THIS RUN',
+            out.append(S('THE COVERAGE FILTER IS SWITCHED BACK ON IN THIS RUN',
                          '\n'.join([
-                f'TILING_FRAC_MIN = {tf:g}, against the usual '
-                f'{DEFAULT_TILING:g}.'
-                + (' The coverage requirement is DISABLED: every scale that '
-                   'survived Rule 11\'s competition is kept, however little '
-                   'of the floor it covers.' if tf <= 0 else
-                   ' The coverage requirement is relaxed.'), '',
+                f'TILING_FRAC_MIN = {tf:g}, against the default of '
+                f'{DEFAULT_TILING:g}. Coverage is normally measured and '
+                'reported but admits nothing; here Rule 12 is deleting scales '
+                'again, so this run has FOUR admission rules instead of the '
+                'standard three (size range, contiguity, competition).', '',
                 'Rule 12 drops a scale whose admitted fields, unioned, cover '
                 'less than that fraction of the floor, and keeps the '
                 'contiguous run of qualifying scales around the best-covered '
                 'one. It polices both ends of the ladder: coarse scales fail '
-                'because too few nodes that large exist, fine scales because '
-                'a tiling at that resolution would need more fields than the '
+                'for having too few nodes that large, fine scales because a '
+                'tiling at that resolution would need more fields than the '
                 'tree produces.', '',
                 'So the libraries below are NOT the ones the rest of the '
-                'series is built on, and the comparison to make is against '
-                'the operating-point run of this same experiment -- same '
-                'arenas, same channels, same seed, same code. Its outputs are '
-                'in data_cache/scale_distribution; this run\'s are in '
+                'series is built on. The comparison to make is against the '
+                'standard run of this same experiment -- same arenas, same '
+                'channels, same seed, same code -- whose outputs are in '
+                'data_cache/scale_distribution; this run\'s are in '
                 f'data_cache/scale_distribution{tiling_suffix(tf)}.', '',
                 'Read the scale occupancy and the fitted form first. Rule 12 '
-                'removes whole scales, so relaxing it widens the size range '
-                'by construction -- a larger CV and a wider max/min are '
-                'expected and are not themselves findings. Whether the '
-                'FITTED FORM changes, and whether the recovered scales hold '
-                'enough fields to tile anything, are the questions.'])))
-
-        # A library whose size distribution could not be fitted leaves no
-        # row in fits.csv, so it has to be named here or it looks as though
-        # the fit simply agreed with everything else.
-        none_, failed = getattr(self, 'fit_none', []), getattr(self, 'fit_failed', [])
-        if none_ or failed:
-            L = [f'{len(none_)} library x variable fits were declined and '
-                 f'{len(failed)} raised. Full list in unfitted.csv.', '',
-                 'DECLINED means the sample had nothing to fit: fewer than '
-                 f'{MIN_FIELDS} fields, fewer than {MIN_DISTINCT} distinct '
-                 f'values, or a relative spread below {MIN_REL_SPREAD:g} -- a '
-                 'point mass rather than a distribution. A library whose '
-                 'fields all sit on the Rule 8 area floor is a real outcome, '
-                 'not a failure of the run, and it is what a scale looks like '
-                 'when Rule 12\'s coverage test is not there to delete it. '
-                 'Those libraries are still in summary.csv and '
-                 'scale_summary.csv with their counts and their sizes; they '
-                 'have no fitted form because no form is identifiable.', '']
-            for r in none_[:20]:
-                L.append(f'  declined  {r["env"]:17s} {r["channel"]:8s} '
-                         f'{r["variable"]:9s} n={r["n_fields"]:<5d} '
-                         f'distinct={r["n_distinct"]}')
-            if len(none_) > 20:
-                L.append(f'  ... {len(none_) - 20} more in unfitted.csv')
-            for r in failed[:20]:
-                L.append(f'  RAISED    {r["env"]:17s} {r["channel"]:8s} '
-                         f'{r["variable"]:9s} n={r["n_fields"]:<5d} '
-                         f'{r["error"]}')
-            if failed:
-                L += ['', 'A RAISED fit is a defect, not a property of the '
-                      'data: the run continued past it, but the cause should '
-                      'be found rather than tolerated.']
-            out.append(S('LIBRARIES WITH NO FITTED FORM', '\n'.join(L)))
+                'removes whole scales from both ends, so switching it back on '
+                'NARROWS the size range by construction -- a smaller CV and a '
+                'narrower max/min are expected and are not themselves '
+                'findings. Whether the FITTED FORM differs, and which scales '
+                'the filter removed, are the questions.'])))
 
         # --- the shape, which is the actual question ----------------------
         w = self.winners
@@ -2031,16 +2010,16 @@ def parse_args():
                    help='LAMBDA. 0 = feature only, as everywhere else.')
     p.add_argument('--tiling-frac-min', type=float, default=DEFAULT_TILING,
                    metavar='FRAC',
-                   help='Rule 12 (tiling stop): the fraction of the floor a '
-                        'scale\'s admitted fields must cover, unioned, for '
-                        'that scale to survive. 0 DISABLES the coverage '
-                        f'requirement entirely. Default {DEFAULT_TILING:g}. '
-                        'Any value but the default sends every output to '
-                        '..._tf<value> -- its own cache, its own figures, its '
-                        'own banks -- so it cannot overwrite the operating '
-                        'point, and the libraries are rebuilt rather than '
-                        'read from the operating point\'s cache, because '
-                        'they are different libraries.')
+                   help='Rule 12: the fraction of the floor a scale\'s '
+                        'fields must cover, unioned, for Rule 12 to keep that '
+                        f'scale. DEFAULT {DEFAULT_TILING:g} -- coverage is '
+                        'MEASURED AND REPORTED BUT NOT ENFORCED, and is not '
+                        'one of the three admission rules (size range, '
+                        'contiguity, competition). Setting it above 0 restores '
+                        'the filter for a comparison run and sends every '
+                        'output to ..._cov<value>, its own cache and figures, '
+                        'so a filtered run cannot be mistaken for the '
+                        'standard one.')
     p.add_argument('--split-half-iou-min', default='none', metavar='LIST',
                    help='Rule 2: reject a field whose split-half IoU is below '
                         'this. CURRENTLY UNUSABLE and the run will refuse it: '

@@ -15,7 +15,8 @@ distance perception is bounded.
 
 Rules in force: 1 (contiguity), 2 (reliability), 4 (spatial weighting),
 7 (anisotropy), 8/9 (size window), 11 (same-scale competition),
-12 (tiling stop). See VPCE-Brain "Agglomeration Rules".
+12 (tiling stop, measured but not enforced -- coverage is reported per
+scale and admits nothing). See VPCE-Brain "Agglomeration Rules".
 
 Usage
     python run_channel_isolation.py [env_name] [options]

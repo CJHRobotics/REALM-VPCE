@@ -53,7 +53,7 @@ Two nulls
             order, largest first, and a placement is also rejected if it
             breaks Rule 11's spacing against fields of its band already
             placed in that draw. The real library had to satisfy that
-            spacing, and Rule 12 deletes any band that fails to cover half the
+            spacing, and Rule 12 used to delete any band that failed to cover half the
             floor, so a band of large fields packed into the centre could
             never have been observed at all. A uniform null carries neither
             constraint and can work against the hypothesis. Rule 12's coverage
@@ -198,8 +198,14 @@ SMALL_COLOR, LARGE_COLOR = '0.45', '#b2182b'
 
 
 def bank_path(env_name, cname):
-    """Experiment 2's cache key at the operating point, Rule 2 off."""
-    return f'{BANK_DIR}/{env_name}/{cname}_p{PCTL}_t{THRESH:g}_roff_bank.csv'
+    """Experiment 2's cache key at the operating point.
+
+    Rule 2 off, and the coverage setting carried explicitly: Rule 12 stopped
+    being an admission rule, so the default moved from 0.50 to 0 and a name
+    without a coverage marker belongs to neither.
+    """
+    return (f'{BANK_DIR}/{env_name}/{cname}_p{PCTL}_t{THRESH:g}_roff'
+            f'{SD.coverage_tag(SD.DEFAULT_TILING)}_bank.csv')
 
 
 # ----------------------------------------------------------------- geometry
@@ -997,7 +1003,7 @@ class WallProximityReport(ExperimentReport):
             'Do large place fields sit further from the walls and the '
             'landmarks than fields of their size would by chance? Libraries '
             f'are Experiment 2\'s, unchanged: EXTENT_PCTL {PCTL}, ACT_THRESH '
-            f'{THRESH:g}, Rule 2 off, LAMBDA 0.', '',
+            f'{THRESH:g}, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0.', '',
             'This replaces a correlation of field area with wall distance over '
             'the whole library, which found nothing: pooled rho +0.06 against '
             'a null of +0.05, 0/23 libraries. About 60% of a library is '
@@ -1139,7 +1145,7 @@ def main():
     print(f'  envs     : {envs}')
     print(f'  channels : {chans}')
     print(f'  fields   : Experiment 2 config, EXTENT_PCTL {PCTL}, '
-          f'ACT_THRESH {THRESH:g}, Rule 2 off, LAMBDA 0')
+          f'ACT_THRESH {THRESH:g}, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0')
     print(f'  libraries: {"rebuilt" if args.rebuild else "from cache where present"}'
           f' ({BANK_DIR})')
     print(f'  classes  : small = bottom 50% by area, large = top 10%')

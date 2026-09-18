@@ -37,6 +37,13 @@
 # rebuilds field libraries through the same rules the rest of the experiment
 # series uses.
 #
+# THREE RULES ADMIT A FIELD: size range (Rules 8/9), contiguity (Rule 1) and
+# competition (Rule 11). Rule 12's coverage test is measured and reported but
+# admits nothing -- TILING_FRAC_MIN defaults to 0 -- after the eight-arena
+# review found the scales it deleted were ones worth describing. Pass
+# --tiling-frac-min 0.5 to restore the filter for a comparison run; that run
+# goes to data_cache/scale_distribution_cov0.5 and cannot overwrite this one.
+#
 # THE THRESHOLD CAVEAT. Harland's exponential fit goes quasi-linear at a
 # lower detection threshold, so every fit is reported across a sweep of our
 # analogous knob. That knob is EXTENT_PCTL, *not* ACT_THRESH: under

@@ -133,7 +133,7 @@ def f2_lambda_curves(metrics, fig_dir, env_name):
               ('frag_rate', 'Rule 1 rejection rate (fragmented)'),
               ('median_split_half_iou', 'median split-half IoU'),
               ('corr_radius_wall', 'corr(radius, wall distance)'),
-              ('band_lo', 'finest scale band admitted (Rule 12)')]
+              ('band_lo', 'finest scale admitted')]
     panels = [(c, l) for c, l in panels if c in metrics.columns]
     ncol = 3
     nrow = int(np.ceil(len(panels) / ncol))
@@ -332,7 +332,10 @@ def f6_funnel_coverage(reports, metrics, fig_dir, env_name, channels, lam_ref):
         bs = sorted(rep['coverage'])
         ax.plot(bs, [100 * rep['coverage'][b] for b in bs], marker='o', ms=5,
                 color=CHANNEL_COLORS.get(cn), label=cn)
-    ax.axhline(50, color='red', ls='--', lw=1.4, label='Rule 12 threshold')
+    # The old Rule 12 threshold. Coverage no longer admits anything, so this
+    # is drawn as the reference it is rather than a line anything must clear.
+    ax.axhline(50, color='red', ls='--', lw=1.4,
+               label='old Rule 12 threshold (no longer enforced)')
     ax.set_xlabel('scale band (geometric, ratio 1.6)')
     ax.set_ylabel('% of environment covered')
     ax.set_title('(b) can each scale still tile the floor?')

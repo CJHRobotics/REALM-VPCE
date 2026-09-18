@@ -80,7 +80,7 @@ its lm8 twin's outline:
     corr_lm8_l10w2, corr_lm0_l10w2                        corridor
 
 Libraries are Experiment 2's, unchanged and from its cache under its cache
-key: EXTENT_PCTL 65, ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0. Nothing
+key: EXTENT_PCTL 65, ACT_THRESH 0.5, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0, seed 0. Nothing
 here is a knob.
 
 Usage
@@ -163,8 +163,14 @@ def arena_shape(env_name):
 
 
 def bank_path(env_name, cname):
-    """Experiment 2's cache key at the operating point, Rule 2 off."""
-    return f'{BANK_DIR}/{env_name}/{cname}_p{PCTL}_t{THRESH:g}_roff_bank.csv'
+    """Experiment 2's cache key at the operating point.
+
+    Rule 2 off, and the coverage setting carried explicitly: Rule 12 stopped
+    being an admission rule, so the default moved from 0.50 to 0 and a name
+    without a coverage marker belongs to neither.
+    """
+    return (f'{BANK_DIR}/{env_name}/{cname}_p{PCTL}_t{THRESH:g}_roff'
+            f'{SD.coverage_tag(SD.DEFAULT_TILING)}_bank.csv')
 
 
 def load_positions(data_path, n_orientations=8):
@@ -916,7 +922,7 @@ def main():
     print(f'  envs     : {envs}')
     print(f'  channels : {chans}')
     print(f'  fields   : Experiment 2 config, EXTENT_PCTL {PCTL}, '
-          f'ACT_THRESH {THRESH:g}, Rule 2 off, LAMBDA 0')
+          f'ACT_THRESH {THRESH:g}, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0')
     print(f'  libraries: {"rebuilt" if args.rebuild else "from cache where present"}'
           f' ({BANK_DIR})')
     print(f'  pairs    : ' + '; '.join(lab for _, _, lab in PAIRS))

@@ -63,7 +63,15 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 
 LIDAR_MAX_RANGE, LIDAR_SENTINEL = 5.0, -1.0
 DEFAULT_SEP = R.DEFAULT_CFG['SAME_SCALE_SEPARATION']    # 0.35
-DEFAULT_COV = R.DEFAULT_CFG['TILING_FRAC_MIN']          # 0.50
+# PINNED, not read from the live config. This sweep established
+# SAME_SCALE_SEPARATION = 0.35 with Rule 12's coverage filter in force at
+# 0.50, and it marks that cell of its grid as "the current default". Rule 12
+# stopped being an admission rule after the eight-arena review and
+# TILING_FRAC_MIN now defaults to 0, which is not in this sweep's coverage
+# grid at all -- reading it from the config would silently change what the
+# script compares against and make its recorded finding unreproducible. The
+# script is retired (see RETIRED.md); this constant is the setting it ran at.
+DEFAULT_COV = 0.50
 
 
 # ------------------------------------------------------------------ report

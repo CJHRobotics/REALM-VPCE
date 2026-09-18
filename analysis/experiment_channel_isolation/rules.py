@@ -11,13 +11,28 @@ so the funnel can be inspected and no rule is doing hidden work.
     Rule 8  size floor        nothing smaller than the smallest measured field
     Rule 9  size ceiling      nothing larger than the largest measured field
     Rule 11 competition       same-scale neighbours compete; nesting allowed
-    Rule 12 tiling stop       drop scale bands that can no longer cover the floor
+    (Rule 12 tiling stop      DROPPED — coverage still measured, no longer filters)
+
+THREE RULES ADMIT A FIELD, and they are the whole of admission:
+
+    size range    Rules 8 and 9 — the field is neither smaller than the
+                  smallest nor larger than the largest measured field.
+    contiguity    Rule 1 — the field is one connected patch of floor.
+    competition   Rule 11 — no larger field of the same scale had already
+                  claimed the ground.
 
 Rules 3, 5, 6 and 10 are deliberately not implemented here. Rule 2 was
 dropped after the first full run: it rejected at most 1% of candidates in any
 configuration, and the within-session split-half form we used is the one
 criterion not tied to a specific source. Split-half agreement is still
 computed and written to the bank as a reported property of each field.
+
+Rule 12 was dropped as an admission rule after the eight-arena review: it
+deleted whole scales for covering too little of the floor, and the scales it
+deleted turned out to be ones worth keeping and describing. Coverage is still
+computed for every scale and reported, exactly as split-half agreement is, so
+nothing is lost by not enforcing it -- `TILING_FRAC_MIN` defaults to 0, and
+setting it above 0 restores the filter for a comparison run.
 
 Deliberately excluded from the model: distance-to-the-wall never enters any
 merge or admission decision. It is computed only as a reported measurement,
@@ -214,12 +229,32 @@ DEFAULT_CFG = dict(
     # as a data-driven choice.
     SAME_SCALE_SEPARATION = 0.35,
     # Band edges are geometric with this ratio. Used ONLY to group fields
-    # for Rules 11 and 12 — never to admit or reject one, so the ladder
-    # spacing is measured rather than imposed (Rule 10 is not in force).
+    # for Rule 11 and for reporting coverage — never to admit or reject one,
+    # so the ladder spacing is measured rather than imposed (Rule 10 is not
+    # in force).
     BAND_RATIO       = 1.6,
 
-    # --- Rule 12 ----------------------------------------------------------
-    TILING_FRAC_MIN  = 0.50,       # arena coverage a band must reach to survive
+    # --- Rule 12: measured, NOT enforced ----------------------------------
+    # The fraction of the floor a scale's fields must cover, unioned, for
+    # Rule 12 to keep that scale. 0 means Rule 12 never deletes anything, and
+    # 0 IS THE DEFAULT: coverage is not an admission rule.
+    #
+    # It was one, at 0.50, until the eight-arena review. Two things decided
+    # it. The scales it deleted are ones worth describing: it policed both
+    # ends of the ladder, so it removed the coarsest scales for having too
+    # few fields to tile and the finest for needing more than the tree
+    # produces, and in both cases the fields existed and had passed every
+    # other rule. And it deleted them WHOLESALE -- a scale at 0.49 went
+    # entirely, while one at 0.51 was kept entirely, which is a large
+    # difference in the library for an arbitrarily small difference in
+    # coverage.
+    #
+    # Coverage is still computed per scale and returned in the report, the
+    # same way Rule 2's split-half agreement is still computed and written to
+    # the bank. Set this above 0 to restore the filter for a comparison run;
+    # every script that reads it carries the value in its output paths, so a
+    # filtered run cannot be mistaken for the standard one.
+    TILING_FRAC_MIN  = 0.0,
 
     # --- runtime ----------------------------------------------------------
     READOUT_BATCH    = 256,
@@ -807,21 +842,25 @@ def rule11_competition(order, cx, cy, r_mean, band, sep):
 
 
 def rule12_tiling(kept, band, masks, G, C):
-    """Rule 12 — a scale band survives only if it can still cover the floor.
+    """Rule 12 — measure each scale's coverage of the floor, and at a
+    non-zero threshold drop the scales that fall short.
 
-    A band whose fields cover less than TILING_FRAC_MIN of the environment
-    is not a population code for space at that resolution, so it is dropped.
+    MEASURING IS THE DEFAULT AND FILTERING IS NOT. `TILING_FRAC_MIN` is 0
+    unless a caller sets it, and at 0 every scale that reached here is kept,
+    so this function returns the coverage it measured and nothing else
+    happens. Coverage is a reported property of a scale, as split-half
+    agreement is a reported property of a field.
+
+    Above 0 the old behaviour returns: a scale whose fields cover less than
+    the threshold, unioned, is dropped whole, and the surviving ladder is the
+    contiguous run of qualifying scales around the best-covered one, so it
+    never has a hole in the middle. That filter policed both ends of the
+    ladder -- coarse scales for having too few nodes that large, fine scales
+    for needing more fields than the tree produces -- which is why removing
+    it changes a library at both ends rather than only at the top.
+
     Coverage is evaluated after Rule 11, on the fields that actually survive
-    competition.
-
-    Both ends of the ladder are policed by this, for different reasons.
-    Coarse bands fail because too few nodes that large exist — the thinning
-    the rule was written for. Fine bands fail because a tiling at that
-    resolution would need far more fields than the tree produces; claiming a
-    population code there would be claiming resolution we do not have.
-
-    The surviving ladder is the contiguous run of qualifying bands around
-    the best-covered one, so it never has a hole in the middle.
+    competition, whether or not it is enforced.
 
     Returns (kept_ids, coverage_by_band, kept_band_range).
     """
@@ -837,6 +876,12 @@ def rule12_tiling(kept, band, masks, G, C):
         coverage[bk] = float(union.sum() / env_bins) if env_bins else 0.0
 
     thr = C['TILING_FRAC_MIN']
+    if not thr > 0:
+        # Not an admission rule: report the coverage and keep everything.
+        # Returned explicitly rather than falling through the contiguous-run
+        # walk below, so that at the default this function provably cannot
+        # remove a field.
+        return list(kept), coverage, (min(coverage), max(coverage))
     qualifying = [b for b in sorted(coverage) if coverage[b] >= thr]
     if not qualifying:
         return [], coverage, (-1, -1)
@@ -1079,8 +1124,9 @@ def admit_fields(ctx, cfg=None, verbose=True):
               + ', '.join(f'B{b}={coverage[b]*100:.0f}%' for b in sorted(coverage))
               + f'  (kept bands {band_range[0]}..{band_range[1]})')
         if not kept:
-            print(f'[{tag}] !! Rule 12 admitted no band — no scale reached '
-                  f'{100*C["TILING_FRAC_MIN"]:.0f}% coverage')
+            print(f'[{tag}] !! Rule 12 admitted no scale — none reached '
+                  f'{100*C["TILING_FRAC_MIN"]:.0f}% coverage. This can only '
+                  f'happen with TILING_FRAC_MIN set above its default of 0.')
 
     # --- bank -------------------------------------------------------------
     kept = sorted(kept, key=lambda k: r_eq[k])

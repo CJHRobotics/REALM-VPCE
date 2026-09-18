@@ -11,16 +11,22 @@
 #   corr_lm8_l10w10  color                  7 fields, all at one coarse scale
 #   corr_lm0_l10w10  spatial, visual        18 and 7 fields, coarse only
 #
-# Every candidate is followed through the four rules, and the audit reports
-# which one took it:
+# Every candidate is followed through the THREE ADMISSION RULES, and the audit
+# reports which one took it:
 #
 #   size          the field fell below the floor or above the ceiling, so it
 #                 never had a scale of its own
 #   contiguity    the field came out in pieces; the largest connected patch
 #                 held less than CC_FRAC_MIN of it
 #   competition   a larger field of the same scale already claimed the ground
-#   coverage      the scale survived competition but its fields covered less
-#                 than TILING_FRAC_MIN of the floor, so the scale was dropped
+#
+# Coverage is NOT an admission rule. How much of the floor a scale's survivors
+# cover, unioned, is measured and reported for every scale but admits nothing:
+# Rule 12 used to delete a scale covering less than TILING_FRAC_MIN, and
+# stopped being an admission rule after the eight-arena review. The default is
+# 0. Pass --tiling-frac-min 0.5 to restore the filter for a comparison run;
+# the audit then has four rules, goes to data_cache/prune_audit_cov0.5, and
+# says so in its report.
 #
 # One outcome is not a rule: a scale can have no candidates at all, because
 # the tree never produced a field that size. Nothing downstream could have

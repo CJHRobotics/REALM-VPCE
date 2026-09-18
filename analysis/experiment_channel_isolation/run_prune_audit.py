@@ -12,8 +12,8 @@ built a candidate of that size, whether the candidates were built and came out
 in pieces, or whether they were whole and lost to a later rule. Those have
 different causes and different fixes, and this separates them.
 
-Every candidate is followed through the four rules, and the audit reports
-which one took it:
+Every candidate is followed through the THREE ADMISSION RULES, and the audit
+reports which one took it:
 
   size          the field came out smaller than the floor or larger than the
                 ceiling. These are the only candidates with no scale of their
@@ -24,9 +24,13 @@ which one took it:
                 places apart responds in both, and the field fragments.
   competition   a larger field of the same scale had already claimed the
                 ground. Routine, and the main reason counts fall with scale.
-  coverage      the scale cleared competition, but its survivors covered less
-                than TILING_FRAC_MIN of the floor, so the whole scale went.
-                This is how a scale disappears wholesale rather than thinning.
+Coverage -- how much of the floor a scale's survivors cover, unioned -- is
+MEASURED AND REPORTED FOR EVERY SCALE BUT ADMITS NOTHING. Rule 12 used to
+delete a scale covering less than TILING_FRAC_MIN of the floor, and stopped
+being an admission rule after the eight-arena review; `TILING_FRAC_MIN`
+defaults to 0. `coverage_reached` is in the tables as a property of a scale,
+the way split-half agreement is a property of a field. Set the threshold above
+0 and the filter returns, the audit grows a fourth rule, and it says so.
 
 One outcome is not a rule at all: a scale can have no candidates to begin
 with, because the tree never produced a field of that size. Nothing
@@ -37,7 +41,8 @@ each stage, rather than from a second implementation here that could drift
 from it.
 
 The configuration is Experiment 2's operating point exactly -- EXTENT_PCTL 65,
-ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0 -- so these are the same
+ACT_THRESH 0.5, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0, seed 0 --
+so these are the same
 libraries that experiment reports, and the audit describes those fields rather
 than a re-tuned copy of them.
 
@@ -94,12 +99,33 @@ RULE_GRAY, SURFACE = SD.RULE_GRAY, SD.SURFACE
 # dE 9.2, worst normal-vision pair 16.3. Aqua sits just under 3:1 against the
 # surface, which the printed counts relieve. Candidates are grey -- a starting
 # count, not a rule.
-RULE_NAMES = ['size', 'contiguity', 'competition', 'coverage']
-RULE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7']
-COUNT_COLUMNS = ['n_candidates', 'n_pass_size', 'n_pass_contiguity',
-                 'n_pass_competition', 'n_pass_coverage']
-BAR_COLORS = [RULE_GRAY] + RULE_COLORS
-BAR_LABELS = ['candidates'] + [f'passed {n}' for n in RULE_NAMES]
+# The three admission rules. Coverage is not among them: Rule 12 measures it
+# and reports it but admits nothing, unless a caller sets TILING_FRAC_MIN above
+# its default of 0 -- and then `rule_names` adds it back as a fourth.
+ADMISSION_RULES = ['size', 'contiguity', 'competition']
+ADMISSION_COLORS = ['#2a78d6', '#eb6834', '#1baf7a']
+ADMISSION_COLUMNS = ['n_candidates', 'n_pass_size', 'n_pass_contiguity',
+                     'n_pass_competition']
+COVERAGE_COLOR = '#4a3aa7'
+
+
+def rule_names(tiling_frac_min):
+    """The rules that admitted this run's fields -- three, or four if the
+    coverage filter was switched back on."""
+    return (ADMISSION_RULES + ['coverage'] if float(tiling_frac_min) > 0
+            else list(ADMISSION_RULES))
+
+
+def count_columns(tiling_frac_min):
+    return (ADMISSION_COLUMNS + ['n_admitted'] if float(tiling_frac_min) > 0
+            else list(ADMISSION_COLUMNS))
+
+
+def bar_style(tiling_frac_min):
+    """(colours, labels) for the funnel bars, candidates first."""
+    names = rule_names(tiling_frac_min)
+    cols = ADMISSION_COLORS + ([COVERAGE_COLOR] if len(names) == 4 else [])
+    return [RULE_GRAY] + cols, ['candidates'] + [f'passed {n}' for n in names]
 
 
 def parse_pairs(args):
@@ -171,7 +197,7 @@ def scale_rows(rep, C, tag):
         n = int(sel.sum())
         rows.append(dict(tag, scale=label, n_candidates=n, n_pass_size=0,
                          n_pass_contiguity=0, n_pass_competition=0,
-                         n_pass_coverage=0, median_radius_m=med(r_eq, sel),
+                         n_admitted=0, median_radius_m=med(r_eq, sel),
                          median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
                          coverage_reached=np.nan, coverage_needed=thr,
@@ -190,14 +216,19 @@ def scale_rows(rep, C, tag):
         elif n_won == 0:
             v = f'competition took all {n_wh}: every whole field lost its ground'
         elif n_adm == 0:
+            # Only reachable with the coverage filter switched back on: at the
+            # default Rule 12 deletes nothing, so a scale that won its ground
+            # is admitted.
             v = (f'coverage dropped the scale: {100*cov:.0f}% of the floor '
                  f'against the {100*thr:.0f}% it needs' if np.isfinite(cov)
                  else 'coverage dropped the scale')
         else:
-            v = f'{n_adm} admitted'
+            v = (f'{n_adm} admitted' if not thr > 0 else
+                 f'{n_adm} admitted, coverage {100*cov:.0f}%'
+                 if np.isfinite(cov) else f'{n_adm} admitted')
         rows.append(dict(tag, scale=str(sc), n_candidates=n, n_pass_size=n,
                          n_pass_contiguity=n_wh, n_pass_competition=n_won,
-                         n_pass_coverage=n_adm, median_radius_m=med(r_eq, sel),
+                         n_admitted=n_adm, median_radius_m=med(r_eq, sel),
                          median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
                          coverage_reached=cov, coverage_needed=thr,
@@ -215,12 +246,15 @@ def pair_row(rep, C, env, tag, n_admitted):
         tag,
         env_area_m2=float(env['env_area']),
         n_candidates=int(rep['n_candidates']),
-        # The engine's own funnel keys, reported under the four names the
-        # papers use: size, contiguity, competition, coverage.
+        # The engine's own funnel keys, under the three names the papers use
+        # for admission: size, contiguity, competition. `n_admitted` is the
+        # library that came out, which equals pass_competition unless the
+        # coverage filter was switched back on.
         pass_size=int(funnel.get('rule_8_9_size', 0)),
         pass_contiguity=int(funnel.get('rule_1_contiguity', 0)),
         pass_competition=int(funnel.get('rule_11_competition', 0)),
-        pass_coverage=int(n_admitted),
+        n_admitted=int(n_admitted),
+        coverage_needed=float(C['TILING_FRAC_MIN']),
         frac_below_floor=float(np.mean(~pass_size & (area < rep['area_min']))),
         frac_above_ceiling=float(np.mean(~pass_size & (area > rep['area_max']))),
         cand_radius_min_m=float(r_eq.min()) if len(r_eq) else np.nan,
@@ -239,9 +273,9 @@ def diagnose(pair, scales):
     """The sentence a reader wants: which rule emptied this library, if any."""
     env_name, cname = pair['env'], pair['channel']
     numbered = [r for r in scales if r['scale'].isdigit()]
-    if pair['pass_coverage'] >= SD.MIN_FIELDS and all(
-            r['n_pass_coverage'] for r in numbered if r['n_candidates']):
-        return f'{env_name} {cname}: healthy, {pair["pass_coverage"]} fields'
+    if pair['n_admitted'] >= SD.MIN_FIELDS and all(
+            r['n_admitted'] for r in numbered if r['n_candidates']):
+        return f'{env_name} {cname}: healthy, {pair["n_admitted"]} fields'
     if pair['n_candidates'] == 0:
         return f'{env_name} {cname}: the tree produced no candidate at all'
     if pair['pass_size'] == 0:
@@ -255,22 +289,29 @@ def diagnose(pair, scales):
                 f'{pair["pass_size"]} candidates were the right size but none '
                 f'was whole (median largest piece '
                 f'{100*pair["median_cc_frac"]:.0f}% of the field)')
-    empty = [r for r in numbered if r['n_candidates'] and not r['n_pass_coverage']]
+    empty = [r for r in numbered if r['n_candidates'] and not r['n_admitted']]
     if empty:
         which = ', '.join(r['scale'] for r in empty)
         return (f'{env_name} {cname}: scale(s) {which} were built and emptied -- '
                 + '; '.join(f'scale {r["scale"]}: {r["verdict"]}' for r in empty[:3]))
-    return f'{env_name} {cname}: {pair["pass_coverage"]} fields, nothing emptied'
+    return f'{env_name} {cname}: {pair["n_admitted"]} fields, nothing emptied'
 
 
 def fig_funnels(scales_df, pairs_df, fig_dir):
     """One figure per arena, one panel per channel: what each rule lets through.
 
-    Five bars per scale -- the candidates built at that scale, then what
-    survives size, contiguity, competition and coverage in turn. Counts on a
-    linear axis, because the question is whether anything came through at all,
-    and a bar of zero beside a bar of hundreds is the answer. The number that
-    survives all four is printed, since it is often too small to see.
+    Four bars per scale -- the candidates built at that scale, then what
+    survives size, contiguity and competition in turn, those being the three
+    admission rules. Counts on a linear axis, because the question is whether
+    anything came through at all, and a bar of zero beside a bar of hundreds is
+    the answer. The number admitted is printed, since it is often too small to
+    see.
+
+    Coverage is not a bar. It admits nothing at the default, so a coverage bar
+    would sit exactly on top of competition's and imply a rule that did
+    something; the floor each scale covers is annotated under it instead, in
+    the colour coverage used to have, as the measurement it now is. With
+    TILING_FRAC_MIN set above 0 the filter is back and it gets its bar again.
 
     The axis starts at scale 0. Candidates below the size floor are counted in
     the CSV but not drawn: a tree produces them in the thousands, and a first
@@ -282,7 +323,15 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
     channels of one arena fit a page, and that is the comparison being made.
     """
     cats = [str(s) for s in SD.SCALES] + ['> ceiling']
-    w, paths = 0.17, []
+    # The run's own coverage setting, carried in the rows rather than passed
+    # down a second path that could disagree with them.
+    thr = (float(pairs_df.coverage_needed.iloc[0])
+           if 'coverage_needed' in pairs_df and len(pairs_df) else 0.0)
+    enforced = thr > 0
+    names = rule_names(thr)
+    cols = count_columns(thr)
+    bar_cols, bar_labs = bar_style(thr)
+    w, paths = 0.8 / (len(cols) + 1), []
     for env_name in pairs_df.env.drop_duplicates():
         rows = list(pairs_df[pairs_df.env == env_name].itertuples())
         n_c = min(3, len(rows))
@@ -296,12 +345,28 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
             d = scales_df[(scales_df.env == pr.env) & (scales_df.channel == pr.channel)]
             d = d.set_index('scale').reindex(cats)
             x = np.arange(len(cats))
-            for k, (col, colour) in enumerate(zip(COUNT_COLUMNS, BAR_COLORS)):
-                ax.bar(x + (k - 2) * w, d[col].fillna(0).to_numpy(), width=w * 0.9,
-                       color=colour, edgecolor=SURFACE, linewidth=0.4, zorder=2)
-            for xi, v in zip(x, d.n_pass_coverage.fillna(0).to_numpy()):
-                ax.text(xi + 2 * w, max(v, 0), f'{int(v)}', ha='center',
-                        va='bottom', fontsize=6, color=INK_2)
+            # Bars are centred on the tick whatever their number, so a
+            # three-rule funnel is not drawn off to one side of its scale.
+            off = (len(cols) - 1) / 2.0
+            for k, (col, colour) in enumerate(zip(cols, bar_cols)):
+                ax.bar(x + (k - off) * w, d[col].fillna(0).to_numpy(),
+                       width=w * 0.9, color=colour, edgecolor=SURFACE,
+                       linewidth=0.4, zorder=2)
+            # The admitted count over the last bar, clear of it: at the
+            # default that bar IS the admitted count, and a label touching its
+            # cap reads as part of the bar.
+            for xi, v in zip(x, d.n_admitted.fillna(0).to_numpy()):
+                ax.annotate(f'{int(v)}', (xi + off * w, max(v, 0)),
+                            textcoords='offset points', xytext=(0, 2),
+                            ha='center', va='bottom', fontsize=6, color=INK_2)
+            # Coverage admits nothing at the default, so it is annotated as
+            # the measurement it is rather than drawn as a bar that would sit
+            # exactly on top of competition's.
+            if not enforced:
+                for xi, cv in zip(x, d.coverage_reached.to_numpy(dtype=float)):
+                    if np.isfinite(cv):
+                        ax.text(xi, 0, f'{100 * cv:.0f}%', ha='center',
+                                va='top', fontsize=5.5, color=COVERAGE_COLOR)
             for side in ('top', 'right'):
                 ax.spines[side].set_visible(False)
             for side in ('left', 'bottom'):
@@ -311,19 +376,22 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
             ax.tick_params(labelsize=7, colors=MUTED)
             ax.set_xlabel('scale (0 finest)', fontsize=8, color=INK_2)
             ax.set_ylabel('candidates', fontsize=8, color=INK_2)
-            ax.set_title(f'{pr.channel} — {pr.pass_coverage} admitted',
+            ax.set_title(f'{pr.channel} — {pr.n_admitted} admitted',
                          fontsize=9, color=INK)
         for ax_i in range(len(rows), n_r * n_c):
             axes[ax_i // n_c][ax_i % n_c].set_visible(False)
         height = fig.get_figheight()
-        fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in BAR_COLORS],
-                   BAR_LABELS, loc='upper center', ncol=len(BAR_LABELS),
+        fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in bar_cols],
+                   bar_labs, loc='upper center', ncol=len(bar_labs),
                    frameon=False, fontsize=8,
                    bbox_to_anchor=(0.5, 1 - 0.48 / height))
         fig.suptitle(f"P1  {env_name}: which rule takes each scale's candidates\n"
                      'bars left to right: built at that scale, then what '
-                     'survives size, contiguity, competition and coverage; '
-                     'candidates under the size floor are in the CSV, not drawn',
+                     f'survives {", ".join(names[:-1])} and {names[-1]}; '
+                     'candidates under the size floor are in the CSV, not '
+                     'drawn'
+                     + ('' if enforced else '. Purple under each scale is the '
+                        'floor it covers -- measured, admitting nothing'),
                      fontsize=10, color=INK, y=1 - 0.06 / height)
         fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
         path = os.path.join(fig_dir, f'P1_prune_funnels_{env_name}.png')
@@ -343,53 +411,36 @@ class PruneAuditReport(ExperimentReport):
         p = self.results
         if p is None or not len(p):
             return 'no libraries audited'
-        empty = int((p.pass_coverage < SD.MIN_FIELDS).sum())
+        empty = int((p.n_admitted < SD.MIN_FIELDS).sum())
+        # The default is coverage measured-not-enforced, so it needs no
+        # marker; a run with the filter restored says so in the subject line,
+        # because two runs of this audit otherwise arrive looking identical.
         tf = getattr(self, 'tiling_frac_min', SD.DEFAULT_TILING)
-        pre = ('' if abs(tf - SD.DEFAULT_TILING) < 1e-12 else
-               '[Rule 12 coverage OFF] ' if tf <= 0 else
-               f'[Rule 12 coverage {tf:g}] ')
+        pre = ('' if abs(tf - SD.DEFAULT_TILING) < 1e-12
+               else f'[Rule 12 coverage {tf:g}] ')
         return f'{pre}{len(p)} libraries, {empty} empty or near-empty'
 
-    def figures(self):
-        return [f for f in getattr(self, 'figure_paths', []) if f and os.path.exists(f)]
-
-    def data_files(self):
-        return [p for p in (f'{self.out_dir}/prune_audit_scales.csv',
-                            f'{self.out_dir}/prune_audit_pairs.csv')
-                if os.path.exists(p)]
-
     def body(self):
-        p, sc = self.results, self.scales
-        if p is None or not len(p):
-            return 'No libraries were audited.'
         tf = getattr(self, 'tiling_frac_min', SD.DEFAULT_TILING)
         pre = []
         if abs(tf - SD.DEFAULT_TILING) > 1e-12:
             pre = [self.section(
-                'RULE 12 IS NOT AT ITS DEFAULT IN THIS RUN', '\n'.join([
-                    f'TILING_FRAC_MIN = {tf:g}, against the usual '
-                    f'{SD.DEFAULT_TILING:g}.'
-                    + (' The coverage requirement is DISABLED.' if tf <= 0
-                       else ' The coverage requirement is relaxed.'), '',
-                    'WHAT THIS RUN CAN AND CANNOT TELL YOU. Rules 8/9 (size), '
-                    '1 (contiguity) and 11 (competition) all sit UPSTREAM of '
-                    'Rule 12 and none of them reads the coverage threshold, so '
-                    'their counts in every table below are identical to the '
-                    'operating-point audit\'s, to the field. Nothing new is '
-                    'being reported about them.', '',
-                    'What changes is the coverage column: at 0 no scale is '
-                    'deleted, so pass_coverage equals pass_competition '
-                    'everywhere and P1\'s fourth bar matches its third by '
-                    'construction. The `coverage_reached` column is computed '
-                    'before the threshold is applied and so is unchanged too '
-                    '-- which means the operating-point audit already tells '
-                    'you which scales the coverage test was cutting and by '
-                    'how much. The value of this run is as the audit OF the '
-                    'relaxed libraries, to sit beside the relaxed Experiment '
-                    '2, rather than as a new measurement of the rules.'])) ]
-        if pre:
-            return '\n'.join(pre + [self._body_main()])
-        return self._body_main()
+                'THE COVERAGE FILTER IS SWITCHED BACK ON IN THIS RUN',
+                '\n'.join([
+                    f'TILING_FRAC_MIN = {tf:g}, against the default of '
+                    f'{SD.DEFAULT_TILING:g}. Coverage is normally measured and '
+                    'reported but admits nothing; here Rule 12 is deleting '
+                    'scales again, so this run has FOUR admission rules and '
+                    'the tables and P1 carry a coverage column.', '',
+                    'This is a comparison run, not the standard model. The '
+                    'standard model admits a field on three rules -- size '
+                    'range, contiguity, competition -- and its audit is the '
+                    'one in data_cache/prune_audit.', '',
+                    'Rules 8/9, 1 and 11 all sit UPSTREAM of Rule 12 and none '
+                    'reads the threshold, so their counts here are identical '
+                    'to the standard audit\'s, to the field. Only the '
+                    'coverage column and the scales it deletes differ.']))]
+        return '\n'.join(pre + [self._body_main()]) if pre else self._body_main()
 
     def _body_main(self):
         p, sc = self.results, self.scales
@@ -399,19 +450,20 @@ class PruneAuditReport(ExperimentReport):
             + [f'  {d}' for d in self.diagnoses]))]
 
         cols = ['env', 'channel', 'n_candidates', 'pass_size', 'pass_contiguity',
-                'pass_competition', 'pass_coverage', 'median_cc_frac',
+                'pass_competition', 'n_admitted', 'median_cc_frac',
                 'median_sigma_ratio', 'scales_kept']
         out.append(S('THE FOUR RULES, PER LIBRARY', self.table(p[cols])))
 
         for r in p.itertuples():
             d = sc[(sc.env == r.env) & (sc.channel == r.channel)]
             cols2 = ['scale', 'n_candidates', 'n_pass_size', 'n_pass_contiguity',
-                     'n_pass_competition', 'n_pass_coverage', 'median_radius_m',
+                     'n_pass_competition', 'n_admitted', 'median_radius_m',
                      'coverage_reached', 'verdict']
             out.append(S(f'{r.env} · {r.channel}', self.table(d[cols2])))
 
         out.append(S('HOW TO READ IT', '\n'.join([
-            'Each row follows one scale through the four rules, in order.', '',
+            'Each row follows one scale through the three admission rules, in '
+            'order, and then reports the coverage it reached.', '',
             'candidates    fields the tree built at that scale. A zero here is '
             'not a rule at work: the channel never localised to that size, and '
             'nothing downstream could have changed it.',

@@ -24,7 +24,27 @@ biological case behind each one.
 | 8  | size floor — nothing smaller than the smallest measured field | `RULE8_AREA_FRAC` |
 | 9  | size ceiling — nothing larger than the largest measured field | `RULE9_AREA_FRAC` |
 | 11 | competition — same-scale neighbours compete, nesting allowed | `rules.rule11_competition` |
-| 12 | tiling stop — drop scale bands that cannot cover the floor | `rules.rule12_tiling` |
+| 12 | tiling stop — **measured, not enforced**: coverage per scale is reported, and admits nothing | `rules.rule12_tiling` |
+
+**Three rules admit a field, and they are the whole of admission:**
+
+| | rule | what it asks |
+|---|---|---|
+| **size range** | 8 and 9 | is the field neither smaller than the smallest nor larger than the largest measured field? |
+| **contiguity** | 1 | is the field one connected patch of floor? |
+| **competition** | 11 | had no larger field of the same scale already claimed the ground? |
+
+Rules 2 and 12 are both **measured and reported but no longer filter**. Rule 2
+(split-half reliability) was dropped after the first full run — it rejected at
+most 1% of candidates — and its IoU is still written to every bank. Rule 12
+(coverage) was dropped after the eight-arena review: it deleted whole scales
+for covering too little of the floor, and the scales it deleted turned out to
+be ones worth keeping and describing. `TILING_FRAC_MIN` defaults to **0**, and
+coverage is still computed for every scale and returned in the report.
+
+Setting `TILING_FRAC_MIN` above 0 restores the filter for a comparison run.
+Every script that reads it carries the value in its output paths and bank
+names, so a filtered run cannot be mistaken for the standard one.
 
 Rules 3, 5, 6 and 10 are not implemented.
 
@@ -34,9 +54,9 @@ from the features, so putting wall distance into the model would assume the
 result. Figure F7 is therefore a measurement, not a check that a constraint
 was applied.
 
-Scale bands (geometric, ratio 1.6) group fields for Rules 11 and 12 but
-never admit or reject one — the ladder spacing is measured, not imposed,
-because Rule 10 is out of force.
+Scale bands (geometric, ratio 1.6) group fields for Rule 11 and for reporting
+coverage, but never admit or reject one — the ladder spacing is measured, not
+imposed, because Rule 10 is out of force.
 
 ## Range-limited lidar
 
@@ -91,7 +111,7 @@ Options: `--channels`, `--lambdas`, `--subsample N`, `--bin-m`,
 | F3 | elongation vs wall distance; near-wall axis alignment | 7 |
 | F4 | fragmentation distribution and rejection rate | 1 |
 | F5 | split-half IoU distribution and pass rate | 2 |
-| F6 | admission funnel, per-band coverage, size window | 8, 9, 11, 12 |
+| F6 | admission funnel, per-band coverage, size window | 8, 9, 11 (+ 12 as measured) |
 | F7 | field size vs wall distance | measurement only |
 
 ## Compute
@@ -433,7 +453,7 @@ Every candidate node is followed to the stage it died at:
 | **size** | the field fell below the floor or above the ceiling, so it never had a scale of its own. Size therefore shows only at the two ends of the scale axis |
 | **contiguity** | the field came out in pieces — the largest connected patch held under `CC_FRAC_MIN` of it. This is what an incoherent response looks like: a channel that cannot separate two distant places responds in both, and the field fragments |
 | **competition** | a larger field of the same scale already claimed the ground. Routine, and the main reason counts fall with scale |
-| **coverage** | the scale cleared competition but its survivors covered less than `TILING_FRAC_MIN` of the floor, so the whole scale went. This is how a scale disappears wholesale rather than thinning |
+| **coverage** | *not an admission rule.* How much of the floor a scale's survivors cover, unioned, is measured and reported for every scale but admits nothing — `TILING_FRAC_MIN` defaults to 0. Set it above 0 and Rule 12 deletes short scales again, the audit grows a fourth rule, and it says so |
 
 The counts come from the rules engine itself — `rules.admit_fields` records
 which candidates survived each rule — rather than from a second
@@ -482,13 +502,13 @@ libraries it finished.
 
 | file | contents |
 |------|----------|
-| `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, then how many survived size, contiguity, competition and coverage, with the coverage the scale reached against the coverage it needed, and a plain-language verdict |
-| `prune_audit_pairs.csv` | one row per library: the totals through all four rules, the candidate radius range against the size window, fragmentation rate, median `sigma_ratio`, and which scales survived |
+| `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, then how many survived size, contiguity and competition, the number admitted, the coverage the scale reached (measured, not a threshold it had to pass), and a plain-language verdict |
+| `prune_audit_pairs.csv` | one row per library: the totals through the three admission rules and the number admitted, the candidate radius range against the size window, fragmentation rate, median `sigma_ratio`, and which scales survived |
 
 Figures — `figures/prune_audit/P1_prune_funnels_<env>.png`, one per arena:
 one panel per channel, five bars per scale — the candidates built there, then
-what survives size, contiguity, competition and coverage, each rule in its own
-colour. Counts on a linear axis, because the question is whether anything came
+what survives size, contiguity and competition, each rule in its own colour,
+with the floor each scale covers annotated beneath it as the measurement it is. Counts on a linear axis, because the question is whether anything came
 through at all. Per arena rather than one sheet of 48 panels, since six
 channels of one arena is the comparison being made.
 
@@ -624,81 +644,61 @@ whether any sign differs). If a future run moves those numbers, the subset
 column belongs back in the tables.
 
 
+
 ---
 
-# Experiment 2 with the coverage requirement disabled
+# Restoring the coverage filter, for a comparison run
 
-Not a separate experiment: the same `run_scale_distribution.py`, with one
-flag. Rule 12 (tiling stop) drops a whole scale whose admitted fields,
-unioned, cover less than `TILING_FRAC_MIN` of the floor, and keeps the
-contiguous run of qualifying scales around the best-covered one. The default
-is 0.50.
-
-```bash
-sbatch slurm/scale_distribution.sh --tiling-frac-min 0
-```
-
-`0` disables the coverage requirement entirely: every scale that survived Rule
-11's competition is kept, however little of the floor it covers. Any
-intermediate value relaxes rather than disables it.
-
-
-The prune audit takes the same flag, so the audit of the relaxed libraries can
-sit beside the relaxed Experiment 2:
+The standard model has no coverage requirement: Rule 12 measures each scale's
+coverage of the floor and reports it, and admits nothing. To put the filter
+back — to reproduce the pre-review libraries, or to ask what it was deleting —
+pass a threshold to either script:
 
 ```bash
-sbatch slurm/prune_audit.sh --tiling-frac-min 0
+sbatch slurm/scale_distribution.sh --tiling-frac-min 0.5
 ```
 
-Worth knowing before spending the GPU time: Rules 8/9 (size), 1 (contiguity)
-and 11 (competition) all sit **upstream** of Rule 12 and none of them reads the
-coverage threshold, so their counts come out identical to the operating-point
-audit, field for field. Only the coverage column changes — at 0 it deletes
-nothing, so `pass_coverage` equals `pass_competition` and P1's fourth bar
-matches its third by construction. And `coverage_reached` is computed *before*
-the threshold is applied, so the operating-point audit already records which
-scales the coverage test was cutting and by how much. The relaxed audit is
-worth running as the audit *of* the relaxed libraries, not as a new measurement
-of the rules.
-> **On the rule number.** Rule 4 in this codebase is *spatial weighting*
-> (merge cost = feature distance + `LAMBDA` × space) and is already off at the
-> operating point (`LAMBDA` 0), so toggling it changes nothing. The coverage
-> requirement is Rule 12.
+```bash
+sbatch slurm/prune_audit.sh --tiling-frac-min 0.5
+```
 
-Everything else is unchanged — same arenas, same channels, same operating
-point, same seed, same figures, same fits, same report. So the run is directly
-comparable to the operating-point run, field for field.
+0.5 was the old default. Any value above 0 restores the filter; 0 is the
+standard model.
 
-## It cannot overwrite the operating point
+## It cannot be confused with the standard model
 
-Any value but the default sends every output to a parallel `..._tf<value>`
-location:
-
-| | operating point | `--tiling-frac-min 0` |
+| | standard (`TILING_FRAC_MIN` 0) | filter restored (`0.5`) |
 |---|---|---|
-| cache and CSVs | `data_cache/scale_distribution/` | `data_cache/scale_distribution_tf0/` |
-| figures | `figures/scale_distribution/` | `figures/scale_distribution_tf0/` |
-| bank filenames | `..._roff_bank.csv` | `..._roff_tf0_bank.csv` |
-| email subject | as usual | prefixed `[Rule 12 coverage OFF]` |
+| Experiment 2 cache and CSVs | `data_cache/scale_distribution/` | `data_cache/scale_distribution_cov0.5/` |
+| Experiment 2 figures | `figures/scale_distribution/` | `figures/scale_distribution_cov0.5/` |
+| bank filenames | `..._roff_cov0_bank.csv` | `..._roff_cov0.5_bank.csv` |
+| prune audit | `data_cache/prune_audit/` | `data_cache/prune_audit_cov0.5/` |
+| admission rules | three | four |
+| email subject | as usual | prefixed `[Rule 12 coverage 0.5]` |
 
-At the default the suffix is empty, so every bank already cached keeps the
-exact name it has and every other script in the series that reads those banks
-by name keeps working. The relaxed run is the one that gets a new name, and it
-rebuilds its libraries rather than reading the operating point's cache —
-because they are different libraries. The report leads with a section saying
-Rule 12 is not at its default, so the numbers can never be mistaken for the
-series' own.
+The coverage setting is in every **bank filename unconditionally**, not just
+in the directory. When the default moved from 0.50 to 0 a name carrying no
+coverage marker would otherwise have been claimed by the new default and read
+back as a library it is not — so banks built before the change match no
+current key and are inert. If you have pre-change banks in
+`data_cache/scale_distribution/`, they are the `..._roff_bank.csv` files with
+no `_cov` in the name, and they can be deleted.
 
-## Reading it
+Both scripts lead their report with a section saying the filter is on, so a
+comparison run can never be read as the standard one.
 
-Rule 12 removes whole scales and polices **both** ends of the ladder — coarse
-scales fail because too few nodes that large exist, fine scales because a
-tiling at that resolution would need more fields than the tree produces. So
-relaxing it widens the size range by construction: **a larger CV and a wider
-max/min are expected and are not themselves findings.**
+## What restoring it does
 
-The two questions worth asking of the output are whether the **fitted form**
-changes (log-normal vs negative exponential vs Gaussian — that is Experiment
-2's headline, so it says whether the conclusion depends on Rule 12), and
-whether the recovered scales in `scale_summary.csv` hold enough fields to tile
-anything, or are a thin tail that the coverage test was right to cut.
+Rule 12 policed **both** ends of the ladder — coarse scales for having too few
+nodes that large, fine scales for needing more fields than the tree produces —
+so restoring it narrows the size range from both ends. A smaller CV and a
+narrower max/min are arithmetic, not findings.
+
+It also deleted **wholesale**: a scale at 0.49 coverage went entirely while one
+at 0.51 was kept entirely. That discontinuity, and the fact that the deleted
+scales had passed every other rule, is why it is no longer an admission rule.
+
+For the prune audit specifically, Rules 8/9, 1 and 11 all sit **upstream** of
+Rule 12 and none reads the threshold, so their counts come out identical either
+way, field for field. Only the coverage column and the scales it deletes
+differ.
