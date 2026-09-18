@@ -226,6 +226,26 @@ SETTINGS = [(65, 0.5)]
 # the rest lands in the CSVs. None = Rule 2 off, the series default.
 PRIMARY_IOU = None
 
+# Rule 12's coverage requirement, as the rules define it. Read from there
+# rather than written down again, so the two cannot drift apart. A run at any
+# other value is a DIFFERENT EXPERIMENT and is kept apart from this one
+# everywhere: its own cache directory, its own figure directory, its own bank
+# filenames, and its own line in the report. See --tiling-frac-min.
+DEFAULT_TILING = float(R.DEFAULT_CFG['TILING_FRAC_MIN'])
+
+
+def tiling_suffix(tiling_frac_min):
+    """The path suffix a coverage setting earns, empty at the default.
+
+    Empty at the default on purpose: every bank Experiment 2 has already
+    cached stays findable under the name it already has, and every other
+    script in the series that reads those banks by name keeps working. A
+    relaxed library is the thing that gets a new name, because it is the new
+    thing.
+    """
+    tf = float(tiling_frac_min)
+    return '' if abs(tf - DEFAULT_TILING) < 1e-12 else f'_tf{tf:g}'
+
 
 def at_operating_point(df):
     """Rows at the primary EXTENT_PCTL, ACT_THRESH and Rule 2 setting."""
@@ -795,7 +815,10 @@ def build_banks(env_name, cname, blocks, xy, env, settings, ious, base_C,
     """
     def _key(p, t, iou):
         r = 'off' if iou is None else f'{iou:g}'
-        return f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}_bank.csv'
+        # The coverage setting joins the filename as well as the directory, so
+        # a bank still says what it is if it is ever looked at on its own.
+        cov = tiling_suffix(base_C.get('TILING_FRAC_MIN', DEFAULT_TILING))
+        return f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}{cov}_bank.csv'
 
     want = {(p, t, iou): _key(p, t, iou)
             for p, t in settings for iou in ious}
@@ -1358,7 +1381,13 @@ class ScaleDistributionReport(ExperimentReport):
         w = getattr(self, 'winners', None)
         top = (f'{w.idxmax()} wins {int(w.max())}/{int(w.sum())}'
                if w is not None and len(w) and w.sum() else 'no fit')
-        return (f'CV {base.cv_area_pct.median():.0f}%, '
+        # A relaxed Rule 12 says so in the subject line: two runs of this
+        # experiment otherwise arrive as two identical-looking mails.
+        tf = getattr(self, 'tiling_frac_min', DEFAULT_TILING)
+        pre = ('' if abs(tf - DEFAULT_TILING) < 1e-12 else
+               '[Rule 12 coverage OFF] ' if tf <= 0 else
+               f'[Rule 12 coverage {tf:g}] ')
+        return (f'{pre}CV {base.cv_area_pct.median():.0f}%, '
                 f'max/min {base.area_max_min_ratio.median():.1f}x, {top}')
 
     def figures(self):
@@ -1388,6 +1417,39 @@ class ScaleDistributionReport(ExperimentReport):
                       (self.fits.act_thresh == DEFAULT_T)]
         fb = f[f.extent_pctl == DEFAULT_PCTL]
         out = []
+
+        # A run with the coverage requirement moved is a different experiment
+        # and says so before anything else, because every number below it is
+        # drawn from a different set of libraries.
+        tf = getattr(self, 'tiling_frac_min', DEFAULT_TILING)
+        if abs(tf - DEFAULT_TILING) > 1e-12:
+            out.append(S('RULE 12 IS NOT AT ITS DEFAULT IN THIS RUN',
+                         '\n'.join([
+                f'TILING_FRAC_MIN = {tf:g}, against the usual '
+                f'{DEFAULT_TILING:g}.'
+                + (' The coverage requirement is DISABLED: every scale that '
+                   'survived Rule 11\'s competition is kept, however little '
+                   'of the floor it covers.' if tf <= 0 else
+                   ' The coverage requirement is relaxed.'), '',
+                'Rule 12 drops a scale whose admitted fields, unioned, cover '
+                'less than that fraction of the floor, and keeps the '
+                'contiguous run of qualifying scales around the best-covered '
+                'one. It polices both ends of the ladder: coarse scales fail '
+                'because too few nodes that large exist, fine scales because '
+                'a tiling at that resolution would need more fields than the '
+                'tree produces.', '',
+                'So the libraries below are NOT the ones the rest of the '
+                'series is built on, and the comparison to make is against '
+                'the operating-point run of this same experiment -- same '
+                'arenas, same channels, same seed, same code. Its outputs are '
+                'in data_cache/scale_distribution; this run\'s are in '
+                f'data_cache/scale_distribution{tiling_suffix(tf)}.', '',
+                'Read the scale occupancy and the fitted form first. Rule 12 '
+                'removes whole scales, so relaxing it widens the size range '
+                'by construction -- a larger CV and a wider max/min are '
+                'expected and are not themselves findings. Whether the '
+                'FITTED FORM changes, and whether the recovered scales hold '
+                'enough fields to tile anything, are the questions.'])))
 
         # --- the shape, which is the actual question ----------------------
         w = self.winners
@@ -1879,6 +1941,18 @@ def parse_args():
                    help='EXTENT_PCTL:ACT_THRESH pairs, comma separated')
     p.add_argument('--lam', type=float, default=0.0,
                    help='LAMBDA. 0 = feature only, as everywhere else.')
+    p.add_argument('--tiling-frac-min', type=float, default=DEFAULT_TILING,
+                   metavar='FRAC',
+                   help='Rule 12 (tiling stop): the fraction of the floor a '
+                        'scale\'s admitted fields must cover, unioned, for '
+                        'that scale to survive. 0 DISABLES the coverage '
+                        f'requirement entirely. Default {DEFAULT_TILING:g}. '
+                        'Any value but the default sends every output to '
+                        '..._tf<value> -- its own cache, its own figures, its '
+                        'own banks -- so it cannot overwrite the operating '
+                        'point, and the libraries are rebuilt rather than '
+                        'read from the operating point\'s cache, because '
+                        'they are different libraries.')
     p.add_argument('--split-half-iou-min', default='none', metavar='LIST',
                    help='Rule 2: reject a field whose split-half IoU is below '
                         'this. CURRENTLY UNUSABLE and the run will refuse it: '
@@ -1917,13 +1991,15 @@ def main():
         settings.append((int(p_s), float(t_s or DEFAULT_T)))
     rng = np.random.default_rng(args.seed)
 
-    out_dir = f'{REPO}/data_cache/scale_distribution'
-    fig_dir = f'{HERE}/figures/scale_distribution'
+    suffix = tiling_suffix(args.tiling_frac_min)
+    out_dir = f'{REPO}/data_cache/scale_distribution{suffix}'
+    fig_dir = f'{HERE}/figures/scale_distribution{suffix}'
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
 
     base_C = R.resolve_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
-                                USE_GPU=not args.no_gpu))
+                                USE_GPU=not args.no_gpu,
+                                TILING_FRAC_MIN=float(args.tiling_frac_min)))
     device = R.pick_device(use_gpu=not args.no_gpu)
 
     print('=' * 72)
@@ -1935,6 +2011,13 @@ def main():
     print('  Rule 2   : ' + ', '.join(
         'off (measured, not enforced)' if i is None else f'IoU >= {i:g}'
         for i in ious))
+    print(f'  Rule 12  : coverage >= {base_C["TILING_FRAC_MIN"]:g}'
+          + ('  (the operating point)' if not suffix else
+             '  <-- OFF, the coverage requirement is DISABLED'
+             if base_C['TILING_FRAC_MIN'] <= 0 else '  <-- RELAXED')
+          + ('' if not suffix else
+             f'\n             outputs go to ...{suffix}, not to the '
+             f'operating point\'s'))
     print(f'  areas    : {"varies — Fig 6E readable" if len(envs) > 1 else "one"}'
           '  (a single area cannot speak to Harland 3F-G or 6E)')
     print('  note     : EXTENT_PCTL saturates at 65 and the sweep is settled;')
@@ -2057,6 +2140,7 @@ def main():
                                   log_path=os.environ.get('REALM_LOG_PATH'))
     rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
     rep.scales, rep.eliav, rep.env_order = scales, eliav, envs_by_area
+    rep.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)

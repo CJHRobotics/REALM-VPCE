@@ -102,3 +102,30 @@ Recover the scripts with:
 
     git show 887947b:analysis/experiment_channel_isolation/run_wall_elongation.py
     git show 887947b:slurm/wall_elongation.sh
+
+---
+
+## `run_coverage_relaxation.py` / `slurm/coverage_relaxation.sh`
+
+Removed 18 September 2026 (last present at `d72897d`). Never run.
+
+Built to answer "what happens to the field distributions when the coverage
+requirement is relaxed" and answered it with a bespoke comparison script: its
+own sweep of `TILING_FRAC_MIN` over four values, a paired on/off table, a
+superset check across thresholds, a self-check against Experiment 2's cached
+banks, and four figures of its own.
+
+The question did not need any of that. It was "run Experiment 2 with the
+coverage requirement disabled", and Experiment 2 already computes every
+statistic and draws every figure that answers it. What was missing was one
+option. `run_scale_distribution.py` now takes `--tiling-frac-min`, which sends
+its outputs to a parallel `..._tf<value>` cache, figure directory and bank
+name so it cannot overwrite the operating point, and the report leads with a
+section saying Rule 12 is not at its default.
+
+    sbatch slurm/scale_distribution.sh --tiling-frac-min 0
+
+Recover the scripts with:
+
+    git show d72897d:analysis/experiment_channel_isolation/run_coverage_relaxation.py
+    git show d72897d:slurm/coverage_relaxation.sh
