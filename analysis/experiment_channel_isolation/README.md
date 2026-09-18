@@ -606,3 +606,99 @@ Figures — `figures/field_geometry/`
 | `G2` | elongation against wall distance, every field coloured by scale, with the binned median for all fields and for the uncut ones |
 | `G3` | the same for the angle to the wall, with 45° marked |
 | `G4` | every correlation at a glance: rho per arena × channel, both subsets side by side |
+
+---
+
+# Side analysis: what Rule 12's coverage test was deleting
+
+`run_coverage_relaxation.py` — Experiment 2 again, on the same eight arenas
+and channels at the same operating point, with one knob moved:
+`TILING_FRAC_MIN`, the coverage threshold in **Rule 12** (tiling stop).
+
+Rule 12 drops a whole scale whose admitted fields, unioned, cover less than
+that fraction of the floor, and keeps the contiguous run of qualifying scales
+around the best-covered one. The default is 0.50. Swept here at 0.50 (the
+operating point), 0.35, 0.20 and 0.00 — the last being Rule 12 off.
+
+> **On the rule number.** Rule 4 in this codebase is *spatial weighting*
+> (merge cost = feature distance + `LAMBDA` × space) and is already off at the
+> operating point (`LAMBDA` 0), so toggling it changes nothing. Coverage is
+> Rule 12.
+
+## Why it is a clean one-rule change
+
+Rule 12 runs **last**, after Rule 11's competition, and only deletes whole
+scales from a ladder that is already settled. Nothing upstream reads the
+threshold — not the tree, not the candidate set, not the size window, not
+which field wins a contest. So lowering it can only *add* scales back, and
+each library is a strict superset of the one above it.
+
+That is asserted per library, not assumed: `nested` in the summary, with the
+per-step added/lost counts in `nesting.csv`. If it ever fails, something
+upstream is reading the knob and the comparison is void.
+
+The same fact makes the sweep nearly free. `prepare_candidates` — the Gram
+matrix, the Ward tree, the candidate measurement, the environment readout,
+which is all of the cost — is built once per arena and channel, and every
+threshold is scored against an identical tree. A difference between two
+thresholds cannot be a difference in the tree. A finer sweep costs almost
+nothing.
+
+## It checks itself against Experiment 2
+
+At 0.50 this script must reproduce Experiment 2's library exactly — same code,
+same settings, same seed. `matches_exp2` in the summary is the per-library
+verdict (identical / different / nothing cached to compare against), and a
+mismatch means the operating-point column is *not* Experiment 2's library, so
+nothing in the comparison can be read as a comparison against it.
+
+All statistics come from Experiment 2's own functions — `describe`,
+`scale_table`, `fit_forms` — imported rather than reimplemented, so the
+numbers either side of the comparison are the same numbers.
+
+## Running
+
+This **cannot** reuse Experiment 2's banks: those hold the survivors, and the
+question is about the scales Rule 12 dropped. The pipeline runs in full, at
+Experiment 2's cost, so fan out one arena per job:
+
+```bash
+for e in circ_lm8_r3 circ_lm8_r6 circ_lm0_r3 circ_lm0_r6 corr_lm8_l10w10 corr_lm0_l10w10 corr_lm8_l10w2 corr_lm0_l10w2; do sbatch slurm/coverage_relaxation.sh --envs "$e" --no-email; done
+```
+
+then one combining pass over all eight, which reads this script's own cache,
+loads no feature blocks and needs no GPU:
+
+```bash
+sbatch --mem=32G --time=2:00:00 slurm/coverage_relaxation.sh
+```
+
+The combining pass is not optional — C1–C4 put the arenas side by side, and
+every single-arena job writes the same summary files.
+
+Writes to `data_cache/coverage_relaxation/` under its own key, with the
+threshold in the filename. Experiment 2's cache is read for the self-check and
+never written.
+
+## Outputs
+
+| file | contents |
+|------|----------|
+| `summary.csv` | one row per arena × channel × threshold: field count, surviving scale ladder, the measured coverage of every scale (including the dropped ones), all of `describe`'s descriptors, `nested`, `matches_exp2` |
+| `paired.csv` | Rule 12 off against the operating point, one row per library: fields added, fold growth, scales gained, CV either side, median area either side, and whether the best-fitting form changed |
+| `scale_summary.csv` | `scale_table` per threshold: fields, share of library, median area and coverage, tiling multiple, CV |
+| `fits.csv` | the three-form fit (log-normal, negative exponential, Gaussian, each truncated to the Rule 8/9 window) on area and on equivalent diameter, per threshold |
+| `nesting.csv` | the superset check, per library and per step |
+
+Figures — `figures/coverage_relaxation/`
+
+| figure | shows |
+|--------|-------|
+| `C1` | fields per scale at each threshold — a bar present only at the lower thresholds is a scale the rule was deleting |
+| `C2` | the coverage each scale actually reached, with the swept thresholds drawn as lines, so a near-miss is distinguishable from a scale that was nowhere close |
+| `C3` | the field-size distribution at each threshold, channels pooled |
+| `C4` | library size and surviving scale count against the threshold, one line per arena × channel |
+
+The row to read first is **whether the best-fitting form changes**. The form is
+Experiment 2's headline, so that column says whether its conclusion depends on
+Rule 12.
