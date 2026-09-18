@@ -62,3 +62,43 @@ git show 37735d2:simulation/worlds/environments/vpce/circ_lm8_r0.xml > /tmp/circ
 that the old `circ_lm8_r0` was the **r = 3** disc at that commit and the
 **r = 10** disc before `fa1b965`; check which one a given result used before
 comparing anything to it.
+
+---
+
+## `run_wall_elongation.py` / `slurm/wall_elongation.sh`
+
+Removed 18 September 2026 (last present at `887947b`).
+
+Asked the same question Experiment 4 now asks — is a field more elongated near
+a wall, and does it line up with the wall — but answered it with a null-model
+apparatus: two arms, four nulls, a 150k-placement donor pool per library, a
+vectorised reimplementation of Rule 7 to measure null placements, and a
+synthetic calibration mode with a subtractable bias offset.
+
+It worked. The calibration was not decoration: it caught the lattice's
+inflation of the axis ratio being counted twice in the donor pool, a donor pool
+offering the wrong size mixture near a wall, an empty near-wall bin in the
+corridor from normalising by half-width, and an Arm A elongation level with no
+null at all. Arm A came out clean on 6 of 6 no-effect tests and found a planted
+effect in 6 of 6.
+
+**It was the wrong instrument for the question.** Nobody had yet looked at what
+the libraries' shapes do — the distributions of elongation by scale, of
+elongation against wall distance, of orientation against wall proximity had
+never been plotted or correlated. Building a null model to defend a result
+before anyone had seen the result put 2100 lines and a three-job submission
+sequence between the question and its answer. `run_field_geometry.py` replaces
+it with a per-field table and Spearman correlations.
+
+The one idea worth keeping came across intact, and cost one column rather than
+an arm: Rule 7 fits the ellipse to the clipped mask, so a field reaching past
+the wall has a cut shape on record and its elongation is partly the arena's
+outline. Experiment 4 carries `reach_to_wall_m` and `crosses_wall` from the
+ellipse's own support function and reports every correlation over all fields
+and over the uncut ones. If the two agree the result needs no null; if they
+disagree, that is the finding.
+
+Recover the scripts with:
+
+    git show 887947b:analysis/experiment_channel_isolation/run_wall_elongation.py
+    git show 887947b:slurm/wall_elongation.sh

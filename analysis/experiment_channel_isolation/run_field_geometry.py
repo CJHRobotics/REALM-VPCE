@@ -1,0 +1,885 @@
+"""Field shape against scale and wall proximity.
+
+Experiment 4. Takes every field Experiment 2 admitted, in all eight collected
+arenas, and writes down four things about each one: how elongated it is, which
+way it points, how far it sits from the nearest wall, and the angle between its
+long axis and that wall. Then it correlates the pairs.
+
+Descriptive, not inferential. Three questions:
+
+    scale        vs elongation        do coarser fields come out longer?
+    wall distance vs elongation       are fields near a wall longer?
+    wall distance vs angle to wall    do fields near a wall point at it?
+
+Spearman on each, per arena and channel, per scale within that, and pooled.
+Ranks rather than Pearson because scale is ordinal (0 finest to 5 coarsest)
+and elongation is heavy-tailed. No null model, no permutation, no resampling:
+the question here is what the libraries look like, and a correlation with its
+n and its q answers that.
+
+The one thing the table has to carry
+------------------------------------
+Rule 7 fits a field's ellipse to the second moments of its MASK, and the mask
+is intersected with the floor. A field whose shape reaches past the wall is
+therefore cut, and the second moments of a cut blob are elongated ALONG the
+wall. So both of the wall correlations are partly manufactured by the arena's
+outline rather than by the fields, in a pipeline with no anisotropy in it.
+
+That is not a reason to build a null. It is a reason for one column:
+
+    reach_to_wall_m   how far the recorded ellipse extends toward the nearest
+                      wall, from the ellipse's own support function
+                      sqrt(a^2 cos^2 phi + b^2 sin^2 phi), phi being the angle
+                      between the major axis and the wall's normal.
+    crosses_wall      dist_to_wall_m < reach_to_wall_m -- the ellipse reaches
+                      past the wall, so the mask behind it was cut and the
+                      shape on record is a cut shape.
+
+Every correlation is then run twice: over all fields, and over the fields
+clear of the wall, whose shapes nothing cut. Where the two agree the result
+stands on its own. Where they disagree, that disagreement is the finding, and
+it is visible in the same table rather than argued about.
+
+What is measured
+----------------
+  scale        `scale_band` from the bank: 0 finest to 5 coarsest, geometric
+               in radius. Reported as "scale" throughout.
+  elongation   semi-major / semi-minor, >= 1. Correlated in logs so the
+               relationship is multiplicative, which is how field size
+               behaves; Spearman is blind to the transform, and the log is
+               there for the plots and the slopes.
+  wall point   the nearest point on the boundary: along the radius for a disc,
+               the projection onto whichever of the four walls is nearest for
+               a rectangle.
+  angle        the acute angle between the field's major axis and the INWARD
+               NORMAL at that wall point, 0 to 90 degrees. 0 means the field
+               points straight at the wall -- perpendicular to it, in the
+               sense the question was asked. 90 means it lies along the wall.
+               `perpendicular` is the boolean angle < 45.
+  distance     `dist_to_wall_m` from the bank, and `wall_dist_norm`, which is
+               0 as near the wall as the collection lattice lets a field's
+               centre sit and 1 at the disc's centre or the rectangle's
+               midline. Within one arena the two give the same Spearman --
+               ranks do not care -- so the normalised one exists for the
+               pooled rows, where 1 m from a wall means different things in an
+               r = 6 disc and a 2 m corridor.
+
+Ambiguous frames are flagged, never guessed: a field at the exact centre of a
+disc has no nearest wall point, and one equidistant from two walls of a
+rectangle has two. `wall_frame_ambiguous` marks both, and they are dropped
+from the angle correlations only.
+
+Arenas
+------
+All eight that were collected, with the shape declared rather than inferred --
+aspect ratio cannot tell a square from a disc, and an lm0 arena has exactly
+its lm8 twin's outline:
+
+    circ_lm8_r3, circ_lm8_r6, circ_lm0_r3, circ_lm0_r6    disc
+    corr_lm8_l10w10, corr_lm0_l10w10                      square
+    corr_lm8_l10w2, corr_lm0_l10w2                        corridor
+
+Libraries are Experiment 2's, unchanged and from its cache under its cache
+key: EXTENT_PCTL 65, ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0. Nothing
+here is a knob.
+
+Usage
+    python run_field_geometry.py [--envs a,b] [--channels ...] [--rebuild]
+"""
+
+import argparse
+import glob
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from scipy import stats
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+HERE = os.path.dirname(os.path.abspath(__file__))
+for p in (REPO, HERE):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+import channels as ch
+import rules as R
+import run_scale_distribution as SD
+from realm_tools.experiment_lib.reporting import ExperimentReport
+
+ARENA_SHAPE = {'circ_lm8_r3': 'disc', 'circ_lm8_r6': 'disc',
+               'circ_lm0_r3': 'disc', 'circ_lm0_r6': 'disc',
+               'corr_lm8_l10w10': 'square', 'corr_lm0_l10w10': 'square',
+               'corr_lm8_l10w2': 'corridor', 'corr_lm0_l10w2': 'corridor'}
+SHAPE_ORDER = {'disc': 0, 'square': 1, 'corridor': 2}
+ENVS = list(ARENA_SHAPE)
+CHANNELS = SD.CHANNELS
+CHANNEL_COLORS = SD.CHANNEL_COLORS
+SCALES = SD.SCALES
+SCALE_COLORS = SD.SCALE_COLORS
+INK, MUTED, RULE_GRAY, SURFACE = SD.INK, SD.MUTED, SD.RULE_GRAY, SD.SURFACE
+# The two subsets are identities, not magnitudes, so they get two hues rather
+# than two shades: black for every admitted field, orange for the ones whose
+# ellipse does not reach past the wall. Where the two curves coincide -- the
+# good case -- one colour would simply hide the other.
+CLEAR_COLOR = '#c1440e'
+
+PCTL, THRESH = SD.SETTINGS[0]
+IOU = None
+BASE_C = R.resolve_cfg(dict(LAMBDA=0.0, RANDOM_SEED=0))
+
+DATA_DIR = f'{REPO}/data/vpce/collect_data'
+XML_DIR = f'{REPO}/simulation/worlds/environments/vpce'
+BANK_DIR = f'{REPO}/data_cache/scale_distribution'
+OUT_DIR = f'{REPO}/data_cache/field_geometry'
+FIG_DIR = f'{HERE}/figures/field_geometry'
+
+MIN_N = 20              # fields a correlation needs before it is reported
+PERP_DEG = 45.0         # below this the field counts as pointing at the wall
+ALPHA = 0.05
+
+# (x variable, y variable, label). The three questions, in the order asked.
+PAIRS = [('scale', 'log_elongation', 'scale vs elongation'),
+         ('wall_dist_norm', 'log_elongation', 'wall distance vs elongation'),
+         ('wall_dist_norm', 'angle_to_wall_deg',
+          'wall distance vs angle to wall')]
+# The two wall pairs on their own. Grouping BY scale holds scale constant, so
+# the scale pair has no variance left in x there and would emit a table of
+# undefined correlations.
+WALL_PAIRS = PAIRS[1:]
+SUBSETS = ('all fields', 'clear of wall')
+
+
+def arena_shape(env_name):
+    return ARENA_SHAPE.get(env_name, 'other')
+
+
+def bank_path(env_name, cname):
+    """Experiment 2's cache key at the operating point, Rule 2 off."""
+    return f'{BANK_DIR}/{env_name}/{cname}_p{PCTL}_t{THRESH:g}_roff_bank.csv'
+
+
+def load_positions(data_path, n_orientations=8):
+    """Positions only, without the feature blocks.
+
+    The same xy that channels.load_channel_blocks returns. Reading the blocks
+    costs several GB and nothing here needs them: every field is already
+    described in the bank.
+    """
+    import h5py
+    with h5py.File(data_path, 'r') as f:
+        xs = np.asarray(f['x'][:], dtype=np.float64)
+        ys = np.asarray(f['y'][:], dtype=np.float64)
+    n_loc = len(xs) // n_orientations
+    return np.stack([xs.reshape(n_loc, n_orientations)[:, 0],
+                     ys.reshape(n_loc, n_orientations)[:, 0]],
+                    axis=1).astype(np.float32)
+
+
+# ----------------------------------------------------------------- geometry
+
+def nearest_wall(cx, cy, env, tie_m):
+    """The nearest point on the boundary, and the inward normal there.
+
+    A disc: straight out along the radius, so the normal points back at the
+    centre. A rectangle: the projection onto whichever of the four walls is
+    nearest, with the normal pointing into the room.
+
+    `ambiguous` marks the places where there is no single answer -- the exact
+    centre of a disc, where every direction is equally outward, and a corner
+    of a rectangle, where two walls are within `tie_m` of equally near. Those
+    are flagged rather than assigned one, and drop out of the angle
+    correlations only.
+
+    Returns (wall_x, wall_y, normal_rad, ambiguous).
+    """
+    cx = np.asarray(cx, dtype=float)
+    cy = np.asarray(cy, dtype=float)
+    if env['is_circular']:
+        dx, dy = cx - env['env_cx'], cy - env['env_cy']
+        r = np.hypot(dx, dy)
+        amb = ~(r > tie_m)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            ux, uy = dx / r, dy / r
+        wx = env['env_cx'] + env['env_R'] * ux
+        wy = env['env_cy'] + env['env_R'] * uy
+        normal = np.arctan2(-uy, -ux)            # inward
+    else:
+        d = np.stack([cx - env['x_min'], env['x_max'] - cx,
+                      cy - env['y_min'], env['y_max'] - cy], axis=0)
+        near = np.argmin(d, axis=0)
+        srt = np.sort(d, axis=0)
+        amb = (srt[1] - srt[0]) < tie_m
+        wx = np.select([near == 0, near == 1], [env['x_min'], env['x_max']], cx)
+        wy = np.select([near == 2, near == 3], [env['y_min'], env['y_max']], cy)
+        normal = np.select([near == 0, near == 1, near == 2, near == 3],
+                           [0.0, np.pi, 0.5 * np.pi, -0.5 * np.pi], 0.0)
+    amb = amb | ~np.isfinite(cx) | ~np.isfinite(cy)
+    return (np.where(amb, np.nan, wx), np.where(amb, np.nan, wy),
+            np.where(amb, np.nan, normal), amb)
+
+
+def acute_angle_deg(theta, normal):
+    """The acute angle between a field's major axis and the wall's normal.
+
+    0 means the axis lies along the normal: the field points straight at the
+    wall, perpendicular to it. 90 means it lies along the wall. Folded to
+    0-90 because an axis has no direction -- theta and theta + pi are the
+    same field and must give the same number.
+    """
+    d = np.asarray(theta, dtype=float) - np.asarray(normal, dtype=float)
+    return np.degrees(np.arccos(np.clip(np.abs(np.cos(d)), 0.0, 1.0)))
+
+
+def ellipse_reach(a, b, angle_deg):
+    """How far an ellipse extends from its centre in a given direction.
+
+    The support function of an ellipse with semi-axes a >= b, at an angle phi
+    from its major axis: sqrt(a^2 cos^2 phi + b^2 sin^2 phi). Along the major
+    axis it is a, across it b, and in between it interpolates the way the
+    ellipse's own outline does.
+
+    Used against the wall's normal to ask whether the recorded shape reaches
+    past the wall -- which is what decides whether the mask behind it was cut,
+    and so whether the recorded shape can be read as the field's own.
+    """
+    phi = np.radians(np.asarray(angle_deg, dtype=float))
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    return np.sqrt((a * np.cos(phi)) ** 2 + (b * np.sin(phi)) ** 2)
+
+
+def field_table(bank, env, env_name, cname, margin_m, tie_m):
+    """One row per admitted field: its shape, its wall, and the angle between."""
+    a = bank.semi_major_m.to_numpy(dtype=float)
+    b = bank.semi_minor_m.to_numpy(dtype=float)
+    th = bank.orientation_rad.to_numpy(dtype=float)
+    cx = bank.centroid_x.to_numpy(dtype=float)
+    cy = bank.centroid_y.to_numpy(dtype=float)
+    d = bank.dist_to_wall_m.to_numpy(dtype=float)
+
+    wx, wy, normal, amb = nearest_wall(cx, cy, env, tie_m)
+    angle = acute_angle_deg(th, normal)
+    reach = ellipse_reach(a, b, angle)
+    hi = max_wall_distance(env)
+
+    t = pd.DataFrame(dict(
+        env=env_name, shape=arena_shape(env_name), channel=cname,
+        env_area_m2=float(env['env_area']),
+        max_wall_dist_m=hi, wall_margin_m=margin_m,
+        node_id=bank.node_id.to_numpy() if 'node_id' in bank else np.arange(len(bank)),
+        scale=bank.scale_band.to_numpy(dtype=int),
+        area_env_m2=bank.area_env_m2.to_numpy(dtype=float),
+        radius_env_m=bank.radius_env_m.to_numpy(dtype=float),
+        semi_major_m=a, semi_minor_m=b,
+        elongation=bank.elongation.to_numpy(dtype=float),
+        log_elongation=np.log(np.where(b > 0, a / np.maximum(b, 1e-12), np.nan)),
+        orientation_rad=th, orientation_deg=np.degrees(th) % 180.0,
+        centroid_x=cx, centroid_y=cy,
+        dist_to_wall_m=d,
+        wall_dist_norm=np.clip((d - margin_m) / max(hi - margin_m, 1e-9),
+                               0.0, 1.0),
+        wall_x=wx, wall_y=wy, wall_normal_rad=normal,
+        angle_to_wall_deg=angle,
+        perpendicular=angle < PERP_DEG,
+        reach_to_wall_m=reach,
+        crosses_wall=d < reach,
+        wall_frame_ambiguous=amb))
+    t['clear_of_wall'] = ~t.crosses_wall
+    return t
+
+
+def max_wall_distance(env):
+    """The furthest any point can be from the boundary: a disc's centre, or a
+    rectangle's midline."""
+    if env['is_circular']:
+        return float(env['env_R'])
+    return 0.5 * float(min(env['x_max'] - env['x_min'],
+                           env['y_max'] - env['y_min']))
+
+
+# -------------------------------------------------------------- correlations
+
+def spearman(x, y):
+    """Spearman rho, its p, and n over the rows where both are finite."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    n = int(ok.sum())
+    if n < MIN_N or np.ptp(x[ok]) == 0 or np.ptp(y[ok]) == 0:
+        return np.nan, np.nan, n
+    r = stats.spearmanr(x[ok], y[ok])
+    return float(r.statistic), float(r.pvalue), n
+
+
+def bh_q(p):
+    """Benjamini-Hochberg q-values; NaN passes through.
+
+    Not a null model -- just the correction for asking the same question of
+    every arena, channel and scale. Without it a table of 150 p-values reads
+    as if it were one.
+    """
+    p = np.asarray(p, dtype=float)
+    q = np.full(p.shape, np.nan)
+    ok = np.flatnonzero(np.isfinite(p))
+    if not len(ok):
+        return q
+    order = ok[np.argsort(p[ok])]
+    ranked = p[order] * len(ok) / np.arange(1, len(ok) + 1)
+    q[order] = np.clip(np.minimum.accumulate(ranked[::-1])[::-1], 0, 1)
+    return q
+
+
+def _subsets(t):
+    """The two views every correlation is reported over."""
+    yield 'all fields', t
+    yield 'clear of wall', t[t.clear_of_wall.astype(bool)]
+
+
+def correlate(fields, group_cols, group_label, pairs=None):
+    """Every pair, over both subsets, within each group.
+
+    `group_cols` of [] pools everything, which is why wall distance is
+    correlated in its normalised form: 1 m from a wall is a different thing in
+    an r = 6 disc and a 2 m corridor. `pairs` narrows the questions asked of a
+    grouping -- grouping by scale leaves the scale pair with no variance in x.
+    """
+    pairs = PAIRS if pairs is None else pairs
+    rows = []
+    groups = ([((), fields)] if not group_cols
+              else list(fields.groupby(group_cols, sort=False)))
+    for key, g in groups:
+        key = key if isinstance(key, tuple) else (key,)
+        meta = dict(zip(group_cols, key))
+        for subset, gs in _subsets(g):
+            for xcol, ycol, label in pairs:
+                gg = gs
+                if ycol == 'angle_to_wall_deg':
+                    # No nearest wall point, no angle. Dropped here only.
+                    gg = gs[~gs.wall_frame_ambiguous.astype(bool)]
+                rho, p, n = spearman(gg[xcol], gg[ycol])
+                rows.append(dict(
+                    grouping=group_label, **meta, subset=subset, pair=label,
+                    x=xcol, y=ycol, n=n, rho=rho, p=p))
+    out = pd.DataFrame(rows)
+    if len(out):
+        out['q'] = np.nan
+        for _, idx in out.groupby(['grouping', 'pair', 'subset']).groups.items():
+            out.loc[idx, 'q'] = bh_q(out.loc[idx, 'p'])
+    return out
+
+
+def descriptives(fields):
+    """Per arena, channel and scale: how many fields, how long, how aligned."""
+    rows = []
+    for (e, c, s), g in fields.groupby(['env', 'channel', 'scale'], sort=True):
+        ang = g.angle_to_wall_deg.to_numpy(dtype=float)
+        ang = ang[np.isfinite(ang)]
+        rows.append(dict(
+            env=e, shape=arena_shape(e), channel=c, scale=int(s),
+            n=len(g), n_crosses_wall=int(g.crosses_wall.sum()),
+            frac_crosses_wall=float(g.crosses_wall.mean()),
+            area_median_m2=float(g.area_env_m2.median()),
+            elongation_median=float(g.elongation.median()),
+            elongation_p90=float(g.elongation.quantile(0.9)),
+            dist_to_wall_median_m=float(g.dist_to_wall_m.median()),
+            angle_to_wall_median_deg=float(np.median(ang)) if len(ang) else np.nan,
+            frac_perpendicular=float(g.perpendicular.mean())))
+    return pd.DataFrame(rows)
+
+
+# ------------------------------------------------------------------ figures
+
+FIGURES_WRITTEN = []
+
+
+def _save(fig, name):
+    p = os.path.join(FIG_DIR, name)
+    fig.savefig(p, dpi=150, bbox_inches='tight', facecolor=SURFACE)
+    plt.close(fig)
+    FIGURES_WRITTEN.append(p)
+    print(f'  {p}', flush=True)
+
+
+def prune_orphan_figures():
+    """Delete G<digit>*.png this run did not write, as Experiment 2 does."""
+    keep = {os.path.abspath(p) for p in FIGURES_WRITTEN}
+    for p in sorted(glob.glob(os.path.join(FIG_DIR, 'G[0-9]*.png'))):
+        if os.path.abspath(p) not in keep:
+            os.remove(p)
+            print(f'  pruned orphaned figure {os.path.basename(p)}', flush=True)
+
+
+def _envs_in_order(fields):
+    """Discs smallest first, then squares, then corridors, then by name.
+
+    Sorted on the ARENA's area, not on the total area of its fields: the
+    second is a proxy that happens to correlate and would reorder panels as
+    libraries change size.
+    """
+    area = fields.groupby('env').env_area_m2.first()
+    return sorted(fields.env.unique(),
+                  key=lambda e: (SHAPE_ORDER.get(arena_shape(e), 3),
+                                 float(area.get(e, 0.0)), e))
+
+
+def _panels(envs, sharey=True):
+    ncol = int(np.ceil(len(envs) / 2)) if len(envs) > 4 else len(envs)
+    nrow = int(np.ceil(len(envs) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, squeeze=False, sharey=sharey,
+                             figsize=(3.2 * ncol, 2.9 * nrow))
+    flat = [ax for r in axes for ax in r]
+    for ax in flat[len(envs):]:
+        ax.axis('off')
+    for ax in flat:
+        ax.tick_params(labelsize=7, colors=MUTED)
+        for sp in ax.spines.values():
+            sp.set_color(RULE_GRAY)
+    return fig, flat[:len(envs)], ncol
+
+
+def _scale_label(s):
+    return f'scale {s}' + (' (finest)' if s == SCALES[0] else
+                           ' (coarsest)' if s == SCALES[-1] else '')
+
+
+def fig_elongation_by_scale(fields, name):
+    """G1: how elongated a field is, scale by scale.
+
+    One box per scale, channels pooled, one panel per arena. The notch is the
+    median; the box is the interquartile range. Scale runs along a colour
+    gradient rather than one hue, so a scale wears the same colour here as in
+    Experiment 2's figures.
+    """
+    envs = _envs_in_order(fields)
+    fig, axes, ncol = _panels(envs)
+    for ax, e in zip(axes, envs):
+        fe = fields[fields.env == e]
+        data, pos, cols = [], [], []
+        for s in SCALES:
+            v = fe[fe.scale == s].elongation.to_numpy(dtype=float)
+            v = v[np.isfinite(v)]
+            if len(v) >= 5:
+                data.append(v)
+                pos.append(s)
+                cols.append(SCALE_COLORS[s])
+        if data:
+            bp = ax.boxplot(data, positions=pos, widths=0.66, showfliers=False,
+                            patch_artist=True, medianprops=dict(color=INK, lw=1.2))
+            for patch, c in zip(bp['boxes'], cols):
+                patch.set_facecolor(c)
+                patch.set_alpha(0.55)
+                patch.set_edgecolor(c)
+        ax.axhline(1.0, color=RULE_GRAY, lw=0.8, ls=':')
+        ax.set_title(e, fontsize=9, color=INK)
+        ax.set_xticks(SCALES)
+        ax.set_xlim(-0.6, SCALES[-1] + 0.6)
+        ax.set_xlabel('scale (0 finest, 5 coarsest)', fontsize=7.5, color=MUTED)
+    for i, ax in enumerate(axes):
+        if i % ncol == 0:
+            ax.set_ylabel('elongation (a/b)', fontsize=8, color=INK)
+    fig.suptitle('G1  elongation by scale, channels pooled\n'
+                 'dotted = 1.0, a circular field', fontsize=10, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    _save(fig, name)
+
+
+def _binned_median(x, y, edges):
+    """Median of y in bins of x, with the bin centres. For the trend line."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    cx, cy = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        sel = (x >= lo) & (x < hi) & np.isfinite(y)
+        if sel.sum() >= 8:
+            cx.append(0.5 * (lo + hi))
+            cy.append(float(np.median(y[sel])))
+    return np.array(cx), np.array(cy)
+
+
+def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
+    """G2 / G3: a measure against wall distance, one panel per arena.
+
+    Every field as a point, coloured by its scale; the black line is the
+    median in bins of distance, which is what the Spearman is picking up. The
+    open points are the fields whose ellipse reaches past the wall, whose
+    recorded shape is a cut shape -- if the trend lives only in those, it is
+    the arena's outline talking.
+    """
+    envs = _envs_in_order(fields)
+    fig, axes, ncol = _panels(envs)
+    edges = np.linspace(0.0, 1.0, 9)
+    for ax, e in zip(axes, envs):
+        fe = fields[fields.env == e]
+        x = fe.wall_dist_norm.to_numpy(dtype=float)
+        y = fe[ycol].to_numpy(dtype=float)
+        cut = fe.crosses_wall.to_numpy(dtype=bool)
+        for s in SCALES:
+            sel = (fe.scale.to_numpy() == s)
+            if not sel.any():
+                continue
+            ax.plot(x[sel & ~cut], y[sel & ~cut], '.', ms=1.8, alpha=0.5,
+                    color=SCALE_COLORS[s], label=_scale_label(s), zorder=2)
+            ax.plot(x[sel & cut], y[sel & cut], '.', ms=1.8, alpha=0.18,
+                    color=SCALE_COLORS[s], zorder=1)
+        bx, by = _binned_median(x, y, edges)
+        if len(bx):
+            ax.plot(bx, by, '-', color=INK, lw=1.7, zorder=4,
+                    label='median, all fields')
+        bx, by = _binned_median(x[~cut], y[~cut], edges)
+        if len(bx):
+            ax.plot(bx, by, '--', color=CLEAR_COLOR, lw=1.5, zorder=5,
+                    label='median, clear of wall')
+        if hline is not None:
+            ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':')
+        ax.set_xlim(0, 1)
+        ax.set_title(e, fontsize=9, color=INK)
+        ax.set_xlabel('wall distance: 0 = as near as a field can sit,\n'
+                      '1 = centre or midline', fontsize=7.5, color=MUTED)
+    for i, ax in enumerate(axes):
+        if i % ncol == 0:
+            ax.set_ylabel(ylabel, fontsize=8, color=INK)
+    axes[0].legend(fontsize=5, frameon=False, ncol=2, loc='best',
+                   markerscale=3)
+    fig.suptitle(title, fontsize=10, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    _save(fig, name)
+
+
+def fig_rho_summary(corr, name):
+    """G4: every correlation at a glance.
+
+    One row per arena and channel, one column per pair, filled and outlined by
+    rho. The two subsets sit side by side in each cell's column block, so a
+    pair whose sign survives restricting to the uncut fields is visible
+    without reading the table.
+    """
+    c = corr[corr.grouping == 'env x channel']
+    if not len(c):
+        return
+    labels = [f'{r.env}  {r.channel}' for r in
+              c[['env', 'channel']].drop_duplicates().itertuples()]
+    fig, axes = plt.subplots(1, len(PAIRS), squeeze=False, sharey=True,
+                             figsize=(3.3 * len(PAIRS),
+                                      max(3.0, 0.20 * len(labels) + 1.4)))
+    order = sorted(c.env.unique(),
+                   key=lambda e: SHAPE_ORDER.get(arena_shape(e), 3))
+    keys = [(e, ch_) for e in order for ch_ in CHANNELS
+            if ((c.env == e) & (c.channel == ch_)).any()]
+    y = np.arange(len(keys))
+    for ax, (_, _, label) in zip(axes[0], PAIRS):
+        ax.axvline(0, color=RULE_GRAY, lw=0.9)
+        for subset, mark, off in (('all fields', 'o', -0.16),
+                                  ('clear of wall', 's', 0.16)):
+            v, yy = [], []
+            for i, (e, ch_) in enumerate(keys):
+                row = c[(c.env == e) & (c.channel == ch_) &
+                        (c.pair == label) & (c.subset == subset)]
+                if len(row) and np.isfinite(row.rho.iloc[0]):
+                    v.append(float(row.rho.iloc[0]))
+                    yy.append(i + off)
+            if v:
+                ax.plot(v, yy, mark, ms=3.4, alpha=0.9,
+                        color=INK if subset == 'all fields' else CLEAR_COLOR,
+                        label=subset)
+        ax.set_title(label, fontsize=8.5, color=INK)
+        ax.set_xlim(-1, 1)
+        ax.set_xlabel('Spearman rho', fontsize=7.5, color=MUTED)
+        ax.tick_params(labelsize=6, colors=MUTED)
+        for sp in ax.spines.values():
+            sp.set_color(RULE_GRAY)
+    axes[0][0].set_yticks(y)
+    axes[0][0].set_yticklabels([f'{e}  {c_}' for e, c_ in keys], fontsize=5.5)
+    axes[0][0].set_ylim(-0.8, len(keys) - 0.2)
+    axes[0][-1].legend(fontsize=6.5, frameon=False, loc='lower right')
+    fig.suptitle('G4  every correlation, per arena and channel\n'
+                 'black = all fields, orange = only the fields whose ellipse '
+                 'does not reach past the wall', fontsize=10, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    _save(fig, name)
+
+
+# -------------------------------------------------------------------- report
+
+class FieldGeometryReport(ExperimentReport):
+    experiment = 'field-geometry'
+
+    def title(self):
+        c = self.corr
+        pooled = c[c.grouping == 'pooled']
+        bits = []
+        for _, _, label in PAIRS:
+            r = pooled[(pooled.pair == label) & (pooled.subset == 'all fields')]
+            if len(r) and np.isfinite(r.rho.iloc[0]):
+                bits.append(f'{label} rho {r.rho.iloc[0]:+.2f}')
+        return '; '.join(bits) or 'no correlation reportable'
+
+    def figures(self):
+        return sorted(FIGURES_WRITTEN)
+
+    def data_files(self):
+        return [p for p in (f'{self.out_dir}/correlations.csv',
+                            f'{self.out_dir}/descriptives.csv')
+                if os.path.exists(p)]
+
+    def _table(self, grouping, cols, pairs=None, max_rows=64):
+        c = self.corr[self.corr.grouping == grouping]
+        if not len(c):
+            return ['  (nothing reportable)']
+        L = []
+        for _, _, label in (PAIRS if pairs is None else pairs):
+            L.append(f'  {label}')
+            head = '    ' + ' '.join(f'{k:>{w}s}' for k, w in cols)
+            L.append(head + f' {"subset":>14s} {"n":>7s} {"rho":>7s} '
+                            f'{"p":>9s} {"q":>9s}')
+            g = c[c.pair == label]
+            if 'env' in g:
+                g = g.assign(_o=g['shape'].map(SHAPE_ORDER).fillna(3))
+                g = g.sort_values(['_o', 'env'] +
+                                  (['channel'] if 'channel' in g else []) +
+                                  (['scale'] if 'scale' in g else []))
+            shown = 0
+            for r in g.itertuples():
+                if shown >= max_rows:
+                    L.append(f'    ... {len(g) - shown} more rows in '
+                             f'correlations.csv')
+                    break
+                vals = '    ' + ' '.join(
+                    f'{getattr(r, k, ""):>{w}}' if not isinstance(
+                        getattr(r, k, ''), float)
+                    else f'{getattr(r, k):>{w}.0f}' for k, w in cols)
+                rho = f'{r.rho:+7.3f}' if np.isfinite(r.rho) else f'{"--":>7s}'
+                p = f'{r.p:9.2g}' if np.isfinite(r.p) else f'{"--":>9s}'
+                q = f'{r.q:9.2g}' if np.isfinite(r.q) else f'{"--":>9s}'
+                L.append(f'{vals} {r.subset:>14s} {r.n:7d} {rho} {p} {q}')
+                shown += 1
+            L.append('')
+        return L
+
+    def body(self):
+        S = self.section
+        c, d = self.corr, self.desc
+        out = []
+
+        out.append(S('THE QUESTION', '\n'.join([
+            'For every field Experiment 2 admitted, in all eight collected '
+            'arenas: how elongated is it, which way does it point, how far is '
+            'it from the nearest wall, and what is the angle between its long '
+            'axis and that wall. Then three correlations:', '',
+            '  scale         vs elongation       do coarser fields come out '
+            'longer?',
+            '  wall distance vs elongation       are fields near a wall '
+            'longer?',
+            '  wall distance vs angle to wall    do fields near a wall point '
+            'at it?', '',
+            f'Spearman, because scale is ordinal and elongation is '
+            f'heavy-tailed. Libraries are Experiment 2\'s, unchanged: '
+            f'EXTENT_PCTL {PCTL}, ACT_THRESH {THRESH:g}, Rule 2 off, '
+            f'LAMBDA 0. Descriptive: no null model and no resampling.'])))
+
+        out.append(S('READ THE TWO SUBSETS TOGETHER', '\n'.join([
+            'Rule 7 fits a field\'s ellipse to the second moments of its '
+            'MASK, and the mask is intersected with the floor. A field whose '
+            'shape reaches past the wall is cut, and a cut blob\'s moments '
+            'are elongated ALONG the wall. So both wall correlations are '
+            'partly the arena\'s outline rather than the fields.', '',
+            'Every correlation is therefore reported twice. "all fields" is '
+            'every admitted field. "clear of wall" keeps only those whose '
+            'recorded ellipse does not reach the wall -- dist_to_wall_m is '
+            'less than reach_to_wall_m, the ellipse\'s own extent toward it '
+            '-- so nothing cut their shape.', '',
+            'Where the two agree, the result stands. Where they disagree, the '
+            'trend is in the cut fields and that is what the correlation '
+            'found.',
+            f'Fields whose ellipse reaches past the wall: '
+            f'{100 * float(self.fields.crosses_wall.mean()):.1f}% overall, '
+            f'{100 * float(d.frac_crosses_wall.max()):.1f}% in the worst '
+            f'arena x channel x scale cell.'])))
+
+        out.append(S('WHAT THE NUMBERS MEAN', '\n'.join([
+            'scale             0 finest to 5 coarsest, geometric in radius.',
+            'elongation        semi-major / semi-minor, >= 1. Correlated in '
+            'logs; Spearman is blind to that, the log is for the plots.',
+            'angle to wall     the acute angle between the field\'s major '
+            'axis and the INWARD NORMAL at the nearest wall point, 0 to 90 '
+            'degrees. 0 = the field points straight at the wall '
+            '(perpendicular to it); 90 = it lies along the wall. So a '
+            'POSITIVE rho against distance means fields get more '
+            'wall-parallel as they move away from the wall, and a NEGATIVE '
+            'one means they point at it more.',
+            f'perpendicular     the boolean, angle < {PERP_DEG:g} degrees.',
+            'wall distance     normalised: 0 is as near a wall as the '
+            'collection lattice lets a field\'s centre sit, 1 is the disc\'s '
+            'centre or the rectangle\'s midline. Within one arena this gives '
+            'the same Spearman as metres -- ranks do not care -- so it exists '
+            'for the pooled rows, where 1 m means different things in an '
+            'r = 6 disc and a 2 m corridor.', '',
+            'q is Benjamini-Hochberg within each pair and subset. Not a null '
+            'model, just the correction for asking the same question of every '
+            'arena, channel and scale.', '',
+            'A field at the exact centre of a disc has no nearest wall point '
+            'and one in a rectangle\'s corner has two. Those are flagged '
+            '(wall_frame_ambiguous) and dropped from the angle correlations '
+            'only: '
+            f'{int(self.fields.wall_frame_ambiguous.sum())} fields overall.'])))
+
+        out.append(S('POOLED OVER EVERYTHING',
+                     '\n'.join(self._table('pooled', []))))
+        out.append(S('PER ARENA', '\n'.join(self._table(
+            'env', [('env', 17)]))))
+        out.append(S('PER ARENA AND CHANNEL', '\n'.join(self._table(
+            'env x channel', [('env', 17), ('channel', 8)], max_rows=48))))
+        out.append(S('WITHIN SCALE, PER ARENA', '\n'.join(
+            ['Size held still: if wall distance still predicts elongation '
+             'inside a single scale, it is not just that the big fields sit '
+             'elsewhere. The scale pair is absent here by construction -- '
+             'grouping by scale leaves it no variance in x.', ''] +
+            self._table('env x scale', [('env', 17), ('scale', 5)],
+                        pairs=WALL_PAIRS, max_rows=48))))
+
+        keep = ['env', 'shape', 'channel', 'scale', 'n', 'frac_crosses_wall',
+                'area_median_m2', 'elongation_median', 'dist_to_wall_median_m',
+                'angle_to_wall_median_deg', 'frac_perpendicular']
+        out.append(S('Per arena, channel and scale',
+                     self.table(d[[c_ for c_ in keep if c_ in d.columns]],
+                                max_rows=300)))
+        return '\n'.join(out)
+
+
+# ----------------------------------------------------------------------- main
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('--envs', default=','.join(ENVS),
+                   help='default: the eight collected arenas')
+    p.add_argument('--channels', default=','.join(CHANNELS))
+    p.add_argument('--rebuild', action='store_true',
+                   help='rebuild field libraries even where Experiment 2\'s '
+                        'cache already holds them')
+    p.add_argument('--no-gpu', action='store_true')
+    p.add_argument('--no-email', action='store_true')
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    envs = [e.strip() for e in args.envs.split(',') if e.strip()]
+    chans = [c.strip() for c in args.channels.split(',') if c.strip()]
+    base_C = dict(BASE_C, USE_GPU=not args.no_gpu)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(FIG_DIR, exist_ok=True)
+
+    print('=' * 72)
+    print('Field geometry | elongation and orientation against scale and walls')
+    print(f'  envs     : {envs}')
+    print(f'  channels : {chans}')
+    print(f'  fields   : Experiment 2 config, EXTENT_PCTL {PCTL}, '
+          f'ACT_THRESH {THRESH:g}, Rule 2 off, LAMBDA 0')
+    print(f'  libraries: {"rebuilt" if args.rebuild else "from cache where present"}'
+          f' ({BANK_DIR})')
+    print(f'  pairs    : ' + '; '.join(lab for _, _, lab in PAIRS))
+    print(f'  subsets  : {", ".join(SUBSETS)} (descriptive, no null model)')
+    print('=' * 72, flush=True)
+
+    frames, missing = [], []
+    device = None
+    for e in envs:
+        data_path = f'{DATA_DIR}/{e}.h5'
+        if not os.path.exists(data_path):
+            print(f'\n[{e}] no dataset at {data_path} -- skipping', flush=True)
+            missing.append(e)
+            continue
+        print(f'\n===== {e} ({arena_shape(e)}) =====', flush=True)
+        root = ET.parse(f'{XML_DIR}/{e}.xml').getroot()
+        xy = load_positions(data_path)
+        env = R.build_env(xy, root)
+        # The collection keep-out, measured rather than assumed: no field's
+        # centre can be nearer a wall than the nearest sampled position.
+        margin = float(R.wall_distance(xy[:, 0], xy[:, 1], env).min())
+        # A wall tie inside the lattice spacing is a corner, not a choice.
+        tie = float(R.lattice_spacing(xy))
+        print(f'  area {env["env_area"]:.1f} m^2, wall distance '
+              f'{margin:.2f}-{max_wall_distance(env):.2f} m, '
+              f'lattice {tie:.4f} m', flush=True)
+
+        need = args.rebuild or any(not os.path.exists(bank_path(e, c))
+                                   for c in chans)
+        blocks = None
+        if need:
+            print('  building libraries: loading feature blocks', flush=True)
+            blocks, _ = ch.load_channel_blocks(data_path)
+            if device is None:
+                device = R.pick_device(use_gpu=not args.no_gpu)
+
+        for c in chans:
+            banks = SD.build_banks(e, c, blocks, xy, env, [(PCTL, THRESH)],
+                                   [IOU], base_C, device, BANK_DIR,
+                                   use_cache=not args.rebuild)
+            bank = banks[(PCTL, THRESH, IOU)]
+            if not len(bank):
+                print(f'  [{c}] no admitted fields', flush=True)
+                continue
+            t = field_table(bank, env, e, c, margin, tie)
+            frames.append(t)
+            print(f'  [{c}] {len(t)} fields, scales '
+                  f'{sorted(t.scale.unique())}, elongation median '
+                  f'{t.elongation.median():.2f}, '
+                  f'{100 * t.crosses_wall.mean():.0f}% reach past the wall, '
+                  f'{100 * t.perpendicular.mean():.0f}% point at it',
+                  flush=True)
+        del blocks
+
+    if not frames:
+        print('\nNo fields. Datasets missing: ' + (', '.join(missing) or 'none'))
+        return 1
+
+    fields = pd.concat(frames, ignore_index=True)
+    fields.to_csv(f'{OUT_DIR}/fields.csv', index=False)
+    desc = descriptives(fields)
+    desc.to_csv(f'{OUT_DIR}/descriptives.csv', index=False)
+    corr = pd.concat([
+        correlate(fields, [], 'pooled'),
+        correlate(fields, ['env', 'shape'], 'env'),
+        correlate(fields, ['env', 'shape', 'channel'], 'env x channel'),
+        correlate(fields, ['env', 'shape', 'scale'], 'env x scale',
+                  pairs=WALL_PAIRS),
+    ], ignore_index=True)
+    corr.to_csv(f'{OUT_DIR}/correlations.csv', index=False)
+
+    print('\nfigures:', flush=True)
+    fig_elongation_by_scale(fields, 'G1_elongation_by_scale.png')
+    _vs_distance(fields, 'elongation', 'G2_elongation_vs_wall.png',
+                 'G2  elongation against wall distance\nsolid = median of all '
+                 'fields, dashed = median of the fields whose ellipse does '
+                 'not reach past the wall', 'elongation (a/b)', hline=1.0)
+    _vs_distance(fields, 'angle_to_wall_deg', 'G3_angle_vs_wall.png',
+                 'G3  angle between a field\'s long axis and the nearest wall, '
+                 'against wall distance\n0 = points straight at the wall, '
+                 '90 = lies along it', 'angle to wall normal (deg)', hline=45.0)
+    fig_rho_summary(corr, 'G4_correlation_summary.png')
+    prune_orphan_figures()
+
+    rep = FieldGeometryReport(env_name=','.join(envs), out_dir=OUT_DIR,
+                              fig_dir=FIG_DIR, results=fields,
+                              log_path=os.environ.get('REALM_LOG_PATH'))
+    rep.fields, rep.corr, rep.desc = fields, corr, desc
+    if missing:
+        print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
+    print('\n' + rep.compose(), flush=True)
+    if not args.no_email:
+        rep.send()
+    print(f'\nfields       -> {OUT_DIR}/fields.csv'
+          f'\ncorrelations -> {OUT_DIR}/correlations.csv'
+          f'\ndescriptives -> {OUT_DIR}/descriptives.csv'
+          f'\nfigures      -> {FIG_DIR}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

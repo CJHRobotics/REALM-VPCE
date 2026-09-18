@@ -501,127 +501,108 @@ space as two random locations are: the response is flat, and a flat response
 makes a mask that either fills the arena or breaks into pieces. It is the
 input-side number to read when Rule 1 is taking everything.
 
+
 ---
 
-# Experiment 4: elongation and orientation against wall proximity
+# Experiment 4: field shape against scale and wall proximity
 
-`run_wall_elongation.py` — are place fields more elongated the closer they sit
-to a wall, and do they line up with it? Asked per channel, and asked
-separately of round arenas and straight-walled ones.
+`run_field_geometry.py` — every field Experiment 2 admitted, described by four
+things: how elongated it is, which way it points, how far it sits from the
+nearest wall, and the angle between its long axis and that wall. Then the
+pairs are correlated.
 
 Runs on all eight collected arenas — four discs (r = 3 and r = 6, with and
 without panels), two 10 × 10 m squares, two 10 × 2 m corridors — reading
-Experiment 2's field libraries unchanged, from its cache and under its cache
-key. Arena shape is declared per arena, never inferred: an lm0 disc has
-exactly its lm8 twin's outline, and aspect ratio cannot tell a square from a
-disc.
+Experiment 2's libraries unchanged, from its cache under its cache key. Only
+the position arrays are read from the HDF5 datasets, never the feature blocks.
 
-## Read this before reading any number it produces
+Three questions, Spearman on each, because scale is ordinal (0 finest to 5
+coarsest) and elongation is heavy-tailed:
+
+| pair | question |
+|---|---|
+| scale vs elongation | do coarser fields come out longer? |
+| wall distance vs elongation | are fields near a wall longer? |
+| wall distance vs angle to wall | do fields near a wall point at it? |
+
+Reported pooled, per arena, per arena × channel, and per arena × scale, the
+last of which holds field size still. **Descriptive** — no null model, no
+permutation, no resampling. `q` is Benjamini-Hochberg across a table's rows,
+which is not a null model either: it is the correction for asking the same
+question of every arena, channel and scale, so a table of 150 p-values does
+not read as one.
+
+## One thing to read before the numbers
 
 Rule 7 fits a field's ellipse to the second moments of its **mask**, and the
-mask stops at the wall (`& G['in_env']`). A field reaching past the wall is
-cut, and a cut blob's moments are elongated **along** the wall. Both of this
-experiment's measures therefore come out positive near a wall in a pipeline
-containing no anisotropy at all: **a raw curve of elongation against wall
-distance is a picture of the arena's outline, not a result.**
+mask is intersected with the floor. A field whose shape reaches past the wall
+is cut, and a cut blob's moments are elongated **along** the wall — so both
+wall correlations are partly the arena's outline rather than the fields.
 
-A second bias rides with the first. A large field cannot sit near a wall
-without being cut, so near-wall fields are small fields, and a small field's
-axis ratio is estimated from few bins, where it is noisier and biased upward.
+So every correlation is reported twice:
 
-Everything in the analysis is machinery for measuring the distance between the
-raw curve and what clipping alone predicts. Figures E1 and E4 show both curves
-side by side; start there.
+- **all fields** — every admitted field.
+- **clear of wall** — only those whose recorded ellipse does not reach the
+  wall, that is `dist_to_wall_m < reach_to_wall_m`, where the reach is the
+  ellipse's own support function toward the wall,
+  `sqrt(a²cos²φ + b²sin²φ)` with φ the angle between the major axis and the
+  wall's normal. Nothing cut these shapes.
 
-## Two arms
+Where the two agree the result stands on its own. Where they disagree, the
+trend lives in the cut fields, and that is what the correlation found. On
+synthetic test libraries with elongation planted against scale and **nothing**
+planted against the wall, wall distance vs elongation came out rho −0.064 at
+p = 3e-10 over all fields and rho −0.011 at p = 0.30 over the uncut ones: the
+apparently significant wall effect was 4% of the fields, and exactly the ones
+the wall had cut.
 
-| | population | null | status |
-|---|---|---|---|
-| **Arm A** | fields whose recorded ellipse, grown by one bin, lies wholly on the floor | each shape held rigid and moved somewhere it still fits whole — Experiment 3's placement null, uniform and Rule 11 tiling | nothing clipped these fields, so nothing needs correcting. **The arm to believe.** |
-| **Arm B** | every field | the library's own clear fields as donors, re-laid at 12 orientations, dropped at random, cut by the floor and re-measured; each real field matched to placements of the same **visible** area at the same wall distance | keeps the near-wall fields Arm A must drop. Carries a residual bias — **needs `--calibration`** |
+## Definitions worth pinning down
 
-Arm A is unbiased by construction but cannot speak for the near-wall
-population that matters most: at the wall, only small fields fit whole. Arm B
-covers that population at the cost of needing its null to reproduce the
-clipping rather than avoid it.
+**Angle to wall** is the acute angle between the field's major axis and the
+*inward normal* at the nearest wall point, 0–90°. **0 means the field points
+straight at the wall** — perpendicular to it — and 90 means it lies along the
+wall. So a positive rho against distance means fields grow more wall-parallel
+as they move inward; a negative one means they point at the wall more.
+`perpendicular` is the boolean `angle < 45°`.
 
-Arm B is tested on the **near minus far difference** of its excess, not on the
-excess itself: the level depends on the donor pool's size mix, and donors have
-to fit whole, which under-represents large fields. This mirrors Experiment 3,
-which tests LARGE minus SMALL rather than LARGE.
+**Wall distance** is normalised: 0 is as near a wall as the collection
+keep-out lets a field's centre sit, 1 is the disc's centre or the rectangle's
+midline. Within one arena this gives the same Spearman as metres — ranks do
+not care — so the normalised form exists for the pooled rows, where 1 m from a
+wall means very different things in an r = 6 disc and a 2 m corridor. Both
+columns are in `fields.csv`.
 
-Two things are measured for each field. **Elongation** is semi-major /
-semi-minor, averaged in logs so a difference is a factor. **Alignment** is
-cos(2 × the angle between the major axis and the nearest wall's tangent): +1
-the field lies along the wall, −1 it points straight at it, 0 no relation —
-the angle is doubled because an axis has no direction. Each is tested both as
-a near-minus-far difference and as a **level** over every field, because a
-preference that does not vary with distance is invisible to the first, and for
-alignment that is the likelier shape of a real effect.
-
-The near/far cut is a **tercile of each arm's own fields**, not a fixed
-distance, and the tables print it in metres. A fixed cut cannot work: a field
-has to fit whole to be in Arm A, which in the 2 m corridor puts its nearest
-field 0.38 m from the wall, so a fixed near-wall bin there holds nothing.
-Wall distance is normalised over the range a field's centre can actually
-occupy — 0 is as near the wall as the collection keep-out (0.2 m) allows, 1 is
-the disc's centre or the rectangle's midline. Dividing by the half-width
-instead put the corridor's whole near-wall bin inside the keep-out and every
-corridor statistic came out empty.
-
-## The calibration is not optional for Arm B
-
-`--synthetic` replaces every library with fields of known shape — areas
-resampled from the real library, same arena, same channel, same count — and
-reruns the whole pipeline. `round` is circular fields at random orientations,
-where every scrap of elongation and alignment is the wall cutting a circle, so
-whatever the arms report is bias; `planted` has elongation rising toward the
-wall with the major axis on the tangent, so what the arms report is power.
-
-`--calibration <round summary.csv>` subtracts that measured bias from every
-statistic and re-derives each p from the corrected value against the same null
-standard deviation. Raw values stay in `summary.csv` as `*_excess_raw`.
-
-`clipped_shape`, the vectorised code that measures a null placement, is checked
-against `rules.field_shape` itself on 240 real masks per arena, clipped ones
-included, and the run aborts if they differ by more than 1e-8. Without that
-check a difference between two implementations would read as the effect.
+A field at the exact centre of a disc has no nearest wall point, and one in a
+rectangle's corner has two within a lattice spacing. Both are flagged
+`wall_frame_ambiguous` and dropped from the angle correlations only — never
+assigned a wall.
 
 ## Running
 
-Submit through `slurm/wall_elongation.sh`, which documents the full sequence:
-the real run first (to cache the libraries), then the two calibration runs,
-then the run to read, with `--calibration` pointing at the `round` summary. Do
-not fan out one arena per job unless the libraries have to be built — the
-shape contrast, E3 and E7 all need their arenas in one run.
+```
+sbatch --mem=32G --time=2:00:00 slurm/field_geometry.sh
+```
+
+Run all eight arenas in one job: the figures put them side by side and the
+pooled correlations need them together. Fan out one arena per job only if the
+libraries have to be built, then re-run once over all eight. With the cache in
+place there is no GPU work and the job takes minutes.
 
 ## Outputs
 
-`data_cache/wall_elongation/` (plus `_synthetic_round` / `_synthetic_planted`)
+`data_cache/field_geometry/`
 
 | file | contents |
 |------|----------|
-| `summary.csv` | one row per arena × channel: every statistic with its null mean, sd, 95% range, p and BH q; field and donor counts; the near/far cuts in metres; `pool_unrepresented_frac` |
-| `arena_summary.csv` | channels averaged per arena against the conservative null sd (the perfectly-correlated value), with z, p and q |
-| `shape_contrast.csv` | circular against rectangular, and disc / square / corridor separately, per statistic |
-| `profiles.csv` | per arena × channel × distance bin: the raw level, the null's level, the excess and the null's 95% range |
-| `fields.csv` | every field with its elongation, orientation, alignment, wall distance, distance bin, whether it is clear of the wall, and its Arm B excess |
+| `fields.csv` | one row per admitted field: scale, area, semi-axes, elongation, orientation, centroid, the nearest wall point and its inward normal, distance to wall in metres and normalised, angle to the wall, `perpendicular`, `reach_to_wall_m`, `crosses_wall`, `clear_of_wall`, `wall_frame_ambiguous` |
+| `correlations.csv` | one row per grouping × pair × subset: n, rho, p, q |
+| `descriptives.csv` | per arena × channel × scale: counts, the fraction whose ellipse crosses the wall, median area, median and p90 elongation, median wall distance, median angle, fraction perpendicular |
 
-Figures — `figures/wall_elongation/`
+Figures — `figures/field_geometry/`
 
 | figure | shows |
 |--------|-------|
-| `E1` / `E4` | elongation and alignment against wall distance: measured (solid) against what clipping alone predicts (dashed), per arena, per channel. **The gap is the only candidate result.** |
-| `E2` / `E5` | the same two, as excess beyond the clipping-matched null, with the null's 95% band |
-| `E3` | Arm A, one row per library, near minus far against the null's range — the clean result, needing no correction |
-| `E6` | the angle to the nearest wall, near-wall against far, one panel per arena shape, channels pooled |
-| `E7` | the round-against-straight-walled answer: one point per arena, both arms, both measures |
-
-## Compute
-
-With Experiment 2's libraries cached, no feature blocks are loaded and the GPU
-goes unused — `--mem=32G --gres=gpu:0` is enough. Cost is the null machinery:
-per library, two rigid placement nulls of 1000 draws (Arm A) and a pool of
-150k clipped, re-measured placements (Arm B), over eight arenas × six
-channels. Walltime is dominated by re-ranking a template per donor and
-orientation, worst in the arenas holding the largest fields.
+| `G1` | elongation by scale, one box per scale, one panel per arena |
+| `G2` | elongation against wall distance, every field coloured by scale, with the binned median for all fields and for the uncut ones |
+| `G3` | the same for the angle to the wall, with 45° marked |
+| `G4` | every correlation at a glance: rho per arena × channel, both subsets side by side |
