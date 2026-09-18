@@ -506,10 +506,34 @@ class Truncated:
         return np.clip(c, 0.0, 1.0)
 
     def rvs(self, n, rng):
+        """n draws from the truncated form, by inverting within the window.
+
+        Returns an empty array rather than raising when the window's endpoints
+        do not come back finite and ordered -- which happens when a scale
+        parameter has collapsed, making both endpoints NaN. rng.uniform raises
+        OverflowError on that, and the caller only wants to skip the draw.
+        """
         d, p = self.dist, self.par
-        if self.upper:
-            return d.isf(rng.uniform(d.sf(self.hi, *p), d.sf(self.lo, *p), n), *p)
-        return d.ppf(rng.uniform(d.cdf(self.lo, *p), d.cdf(self.hi, *p), n), *p)
+        a, b = ((d.sf(self.hi, *p), d.sf(self.lo, *p)) if self.upper
+                else (d.cdf(self.lo, *p), d.cdf(self.hi, *p)))
+        if not (np.isfinite(a) and np.isfinite(b)) or not b > a:
+            return np.empty(0)
+        u = rng.uniform(a, b, n)
+        return d.isf(u, *p) if self.upper else d.ppf(u, *p)
+
+
+#: Distinct values a sample needs before three forms can be told apart, and
+#: the relative spread it needs to be a distribution rather than a point mass.
+#: A scale that Rule 12 was deleting is typically pinned at the Rule 8 area
+#: floor, so relaxing the coverage requirement readily produces both.
+MIN_DISTINCT = 5
+MIN_REL_SPREAD = 1e-6
+
+#: A scale parameter at or below this is a point mass, not a distribution.
+#: Fits that reach it are refused rather than returned, because everything
+#: downstream -- the truncated mass, the CDF, the bootstrap draw -- divides by
+#: it.
+SCALE_FLOOR = 1e-12
 
 
 def fit_truncated(name, x, lo, hi, start=None):
@@ -522,8 +546,17 @@ def fit_truncated(name, x, lo, hi, start=None):
     S = _suff(x)
 
     def nll(theta):
-        with np.errstate(all='ignore'):
-            v = -_log_lik(name, theta, S, lo, hi)
+        # Nelder-Mead probes freely, including where a scale parameter
+        # underflows to exactly 0. `_params` returns Python floats, so such a
+        # probe raises ZeroDivisionError rather than producing inf the way a
+        # numpy division would, and np.errstate does not catch that. An
+        # unreachable point is worth +inf, not a dead run: this is what killed
+        # a whole eight-arena job on one degenerate library.
+        try:
+            with np.errstate(all='ignore'):
+                v = -_log_lik(name, theta, S, lo, hi)
+        except (ZeroDivisionError, FloatingPointError, OverflowError):
+            return np.inf
         return v if np.isfinite(v) else np.inf
 
     theta0 = _start(name, S, lo, hi) if start is None else start
@@ -531,7 +564,11 @@ def fit_truncated(name, x, lo, hi, start=None):
                             options=dict(xatol=1e-7, fatol=1e-7, maxiter=4000))
     if not np.isfinite(res.fun):
         return None
-    return _params(name, res.x, lo, hi), -float(res.fun), res.x
+    par = _params(name, res.x, lo, hi)
+    # The scale is the last element of every form's parameter tuple here.
+    if not np.all(np.isfinite(par)) or float(par[-1]) <= SCALE_FLOOR:
+        return None
+    return par, -float(res.fun), res.x
 
 
 def fit_forms(x, lo, hi, n_boot=N_BOOT, seed=0):
@@ -545,6 +582,17 @@ def fit_forms(x, lo, hi, n_boot=N_BOOT, seed=0):
     x = x[np.isfinite(x) & (x > 0)]
     if len(x) < MIN_FIELDS:
         return []
+    # A sample with no spread is a point mass and there is nothing to compare
+    # three forms on. Refused here, with nothing returned, rather than left to
+    # fail somewhere inside the optimiser: a library whose fields all sit on
+    # the Rule 8 area floor is a real outcome -- it is what a scale looks like
+    # when Rule 12's coverage test is not there to delete it -- and it has to
+    # be survivable, not fatal.
+    med = float(np.median(x))
+    if (len(np.unique(x)) < MIN_DISTINCT or
+            (med > 0 and (float(x.max()) - float(x.min())) / med
+             < MIN_REL_SPREAD)):
+        return []
     # Fields exactly on a bound can land a rounding error outside it, where
     # their likelihood is zero. Widen the window by that much and no more.
     lo, hi = min(lo, float(x.min())), max(hi, float(x.max()))
@@ -557,6 +605,11 @@ def fit_forms(x, lo, hi, n_boot=N_BOOT, seed=0):
             continue
         par, ll, theta = fit
         T = Truncated(spec['dist'], par, lo, hi)
+        # The guard has been on Truncated all along and was never consulted.
+        # Without it a form whose window carries no probability goes on to
+        # produce a NaN CDF and an undrawable bootstrap.
+        if not T.ok:
+            continue
         k = spec['k']
 
         # Harland's statistic: fitted pdf against the binned density.
@@ -580,6 +633,8 @@ def fit_forms(x, lo, hi, n_boot=N_BOOT, seed=0):
                 if refit is None:
                     continue
                 Ts = Truncated(spec['dist'], refit[0], lo, hi)
+                if not Ts.ok:
+                    continue
                 n_ge += _ks_stat(xs, Ts.cdf) >= ks
                 n_ok += 1
         out.append(dict(form=name, n=len(x), n_bins=nb,
@@ -1451,6 +1506,39 @@ class ScaleDistributionReport(ExperimentReport):
                 'FITTED FORM changes, and whether the recovered scales hold '
                 'enough fields to tile anything, are the questions.'])))
 
+        # A library whose size distribution could not be fitted leaves no
+        # row in fits.csv, so it has to be named here or it looks as though
+        # the fit simply agreed with everything else.
+        none_, failed = getattr(self, 'fit_none', []), getattr(self, 'fit_failed', [])
+        if none_ or failed:
+            L = [f'{len(none_)} library x variable fits were declined and '
+                 f'{len(failed)} raised. Full list in unfitted.csv.', '',
+                 'DECLINED means the sample had nothing to fit: fewer than '
+                 f'{MIN_FIELDS} fields, fewer than {MIN_DISTINCT} distinct '
+                 f'values, or a relative spread below {MIN_REL_SPREAD:g} -- a '
+                 'point mass rather than a distribution. A library whose '
+                 'fields all sit on the Rule 8 area floor is a real outcome, '
+                 'not a failure of the run, and it is what a scale looks like '
+                 'when Rule 12\'s coverage test is not there to delete it. '
+                 'Those libraries are still in summary.csv and '
+                 'scale_summary.csv with their counts and their sizes; they '
+                 'have no fitted form because no form is identifiable.', '']
+            for r in none_[:20]:
+                L.append(f'  declined  {r["env"]:17s} {r["channel"]:8s} '
+                         f'{r["variable"]:9s} n={r["n_fields"]:<5d} '
+                         f'distinct={r["n_distinct"]}')
+            if len(none_) > 20:
+                L.append(f'  ... {len(none_) - 20} more in unfitted.csv')
+            for r in failed[:20]:
+                L.append(f'  RAISED    {r["env"]:17s} {r["channel"]:8s} '
+                         f'{r["variable"]:9s} n={r["n_fields"]:<5d} '
+                         f'{r["error"]}')
+            if failed:
+                L += ['', 'A RAISED fit is a defect, not a property of the '
+                      'data: the run continued past it, but the cause should '
+                      'be found rather than tolerated.']
+            out.append(S('LIBRARIES WITH NO FITTED FORM', '\n'.join(L)))
+
         # --- the shape, which is the actual question ----------------------
         w = self.winners
         shape = [
@@ -2028,6 +2116,11 @@ def main():
     banks_all, sum_rows, fit_rows, inv_rows = {}, [], [], []
     scale_rows, env_geom, eliav_rows = [], {}, []
     missing = []
+    # Libraries whose distribution could not be fitted: `fit_none` for the
+    # ones fit_forms declined (too few fields, too few distinct values, no
+    # spread), `fit_failed` for anything that raised. Both are reported rather
+    # than leaving a silent gap in fits.csv.
+    fit_none, fit_failed = [], []
     for e in envs:
         data_path = f'{REPO}/data/vpce/collect_data/{e}.h5'
         xml_path = f'{REPO}/simulation/worlds/environments/vpce/{e}.xml'
@@ -2091,8 +2184,29 @@ def main():
                         ('area', bank.area_env_m2, a_lo, a_hi),
                         ('diameter', 2.0 * bank.radius_env_m,
                          2.0 * np.sqrt(a_lo / np.pi), 2.0 * np.sqrt(a_hi / np.pi))):
-                    for d in fit_forms(x, lo, hi, n_boot=args.n_boot,
-                                       seed=args.seed):
+                    # One library's fit must not cost the other twenty-three.
+                    # Each of these is an hour of GPU time upstream of here,
+                    # and a degenerate library is a real outcome rather than a
+                    # bug in the run -- so it is recorded and stepped over.
+                    # `fit_forms` already refuses a point mass by returning
+                    # nothing; this catches whatever it does not.
+                    try:
+                        got = fit_forms(x, lo, hi, n_boot=args.n_boot,
+                                        seed=args.seed)
+                    except Exception as ex:                    # noqa: BLE001
+                        got = []
+                        fit_failed.append(dict(env=e, channel=c, variable=var,
+                                               n_fields=len(bank),
+                                               error=f'{type(ex).__name__}: {ex}'))
+                        print(f'  !! [{c}] {var} fit failed, continuing: '
+                              f'{type(ex).__name__}: {ex}', flush=True)
+                    if not got:
+                        n_uniq = int(pd.Series(np.asarray(x, dtype=float))
+                                     .nunique())
+                        fit_none.append(dict(env=e, channel=c, variable=var,
+                                             n_fields=len(bank),
+                                             n_distinct=n_uniq))
+                    for d in got:
                         d['params'] = json.dumps(d['params'])
                         fit_rows.append(dict(tag, variable=var, **d))
         del blocks
@@ -2119,6 +2233,14 @@ def main():
     trends = scale_trends(at_operating_point(summary))
     if len(trends):
         trends.to_csv(f'{out_dir}/scale_trends.csv', index=False)
+    if fit_none or fit_failed:
+        unfit = pd.DataFrame(
+            [dict(r, reason='declined: no spread to fit') for r in fit_none] +
+            [dict(r, reason='raised') for r in fit_failed])
+        unfit.to_csv(f'{out_dir}/unfitted.csv', index=False)
+        print(f'\n!! {len(fit_none)} library x variable fits declined and '
+              f'{len(fit_failed)} raised -- see {out_dir}/unfitted.csv',
+              flush=True)
 
     _f = at_operating_point(fits)
     winners = _f[(_f.variable == 'area') & (_f.d_aic == 0)].form.value_counts()
@@ -2141,6 +2263,7 @@ def main():
     rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
     rep.scales, rep.eliav, rep.env_order = scales, eliav, envs_by_area
     rep.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
+    rep.fit_none, rep.fit_failed = fit_none, fit_failed
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)
