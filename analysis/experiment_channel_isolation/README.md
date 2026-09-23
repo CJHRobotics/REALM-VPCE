@@ -246,7 +246,7 @@ environment *scale*: Fig 3F–G is a scale-dependent shape claim (exponential in
 the megaspace, Gaussian in the small environments) and Fig 6E is CV against
 enclosure area. Neither can be read from datasets that hold area constant.
 
-The default env list is all nine arenas, each sampled at ~`N_TARGET` positions
+The default env list is all eight arenas, each sampled at ~`N_TARGET` positions
 so sample count is not a covariate. Each has one **declared role**, and the
 role alone decides which comparisons it enters:
 
@@ -254,7 +254,6 @@ role alone decides which comparisons it enters:
 |---|---|---|---|---|
 | `circ_lm8_r3` | r = 3 m | 28.27 m² | area sweep, small | 32% |
 | `circ_lm8_r6` | r = 6 m | 113.10 m² | area sweep, medium | 16% |
-| `circ_lm8_r10` | r = 10 m | 314.16 m² | area sweep, mega | 10% |
 | `corr_lm8_l10w2` | 10 × 2 m | 20.00 m² | **Eliav corridor** | 25% |
 | `corr_lm8_l10w10` | 10 × 10 m | 100.00 m² | square, two panels on each wall | 15% |
 | `circ_lm0_r3` | r = 3 m | 28.27 m² | no landmarks, twin of `circ_lm8_r3` | — |
@@ -293,11 +292,11 @@ each field's ellipse onto that axis — and written to `eliav_lengths.csv`.
 Circular arenas have no long axis and are skipped.
 
 **Cue salience is confounded with area** across the sweep, and worst at the
-top: a 0.75 m panel spans roughly 11 px of a 224 px image from across the
-r = 10 disc, and the colour channel has previously collapsed to single-digit
-field counts there. It did not at r = 6 (511 fields), so that may have been an
-artifact of the older configuration — but colour at r = 10 is the first thing
-to check in any new run.
+top: a fixed 0.75 m panel subtends fewer pixels the larger the arena gets. The
+colour channel once collapsed to single-digit field counts in a disc larger
+than these; it did not at r = 6 (511 fields). With the sweep now spanning only
+r = 3 to r = 6 the confound is milder than it was, and colour is still the
+channel to check first in any new run.
 
 **The no-landmark twins are the landmark control.** A difference between an
 lm8 arena and its lm0 twin — in field count, median size, scales occupied or
@@ -309,10 +308,10 @@ are identical. The report tabulates each pair per channel.
 Fan out one arena per job:
 
 ```bash
-for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2 corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10 corr_lm0_l10w2; do sbatch slurm/scale_distribution.sh --envs "$e"; done
+for e in circ_lm8_r3 circ_lm8_r6 corr_lm8_l10w2 corr_lm8_l10w10 circ_lm0_r3 circ_lm0_r6 corr_lm0_l10w10 corr_lm0_l10w2; do sbatch slurm/scale_distribution.sh --envs "$e"; done
 ```
 
-When all nine have finished, run once over every arena, reusing their
+When all eight have finished, run once over every arena, reusing their
 libraries, for the combined figures and report:
 
 ```bash
@@ -336,6 +335,7 @@ Options: `--envs`, `--channels`, `--settings P:T,...`, `--lam`, `--subsample`,
 | `summary.csv` | one row per env × channel × setting: role, CV, extremes, ratio, scale occupancy (`scale0_frac` … `scale6plus_frac`, `n_scales_occupied`), coverage, truncation |
 | `fits.csv` | one row per env × channel × setting × variable × form: params, the window it was truncated to (`trunc_lo`, `trunc_hi`), `r_hist`, `ks`, `ks_p_boot`, `aic`, `d_aic`, `aic_weight`, `winner` |
 | `scale_summary.csv` | one row per env × channel × scale: field count, share of the library, median area and coverage, tiling multiple, CV, median split-half IoU |
+| `redundancy.csv` | one row per env × channel, **scales combined**: field count, total field area, tiling multiple, fraction of floor covered, **R = total area / covered area**, the same ratio within a scale, max and median depth, and the fraction of floor at depth 0 / 1 / 2 / 3+ |
 | `scale_trends.csv` | one row per tracked quantity, over the area sweep only: value at small and mega, mega/small ratio, pooled Spearman against area, the expected direction and its source, and whether ours agrees |
 | `threshold_invariance.csv` | the `ACT_THRESH` check, per paired run |
 | `<env>/<channel>_p<P>_t<T>_bank.csv` | the field library behind each row; its `scale_band` column is the scale |
@@ -363,9 +363,10 @@ recording samples cells from this library. The numbers are in
 `scale_summary.csv`.
 
 **The best-fitting form is reported for comparison with both papers.** The
-report sets it against Harland's megaspace (exponential, at the r = 10 disc),
-Harland's small environments (Gaussian, at the r = 3 disc) and Eliav
-(log-normal). Carry one caveat into that comparison: the pooled distribution
+report sets it against Harland's megaspace (exponential, read at our largest
+disc, r = 6), Harland's small environments (Gaussian, at the r = 3 disc) and
+Eliav (log-normal). Note that our span is 4.0× where Harland's is 8.8×, so
+their trend is being read over less than half the range they measured it on. Carry one caveat into that comparison: the pooled distribution
 being fitted is the tiling spectrum
 (N(>s) ∝ s⁻¹·¹), enumerated from a hierarchy rather than recorded from a sample of
 cells, so a matching form is a shared shape, not evidence of a shared process.

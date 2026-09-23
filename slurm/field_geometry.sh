@@ -16,7 +16,8 @@
 #   corr_lm8_l10w2    10 x 2 m    20.00 m^2   corridor
 #   corr_lm0_l10w2    10 x 2 m    20.00 m^2   corridor, no panels
 #
-# circ_lm8_r10 is in Experiment 2's arena list but was never collected.
+# An r = 10 disc was in the arena list and was dropped in September 2026
+# without ever being collected.
 #
 # Three questions, Spearman on each — scale is ordinal and elongation is
 # heavy-tailed:

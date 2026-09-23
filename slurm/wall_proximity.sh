@@ -8,7 +8,6 @@
 #
 #   circ_lm8_r3      r = 3     28.27 m^2   small
 #   circ_lm8_r6      r = 6    113.10 m^2   medium
-#   circ_lm8_r10     r = 10   314.16 m^2   mega
 #   corr_lm8_l10w2   10 x 2 m  20.00 m^2   corridor
 #
 # Same configuration means exactly Experiment 2's: EXTENT_PCTL 65, ACT_THRESH
@@ -43,7 +42,7 @@
 # are missing, fan the builds out one arena per job as Experiment 2 does, then
 # run once over all four for the combined figures and report:
 #
-#   for e in circ_lm8_r3 circ_lm8_r6 circ_lm8_r10 corr_lm8_l10w2; do
+#   for e in circ_lm8_r3 circ_lm8_r6 corr_lm8_l10w2; do
 #       sbatch --job-name=wall-prox-build slurm/wall_proximity.sh --envs "$e" --no-email
 #   done
 #   sbatch slurm/wall_proximity.sh

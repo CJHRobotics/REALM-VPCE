@@ -89,7 +89,7 @@ set -euo pipefail
 # Run with bash on the login node, not with sbatch: it only calls sbatch, once
 # per arena, so eight arenas finish in the time the slowest takes rather than
 # in sequence. With no list it
-# submits every arena that has a dataset -- circ_lm8_r10 is left out because it
+# submits every arena that has a dataset -- the r = 10 disc is gone because it
 # has none, and a job with nothing to audit exits non-zero and mails a failure.
 SUBMIT_ENVS=circ_lm8_r3,circ_lm0_r3,circ_lm8_r6,circ_lm0_r6,corr_lm8_l10w2,corr_lm0_l10w2,corr_lm8_l10w10,corr_lm0_l10w10
 if [[ "${1:-}" == "--submit" ]]; then

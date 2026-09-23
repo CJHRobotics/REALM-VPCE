@@ -75,7 +75,7 @@ a scale-dependent shape claim -- exponential in the megaspace, Gaussian in the
 small environments -- and Fig 6E is CV against enclosure area. Neither can be
 read from datasets that hold area constant.
 
-The default is all nine arenas, each sampled at ~N_TARGET positions so sample
+The default is all eight arenas, each sampled at ~N_TARGET positions so sample
 count is not a covariate. Each has one declared role, and the role alone
 decides which comparisons it enters:
 
@@ -143,18 +143,18 @@ from realm_tools.experiment_lib.reporting import ExperimentReport
 #
 #   circ_lm8_r3        r = 3     28.27 m^2   small     wall cover 32%
 #   circ_lm8_r6    r = 6    113.10 m^2   medium    wall cover 16%
-#   circ_lm8_r10   r = 10   314.16 m^2   mega      wall cover 10%
+
 #
-# An 11.1x span against Harland's 8.8x. Each arena is sampled at ~N_TARGET
-# positions, so sample count is not a covariate.
+# Each arena is sampled at ~N_TARGET positions, so sample count is not a
+# covariate.
 #
-# Note the cue-salience confound grows across this sweep and is worst at the
-# top: a fixed 0.75 m panel spans roughly 11 px of a 224 px image from across
-# the r = 10 disc, and the colour channel has previously collapsed to
-# single-digit field counts there. It did not at r = 6 (511 fields), so the
-# collapse may have been an artifact of the older configuration -- but r = 10
-# is 2.8x that area again, and colour is the channel to check first.
-AREA_ENVS = ['circ_lm8_r3', 'circ_lm8_r6', 'circ_lm8_r10']
+# The r = 10 disc was dropped in September 2026 without ever being collected,
+# so the area axis is r = 3 against r = 6: 28.3 to 113.1 m^2, a 4.0x span
+# against Harland's 8.8x. That is the largest range now available and it is
+# stated rather than implied, because two of Harland's three targets (Fig 3F-G
+# and Fig 6E) are trends against area and a 4x span reads them over less than
+# half the range they were measured on.
+AREA_ENVS = ['circ_lm8_r3', 'circ_lm8_r6']
 
 # The Eliav comparison: a 10 x 2 m corridor, 20 m^2, aspect 5:1. Long enough
 # to read as one-dimensional, short enough to stand for the 6 m tunnel segment
@@ -316,10 +316,16 @@ SURFACE = '#fcfcfb'
 # Published reference values, for the report and the figures.
 HARLAND_CV = {'CA1 small': 70.0, 'CA1 medium': 85.0, 'CA1 megaspace': 101.0}
 HARLAND_COVERAGE = (0.09, 0.13)
-# Harland's megaspace is 8.8x their small environment. Our area sweep is
-# 11.1x, so the two spans are comparable and their per-quantity changes across
-# that span are numbers to hit rather than directions.
+# Harland's megaspace is 8.8x their small environment. Our area sweep is now
+# 4.0x (r = 3 against r = 6), less than half their range, so their
+# per-quantity changes across that span are DIRECTIONS to match rather than
+# numbers to hit. They were numbers to hit while the r = 10 disc was in the
+# plan at 11.1x; it was dropped in September 2026 without being collected.
 HARLAND_AREA_RATIO = 8.8
+# Our own span, stated so the report can say what it is rather than implying
+# a match. Computed from the arenas actually present at run time.
+OUR_AREA_RATIO_NOTE = ('4.0x (r = 3 to r = 6), against Harland\'s 8.8x -- '
+                       'less than half their range')
 # Coverage per cell SATURATES: only ~2 percentage points higher in the
 # megaspace than in the small environment despite 8.8x the area.
 HARLAND_COVERAGE_RISE_PP = 2.0
@@ -726,6 +732,117 @@ def describe(bank, env, C):
     d['scale6plus_frac'] = float(np.mean(scale > max(SCALES)))
     d['n_scales_occupied'] = int(len(np.unique(scale)))
     return d
+
+
+def _depth_map(bank, env, G):
+    """Number of fields covering each floor bin, from the recorded ellipses.
+
+    Each field is drawn as the ellipse the bank records — its centroid, semi-
+    axes and orientation — and clipped to the floor. The true mask is not
+    stored anywhere, so this is an approximation, but a close one: Rule 7 sets
+    the ellipse so that pi*a*b equals the mask's measured area and its second
+    moments match the mask's, so the ellipse has the right size, shape and
+    tilt. What it does not have is the mask's irregular outline, so two fields
+    that interlock along a ragged edge will overlap slightly differently here.
+    `raster_area_ratio` in the summary reports how far the rasterised total
+    area lands from the recorded total, which is the size of that error.
+    """
+    in_env, xc, yc = G['in_env'], G['xc'], G['yc']
+    sx, sy = float(xc[1] - xc[0]), float(yc[1] - yc[0])
+    gx, gy = in_env.shape
+    depth = np.zeros(in_env.shape, dtype=np.int32)
+    for r in bank.itertuples(index=False):
+        a = max(float(r.semi_major_m), 1e-9)
+        b = max(float(r.semi_minor_m), 1e-9)
+        th = float(r.orientation_rad)
+        ct, st = np.cos(th), np.sin(th)
+        # Half-extents of the rotated ellipse: its support function along each
+        # axis. A box from a and a alone would be wasteful for a long thin
+        # field lying across the grid.
+        ex = np.hypot(a * ct, b * st)
+        ey = np.hypot(a * st, b * ct)
+        i0 = max(0, int(np.floor((float(r.centroid_x) - ex - xc[0]) / sx)))
+        i1 = min(gx - 1, int(np.ceil((float(r.centroid_x) + ex - xc[0]) / sx)))
+        j0 = max(0, int(np.floor((float(r.centroid_y) - ey - yc[0]) / sy)))
+        j1 = min(gy - 1, int(np.ceil((float(r.centroid_y) + ey - yc[0]) / sy)))
+        if i1 < i0 or j1 < j0:
+            continue
+        dx = xc[i0:i1 + 1][:, None] - float(r.centroid_x)
+        dy = yc[j0:j1 + 1][None, :] - float(r.centroid_y)
+        u = dx * ct + dy * st
+        v = -dx * st + dy * ct
+        m = ((u / a) ** 2 + (v / b) ** 2) <= 1.0
+        depth[i0:i1 + 1, j0:j1 + 1] += (m & in_env[i0:i1 + 1, j0:j1 + 1])
+    return depth
+
+
+def redundancy(bank, env, G, tag):
+    """How deeply the library covers its own floor, all scales together.
+
+    R = (total field area) / (floor area at least one field covers). R cannot
+    fall below 1, because a sum of areas is never smaller than the area of
+    their union: R = 1 is a perfect tiling with no overlap at all, and R = 3
+    means the covered floor is three fields deep on average.
+
+    Reported with the scales COMBINED, which is the number that describes the
+    population an animal would have available at a point. Overlap between
+    scales is permitted by design — Rule 11 only makes fields of the SAME
+    scale compete, so a coarse field and the finer ones nested inside it all
+    survive — so a combined R well above 1 is expected rather than alarming.
+    `redundancy_within_scale` is the same ratio computed inside each scale and
+    then taken as a median over scales; that is the part Rule 11 constrains,
+    and it is the number to read if R looks high.
+
+    The depth histogram is the distribution behind the mean: a floor covered
+    three deep everywhere and one covered nine deep on a third of itself both
+    give R = 3, and they are different populations.
+    """
+    area = float(env['env_area'])
+    bin_area = float(G['bin_area'])
+    floor_bins = int(G['in_env'].sum())
+    sum_area = float(bank.area_env_m2.sum()) if len(bank) else 0.0
+    row = dict(tag, n_fields=len(bank), env_area_m2=area,
+               floor_area_m2=floor_bins * bin_area,
+               sum_field_area_m2=sum_area,
+               tiling_multiple=sum_area / area if area else np.nan)
+    if not len(bank) or not floor_bins:
+        return row
+
+    depth = _depth_map(bank, env, G)
+    d = depth[G['in_env']]
+    covered = int((d > 0).sum())
+    raster_area = float(d.sum()) * bin_area
+    row.update(
+        union_frac=covered / floor_bins,
+        union_area_m2=covered * bin_area,
+        raster_area_m2=raster_area,
+        # How far drawing ellipses instead of the real masks moved the total
+        # area. Near 1.0 means the approximation is faithful.
+        raster_area_ratio=raster_area / sum_area if sum_area else np.nan,
+        # The headline. Taken from the RECORDED areas over the rasterised
+        # union, so the numerator is exact and only the denominator is
+        # approximate.
+        redundancy=sum_area / (covered * bin_area) if covered else np.nan,
+        # The same thing computed entirely from the raster, as a cross-check
+        # on the line above: they differ only by raster_area_ratio.
+        mean_depth_covered=raster_area / (covered * bin_area) if covered else np.nan,
+        max_depth=int(d.max()),
+        median_depth_covered=float(np.median(d[d > 0])) if covered else np.nan)
+    for k in range(4):
+        lab = f'{k}' if k < 3 else '3plus'
+        sel = (d == k) if k < 3 else (d >= 3)
+        row[f'frac_floor_depth_{lab}'] = float(sel.sum() / floor_bins)
+
+    # Within a scale: what Rule 11's competition actually limits.
+    per = []
+    for sc, g in bank.groupby('scale_band'):
+        dsc = _depth_map(g, env, G)[G['in_env']]
+        cov = int((dsc > 0).sum())
+        if cov:
+            per.append(float(g.area_env_m2.sum()) / (cov * bin_area))
+    row['redundancy_within_scale'] = float(np.median(per)) if per else np.nan
+    row['n_scales'] = len(per)
+    return row
 
 
 def scale_table(bank, env, C, tag):
@@ -1276,7 +1393,7 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
     slice of the colour axis, while a field at the top of its scale still
     reads darker than one at the bottom -- which six flat class colours could
     not show. One ramp serves every panel, so a colour means the same size in
-    every arena and the r = 10 disc's fields really are drawn darker than the
+    every arena and the r = 6 disc's fields really are drawn darker than the
     r = 3 disc's.
 
     Line width grows with scale as a second cue, and fine fields are drawn
@@ -1469,6 +1586,7 @@ class ScaleDistributionReport(ExperimentReport):
     def data_files(self):
         return [p for p in (f'{self.out_dir}/summary.csv',
                             f'{self.out_dir}/fits.csv',
+                            f'{self.out_dir}/redundancy.csv',
                             f'{self.out_dir}/scale_trends.csv',
                             f'{self.out_dir}/scale_summary.csv',
                             f'{self.out_dir}/eliav_lengths.csv',
@@ -1602,10 +1720,14 @@ class ScaleDistributionReport(ExperimentReport):
                       f'libraries across every arena in this run.',
                       _against(ELIAV_ENVS[0], 'lognormal', None),
                       '',
-                      f'"Megaspace" here is the r = 10 disc and "small" the r = 3 '
-                      f'disc: the ratio between them (11.1x) matches Harland\'s '
-                      f'{HARLAND_AREA_RATIO}x, the absolute areas do not -- '
-                      f'their megaspace is smaller than our r = 3 disc.', '']
+                      f'"Megaspace" here is the r = 6 disc and "small" the '
+                      f'r = 3 disc. The ratio between them is 4.0x against '
+                      f'Harland\'s {HARLAND_AREA_RATIO}x, so this reads their '
+                      f'trend over less than half the range they measured it '
+                      f'on; and the absolute areas do not line up either -- '
+                      f'their megaspace is smaller than our r = 3 disc. Treat '
+                      f'their per-quantity changes as directions to match, not '
+                      f'numbers to hit.', '']
         for name in FORMS:
             d = fb[fb.form == name]
             if not len(d):
@@ -1631,6 +1753,68 @@ class ScaleDistributionReport(ExperimentReport):
                   'normal outcome and is not a failure — it is why dAIC, which '
                   'ranks the forms rather than testing them, is the statistic '
                   'the winner is taken from.']
+        # --- redundancy: how deeply the library covers its own floor ------
+        rd = getattr(self, 'redundancy', None)
+        if rd is not None and len(rd) and 'redundancy' in rd:
+            r = rd[rd.redundancy.notna()]
+            L = ['R = (total field area) / (floor area at least one field '
+                 'covers). It cannot be below 1: a sum of areas is never '
+                 'smaller than the area of their union. R = 1 is a tiling with '
+                 'no overlap, R = 3 means the covered floor is three fields '
+                 'deep on average.', '',
+                 'SCALES COMBINED, which is the population available at a '
+                 'point. Overlap BETWEEN scales is permitted by design -- Rule '
+                 '11 only makes fields of the same scale compete, so a coarse '
+                 'field and the finer ones nested inside it all survive -- so a '
+                 'combined R well above 1 is expected. `within` is the same '
+                 'ratio computed inside each scale and taken as a median over '
+                 'scales, and that is the part competition constrains. Read '
+                 'them as a pair: a high R with `within` near 1 is a '
+                 'multiscale population, a high R with a high `within` is a '
+                 'redundant one.', '',
+                 f'  {"arena":17s} {"chan":8s} {"fields":>6s} {"tiling":>7s} '
+                 f'{"covered":>8s} {"R":>6s} {"within":>7s} {"deepest":>8s}   '
+                 f'floor at depth 0 / 1 / 2 / 3+']
+            for x in r.itertuples():
+                L.append(
+                    f'  {x.env:17s} {x.channel:8s} {x.n_fields:6d} '
+                    f'{x.tiling_multiple:7.2f} {100*x.union_frac:7.1f}% '
+                    f'{x.redundancy:6.2f} {x.redundancy_within_scale:7.2f} '
+                    f'{x.max_depth:8d}   '
+                    f'{100*x.frac_floor_depth_0:4.1f}% '
+                    f'{100*x.frac_floor_depth_1:4.1f}% '
+                    f'{100*x.frac_floor_depth_2:4.1f}% '
+                    f'{100*x.frac_floor_depth_3plus:4.1f}%')
+            L += ['',
+                  f'Median over the {len(r)} libraries: R {r.redundancy.median():.2f}, '
+                  f'within a scale {r.redundancy_within_scale.median():.2f}, '
+                  f'floor covered {100*r.union_frac.median():.1f}%, '
+                  f'uncovered {100*r.frac_floor_depth_0.median():.1f}%.', '',
+                  'tiling  = total field area as a multiple of the arena. It is '
+                  'R x the covered fraction, and it is the number '
+                  'scale_summary.csv reports per scale as `tiling_multiple`.',
+                  'covered = floor that at least one field reaches. The '
+                  'complement is floor no field covers at all, which is the '
+                  'other half of what a population code has to do and is not '
+                  'something any rule checks for.', '',
+                  'HOW THE UNION IS MEASURED. Each field is drawn as the '
+                  'ellipse the bank records -- centroid, semi-axes, '
+                  'orientation -- and clipped to the floor, because the true '
+                  'mask is not stored. Rule 7 sets the ellipse so its area and '
+                  'second moments match the mask\'s, so it has the right size, '
+                  'shape and tilt but not the mask\'s ragged outline. '
+                  f'`raster_area_ratio` says how far that moved the total area: '
+                  f'median {r.raster_area_ratio.median():.3f} over these '
+                  f'libraries, and a value far from 1.00 means the '
+                  f'approximation is straining. The numerator of R is the '
+                  f'recorded area, so only its denominator is approximate.', '',
+                  'A near-wall field is understated here: its recorded area is '
+                  'the CLIPPED area, so pi*a*b is the visible part and the '
+                  'ellipse drawn is smaller than the field looked. Overlap '
+                  'near a boundary is therefore a lower bound.']
+            out.append(S('REDUNDANCY — how many fields cover the same ground',
+                         '\n'.join(L)))
+
         out.append(S('BEST FIT, AND THE TWO PAPERS', '\n'.join(forms)))
 
         # --- the threshold caveat -----------------------------------------
@@ -1888,7 +2072,7 @@ class ScaleDistributionReport(ExperimentReport):
                 'holds -- a control, and a prerequisite for reading the area '
                 'sweep, but not a test of either published claim.', '',
                 'Run over AREA_ENVS (circ_lm8_r3, circ_lm8_r6, '
-                'circ_lm8_r10 — 28.3 to 314.2 m^2, 11.1x against '
+                'circ_lm8_r6 — 28.3 to 113.1 m^2, 4.0x against '
                 'Harland\'s 8.8x) for the comparison this experiment is '
                 'named after.'])))
 
@@ -1995,7 +2179,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--envs',
                    default=','.join(ALL_ENVS),
-                   help='default is all nine arenas (ALL_ENVS). Each has a '
+                   help='default is all eight arenas (ALL_ENVS). Each has a '
                         'declared role in ROLES that decides which comparisons '
                         'it enters: only the area sweep is on the area trend, '
                         'only the Eliav corridor is scored on length, and each '
@@ -2093,7 +2277,7 @@ def main():
     print('=' * 72, flush=True)
 
     banks_all, sum_rows, fit_rows, inv_rows = {}, [], [], []
-    scale_rows, env_geom, eliav_rows = [], {}, []
+    scale_rows, env_geom, eliav_rows, redund_rows = [], {}, [], []
     missing = []
     # Libraries whose distribution could not be fitted: `fit_none` for the
     # ones fit_forms declined (too few fields, too few distinct values, no
@@ -2116,6 +2300,11 @@ def main():
                   f'full run; field size scales with sample count')
         root = ET.parse(xml_path).getroot()
         env = R.build_env(xy, root)
+        # The analysis grid, for the redundancy raster. Built from the arena
+        # and the lattice only -- no feature data -- so it is the same grid the
+        # fields were measured on.
+        G_env = R._grid_setup(env, R.resolve_grid_cfg(base_C, xy, env=env,
+                                                      verbose=False))
         # The role decides which comparisons the arena enters. Shape and
         # landmark count are carried for the tables and the figures only.
         env['role'] = env_role(e)
@@ -2152,6 +2341,7 @@ def main():
                            env_area_m2=float(env['env_area']))
                 d = describe(bank, env, base_C)
                 sum_rows.append({**tag, **d})
+                redund_rows.append(redundancy(bank, env, G_env, tag))
                 scale_rows.extend(scale_table(bank, env, base_C, tag))
                 eliav_rows.extend(eliav_lengths(bank, env, tag))
                 # Area is Harland's unit; equivalent diameter is the closest
@@ -2201,6 +2391,10 @@ def main():
     eliav = pd.DataFrame(eliav_rows)
     if len(eliav):
         eliav.to_csv(f'{out_dir}/eliav_lengths.csv', index=False)
+    redund = pd.DataFrame(redund_rows)
+    if len(redund):
+        redund = redund.sort_values(['env_area_m2', 'env', 'channel'])
+        redund.to_csv(f'{out_dir}/redundancy.csv', index=False)
     scales = pd.DataFrame(scale_rows)
     if len(scales):
         scales = scales.sort_values(['env_area_m2', 'env', 'channel', 'scale'])
@@ -2243,14 +2437,16 @@ def main():
     rep.scales, rep.eliav, rep.env_order = scales, eliav, envs_by_area
     rep.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
     rep.fit_none, rep.fit_failed = fit_none, fit_failed
+    rep.redundancy = redund
     if missing:
         print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
     print('\n' + rep.compose(), flush=True)
     if not args.no_email:
         rep.send()
-    print(f'\nsummary -> {out_dir}/summary.csv'
-          f'\nfits    -> {out_dir}/fits.csv'
-          f'\nfigures -> {fig_dir}')
+    print(f'\nsummary    -> {out_dir}/summary.csv'
+          f'\nfits       -> {out_dir}/fits.csv'
+          f'\nredundancy -> {out_dir}/redundancy.csv'
+          f'\nfigures    -> {fig_dir}')
     return 0
 
 
