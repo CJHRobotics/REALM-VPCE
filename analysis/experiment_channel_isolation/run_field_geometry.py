@@ -5,11 +5,14 @@ arenas, and writes down four things about each one: how elongated it is, which
 way it points, how far it sits from the nearest wall, and the angle between its
 long axis and that wall. Then it correlates the pairs.
 
-Descriptive, not inferential. Three questions:
+Descriptive, not inferential. Two questions:
 
     scale        vs elongation        do coarser fields come out longer?
     wall distance vs elongation       are fields near a wall longer?
-    wall distance vs angle to wall    do fields near a wall point at it?
+
+Wall distance against the ANGLE to the wall was a third until 25 September
+2026. The angle is still measured and still written to fields.csv, but it is
+no longer correlated against distance and no longer has a figure.
 
 Spearman on each, per arena and channel, per scale within that, and pooled.
 Ranks rather than Pearson because scale is ordinal (0 finest to 5 coarsest)
@@ -147,10 +150,14 @@ PERP_DEG = 45.0         # below this the field counts as pointing at the wall
 ALPHA = 0.05
 
 # (x variable, y variable, label). The three questions, in the order asked.
+# Two correlations. Wall distance against the angle to the wall was a third
+# until 25 September 2026 and was dropped; the angle itself is still measured
+# and still written to fields.csv (`angle_to_wall_deg`, `perpendicular`,
+# `wall_normal_rad`), because the measurement is cheap and the question may
+# come back. What is gone is correlating it against wall distance, and the
+# figure that plotted the same relationship.
 PAIRS = [('scale', 'log_elongation', 'scale vs elongation'),
-         ('wall_dist_norm', 'log_elongation', 'wall distance vs elongation'),
-         ('wall_dist_norm', 'angle_to_wall_deg',
-          'wall distance vs angle to wall')]
+         ('wall_dist_norm', 'log_elongation', 'wall distance vs elongation')]
 # The two wall pairs on their own. Grouping BY scale holds scale constant, so
 # the scale pair has no variance left in x there and would emit a table of
 # undefined correlations.
@@ -369,7 +376,11 @@ def correlate(fields, group_cols, group_label, pairs=None):
             for xcol, ycol, label in pairs:
                 gg = gs
                 if ycol == 'angle_to_wall_deg':
-                    # No nearest wall point, no angle. Dropped here only.
+                    # No nearest wall point, no angle -- a field at a disc's
+                    # exact centre, or in a rectangle's corner. Dormant since
+                    # the angle pair was dropped, and kept deliberately: if
+                    # that pair ever comes back it must come back with this,
+                    # or ambiguous frames pollute the correlation.
                     gg = gs[~gs.wall_frame_ambiguous.astype(bool)]
                 rho, p, n = spearman(gg[xcol], gg[ycol])
                 rows.append(dict(
@@ -607,39 +618,39 @@ def fig_rho_summary(corr, name):
     envs = sorted(c.env.unique(),
                   key=lambda e: (SHAPE_ORDER.get(arena_shape(e), 3), e))
     chans = [ch_ for ch_ in CHANNELS if (c.channel == ch_).any()]
-    cols = chans + ['all']
+    # `all` is the name of a CHANNEL -- every feature pooled -- so the
+    # channels-pooled column cannot be called that too, or a panel ends
+    # "... visual all | all" and the two mean different things.
+    POOLED = '(pooled)'
+    cols = chans + [POOLED]
 
-    def panel_vmax(label):
-        """The colour range for one panel: symmetric about zero, scaled to
-        that panel's own numbers.
-
-        PER PANEL, not shared. The three pairs are not on a common scale --
-        one of them regularly reaches rho 0.85 while the others live inside
-        +-0.15 -- so a single range washes the small ones to a uniform white
-        and the pattern that is actually being looked for disappears. Colour
-        here is a cue for reading a panel, and every cell prints its exact
-        value, so a range that differs between panels costs nothing. Each
-        panel states its own range in its title.
-        """
-        v = np.concatenate([
-            c[c.pair == label].rho.to_numpy(dtype=float),
-            ce[ce.pair == label].rho.to_numpy(dtype=float)])
-        v = v[np.isfinite(v)]
-        return (max(0.05, float(np.ceil(np.abs(v).max() * 20) / 20))
-                if len(v) else 0.05)
+    # ONE colour range across every panel, symmetric about zero, so a red in
+    # one panel means the same strength as a red in the other and the two can
+    # be compared by eye. It is scaled to the data rather than fixed to
+    # [-1, 1], which would render everything short of a strong correlation as
+    # the same white.
+    #
+    # The cost is real and worth knowing: if one pair reaches rho 0.8 while
+    # the other lives inside +-0.15, the second panel comes out nearly white
+    # and its pattern has to be read from the printed numbers rather than the
+    # colour. Every cell prints its exact rho for that reason.
+    allrho = np.concatenate([c.rho.to_numpy(dtype=float),
+                             ce.rho.to_numpy(dtype=float)])
+    allrho = allrho[np.isfinite(allrho)]
+    vmax = (max(0.05, float(np.ceil(np.abs(allrho).max() * 20) / 20))
+            if len(allrho) else 0.05)
 
     fig, axes = plt.subplots(1, len(PAIRS), squeeze=False,
                              figsize=(3.7 * len(PAIRS),
                                       0.34 * len(envs) + 2.6))
     for ax, (_, _, label) in zip(axes[0], PAIRS):
-        vmax = panel_vmax(label)
         M = np.full((len(envs), len(cols)), np.nan)
         Q = np.full((len(envs), len(cols)), np.nan)
         for i, e in enumerate(envs):
             for j, col in enumerate(cols):
-                src = ce if col == 'all' else c
+                src = ce if col == POOLED else c
                 sel = (src.env == e) & (src.pair == label)
-                if col != 'all':
+                if col != POOLED:
                     sel &= (src.channel == col)
                 row = src[sel]
                 if len(row):
@@ -668,8 +679,7 @@ def fig_rho_summary(corr, name):
         for i, e in enumerate(envs):
             ax.get_yticklabels()[i].set_color(
                 SHAPE_COLORS.get(arena_shape(e), INK))
-        ax.set_title(f'{label}\ncolour spans +-{vmax:g}', fontsize=8.5,
-                     color=INK)
+        ax.set_title(label, fontsize=9, color=INK)
         ax.tick_params(length=0)
         for sp in ax.spines.values():
             sp.set_visible(False)
@@ -677,8 +687,9 @@ def fig_rho_summary(corr, name):
         ax.set_yticklabels([])
     fig.suptitle('G4  every correlation, per arena and channel\n'
                  f'the number in each cell is the Spearman rho, * = q < '
-                 f'{ALPHA:g}. Last column pools an arena\'s channels; blue '
-                 f'negative, red positive; arena labels coloured by shape.',
+                 f'{ALPHA:g}. One colour scale across both panels, spanning '
+                 f'+-{vmax:g}; blue negative, red positive. Last column pools '
+                 f'an arena\'s channels; arena labels coloured by shape.',
                  fontsize=10, color=INK)
     fig.tight_layout(rect=(0, 0, 1, 0.88))
     _save(fig, name)
@@ -798,13 +809,15 @@ class FieldGeometryReport(ExperimentReport):
             'For every field Experiment 2 admitted, in all eight collected '
             'arenas: how elongated is it, which way does it point, how far is '
             'it from the nearest wall, and what is the angle between its long '
-            'axis and that wall. Then three correlations:', '',
+            'axis and that wall. Then two correlations:', '',
             '  scale         vs elongation       do coarser fields come out '
             'longer?',
             '  wall distance vs elongation       are fields near a wall '
-            'longer?',
-            '  wall distance vs angle to wall    do fields near a wall point '
-            'at it?', '',
+            'longer?', '',
+            'Wall distance against the angle to the wall was a third until '
+            '25 September 2026. The angle is still measured and is still in '
+            'fields.csv and in the per-scale table below; it is no longer '
+            'correlated against distance and no longer has a figure.', '',
             f'Spearman, because scale is ordinal and elongation is '
             f'heavy-tailed. Libraries are Experiment 2\'s, unchanged: '
             f'EXTENT_PCTL {PCTL}, ACT_THRESH {THRESH:g}, Rule 2 off, '
@@ -849,10 +862,9 @@ class FieldGeometryReport(ExperimentReport):
             'angle to wall     the acute angle between the field\'s major '
             'axis and the INWARD NORMAL at the nearest wall point, 0 to 90 '
             'degrees. 0 = the field points straight at the wall '
-            '(perpendicular to it); 90 = it lies along the wall. So a '
-            'POSITIVE rho against distance means fields get more '
-            'wall-parallel as they move away from the wall, and a NEGATIVE '
-            'one means they point at it more.',
+            '(perpendicular to it); 90 = it lies along the wall. Recorded per '
+            'field and summarised per scale; not correlated against anything '
+            'since 25 September 2026.',
             f'perpendicular     the boolean, angle < {PERP_DEG:g} degrees.',
             'wall distance     normalised: 0 is as near a wall as the '
             'collection lattice lets a field\'s centre sit, 1 is the disc\'s '
@@ -1001,11 +1013,6 @@ def main():
                  'library, black = its median, coloured = the median within '
                  'each scale; dotted = 1.0, a circular field',
                  'elongation (a/b)', hline=1.0)
-    _vs_distance(fields, 'angle_to_wall_deg', 'G3_angle_vs_wall.png',
-                 'G3  angle between a field\'s long axis and the nearest '
-                 'wall, against wall distance\n0 = points straight at the '
-                 'wall, 90 = lies along it; dotted = 45, no preference',
-                 'angle to wall normal (deg)', hline=45.0)
     fig_rho_summary(corr, 'G4_correlation_summary.png')
     prune_orphan_figures()
 

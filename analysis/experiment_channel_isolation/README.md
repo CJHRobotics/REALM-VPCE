@@ -544,7 +544,12 @@ coarsest) and elongation is heavy-tailed:
 |---|---|
 | scale vs elongation | do coarser fields come out longer? |
 | wall distance vs elongation | are fields near a wall longer? |
-| wall distance vs angle to wall | do fields near a wall point at it? |
+
+Wall distance against the **angle to the wall** was a third pair until
+25 September 2026. The angle is still measured, still written to `fields.csv`
+(`angle_to_wall_deg`, `perpendicular`, `wall_normal_rad`) and still summarised
+per scale in `descriptives.csv`; it is no longer correlated against distance
+and no longer has a figure of its own.
 
 Reported pooled, per arena, per arena × channel, and per arena × scale, the
 last of which holds field size still. **Descriptive** — no null model, no
@@ -625,8 +630,17 @@ Figures — `figures/field_geometry/`
 |--------|-------|
 | `G1` | elongation by scale, one box per scale, one panel per arena |
 | `G2` | elongation against wall distance: grey IQR band and black median for the whole library, plus the median within each scale |
-| `G3` | the same for the angle to the wall, with 45° (no preference) marked |
-| `G4` | every correlation as a grid — arenas × channels, one panel per pair, rho printed in each cell, `*` for q < 0.05, last column pools an arena's channels |
+| `G4` | both correlations as a grid — arenas × channels, one panel per pair, rho printed in each cell, `*` for q < 0.05, last column pools an arena's channels |
+
+There is no `G3`: it plotted the angle against wall distance and went with
+that correlation. `G4` keeps its number so a figure filed from an earlier run
+still means the same plot.
+
+**`G4` uses one colour scale across both panels**, symmetric about zero and
+scaled to the data. That makes a red in one panel mean the same strength as a
+red in the other. The cost, if one pair is strong and the other weak, is that
+the weak panel renders close to white — which is why every cell prints its
+exact rho.
 
 No panel shares a y axis with another: the arenas differ by 5× in radius and
 16× in area, so one scale across all eight compresses the small arenas into a
