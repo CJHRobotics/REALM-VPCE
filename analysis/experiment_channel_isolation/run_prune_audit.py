@@ -528,9 +528,84 @@ def parse_args():
                         'read this, so their counts come out identical to the '
                         'operating-point audit and only the coverage column '
                         'changes.')
+    p.add_argument('--report-only', action='store_true',
+                   help='skip the audit entirely and rebuild the report, the '
+                        'figures and the mail from the CSVs already in the '
+                        'output directory. There is no field cache to reuse -- '
+                        'the audit needs the candidates the banks throw away, '
+                        'so it rebuilds the tree every time -- but once it has '
+                        'run, everything the report says is in '
+                        'prune_audit_scales.csv and prune_audit_pairs.csv. '
+                        'Seconds, no GPU, no feature blocks.')
     p.add_argument('--no-gpu', action='store_true')
     p.add_argument('--no-email', action='store_true')
     return p.parse_args()
+
+
+def report_only(out_dir, fig_dir, base_C, args):
+    """Rebuild the report, the figures and the mail from a previous run's CSVs.
+
+    The audit itself cannot be cached -- it needs the candidates the field
+    banks discard, so it rebuilds the tree for every library every time. But
+    everything the REPORT says is already in the two CSVs it wrote, and the
+    figures are drawn from those same tables, so re-reading them costs seconds
+    and no GPU.
+
+    For re-sending a report after a change to the wording or the figures, and
+    for the case this was written for: a run whose numbers were fine and whose
+    mail arrived with no attachments.
+    """
+    sp = f'{out_dir}/prune_audit_scales.csv'
+    pp = f'{out_dir}/prune_audit_pairs.csv'
+    missing = [f for f in (sp, pp) if not os.path.exists(f)]
+    if missing:
+        print(f'--report-only needs a previous run\'s output. Not found:')
+        for f in missing:
+            print(f'  {f}')
+        print(f'\nRun the audit once without --report-only to produce them.')
+        return 1
+
+    scales_df = pd.read_csv(sp)
+    pairs_df = pd.read_csv(pp)
+    # `scale` is read back as a mixed column -- '0'..'5' plus '< floor' and
+    # '> ceiling' -- and diagnose() calls .isdigit() on it, so it has to be a
+    # string here exactly as it was when it was written.
+    scales_df['scale'] = scales_df['scale'].astype(str)
+    print('=' * 72)
+    print('Prune audit | report only, from a previous run\'s CSVs')
+    print(f'  reading  : {out_dir}')
+    print(f'  libraries: {len(pairs_df)}   scale rows: {len(scales_df)}')
+    print(f'  Rule 12  : coverage >= {base_C["TILING_FRAC_MIN"]:g}')
+    print('  NOT re-auditing: no tree is rebuilt and no dataset is read.')
+    print('=' * 72, flush=True)
+
+    diagnoses = [diagnose(r, scales_df[(scales_df.env == r['env']) &
+                                       (scales_df.channel == r['channel'])]
+                          .to_dict('records'))
+                 for r in pairs_df.to_dict('records')]
+
+    print('\nfigures:', flush=True)
+    fig_paths = fig_funnels(scales_df, pairs_df, fig_dir)
+
+    rep = PruneAuditReport(env_name=','.join(sorted(pairs_df.env.unique())),
+                           out_dir=out_dir, fig_dir=fig_dir, results=pairs_df,
+                           log_path=os.environ.get('REALM_LOG_PATH'))
+    rep.scales, rep.diagnoses, rep.figure_paths = scales_df, diagnoses, fig_paths
+    rep.tiling_frac_min = (float(pairs_df.coverage_needed.iloc[0])
+                           if 'coverage_needed' in pairs_df
+                           else float(base_C['TILING_FRAC_MIN']))
+    n_fig, n_dat = len(rep.figures()), len(rep.data_files())
+    if fig_paths and not n_fig:
+        print(f'  !! {len(fig_paths)} figures were written but the report will '
+              f'attach none -- check PruneAuditReport.figures()', flush=True)
+    else:
+        print(f'  report will attach {n_fig + n_dat} files ({n_fig} figures)',
+              flush=True)
+    print('\n' + rep.compose(), flush=True)
+    if not args.no_email:
+        rep.send()
+    print(f'\nfigures -> {fig_dir} ({len(fig_paths)})')
+    return 0
 
 
 def main():
@@ -548,6 +623,8 @@ def main():
     base_C = R.resolve_cfg(dict(LAMBDA=0.0, RANDOM_SEED=0,
                                 USE_GPU=not args.no_gpu,
                                 TILING_FRAC_MIN=float(args.tiling_frac_min)))
+    if args.report_only:
+        return report_only(out_dir, fig_dir, base_C, args)
     device = R.pick_device(use_gpu=not args.no_gpu)
     rng = np.random.default_rng(0)
 

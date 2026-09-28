@@ -466,6 +466,20 @@ Configuration is Experiment 2's operating point exactly (EXTENT_PCTL 65,
 ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0), so the audit describes the same
 libraries those reports describe.
 
+## Re-sending a report without re-auditing
+
+There is no field cache here, deliberately: the audit needs the candidates the
+field banks throw away, so it rebuilds the tree for every library every time.
+But everything the *report* says is in the two CSVs a finished run writes, so
+
+```bash
+sbatch --mem=8G --time=0:20:00 slurm/prune_audit.sh --report-only
+```
+
+rebuilds the report, the figures and the mail from those in seconds — no GPU,
+no dataset read. Use it after a wording or figure change, or when a run's
+numbers were fine but its mail was not.
+
 ## Running
 
 Fan out one job per arena — the usual way. Run it with `bash`, not `sbatch`:

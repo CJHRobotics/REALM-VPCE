@@ -40,6 +40,19 @@
 # ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0 -- so the audit describes the
 # same libraries the reports do.
 #
+# RE-SENDING A REPORT WITHOUT RE-AUDITING
+#
+# There is no field cache here, deliberately: the audit needs the candidates
+# the field banks throw away, so it rebuilds the tree for every library every
+# time. But everything the REPORT says is in the two CSVs a finished run
+# writes, so --report-only rebuilds the report, the figures and the mail from
+# those in seconds, with no GPU and no dataset read:
+#
+#   sbatch --mem=8G --time=0:20:00 slurm/prune_audit.sh --report-only
+#
+# Use it after a wording or figure change, or when a run's numbers were fine
+# but its mail was not.
+#
 # Usage:
 #   bash   slurm/prune_audit.sh --submit               # one job per arena -- the usual way
 #   bash   slurm/prune_audit.sh --submit corr_lm0_l10w2,corr_lm8_l10w2
