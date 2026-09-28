@@ -45,7 +45,7 @@ rather than justified.
 
 | script | what it established | arenas it needs |
 |---|---|---|
-| `run_field_recovery.py` | `SIGMA_MODE = 'quantile'` and `EXTENT_PCTL = 65`, measured against ideal place cells of known size | `circ_lm8_r0` (the old r = 10 disc) |
+| `run_field_recovery.py` | `SIGMA_MODE = 'quantile'` and `EXTENT_PCTL = 65`, measured against ideal place cells of known size. Superseded by `run_extent_validation.py`, which asks the same question in the current eight arenas | `circ_lm8_r0` (the old r = 10 disc) |
 | `run_pruning_sweep.py` | `SAME_SCALE_SEPARATION = 0.35`, the point at which the smallest admissible field size saturates | `circ_lm8_r0` |
 | `run_landmark_null.py` | the landmark-independence null, Eliav's five tests — reported 7 September 2026 | `circ_lm2/4/8/12_r0` |
 | `run_geometry_recovery.py`, `plot_geometry_recovery.py` | recovery across disc / rectangle / corridor at matched area | `rect_lm8_r0`, `corr_lm8_r0` |

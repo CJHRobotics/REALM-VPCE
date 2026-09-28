@@ -206,7 +206,8 @@ field-detection threshold, so distribution shape is not threshold-independent
 and the comparison is meaningless without checking ours. What is known:
 
 - `EXTENT_PCTL` saturates at 65 — `run_field_recovery.py`, against ideal place
-  cells of known size.
+  cells of known size, in the retired r = 10 disc. `run_extent_validation.py`
+  re-tests it in the current eight arenas (see *Extent validation* below).
 - The first full run of this experiment swept 50 / 65 / 80 and found
   log-normal winning on AIC at every setting, in all 24 environment × channel
   libraries. **Those fits ignored the size window** and would have picked
@@ -748,3 +749,131 @@ For the prune audit specifically, Rules 8/9, 1 and 11 all sit **upstream** of
 Rule 12 and none reads the threshold, so their counts come out identical either
 way, field for field. Only the coverage column and the scales it deletes
 differ.
+
+---
+
+# Extent validation: is q = 65 where the evidence puts it?
+
+`run_extent_validation.py` — the justification for `EXTENT_PCTL = 65`,
+re-run in the eight arenas every result now comes from. It replaces
+`run_field_recovery.py`, which chose 65 on 21 August 2026 in the r = 10 disc and
+can no longer run (see `RETIRED.md`).
+
+## What q is
+
+A field starts as a group of positions whose views look alike. q sets where its
+edge is drawn: the boundary encloses q% of the group's own members. Too low and
+the field is drawn too small; too high and it lets in every position that looks
+at least as much like the group as its least typical member — look-alike floor,
+often far away. Somewhere between, the members left out and the look-alikes let
+in balance. V1 shows it happening to one field.
+
+## The test
+
+The model is handed fields whose answer is known — a disc of floor — and its
+own extent machinery draws each one at every q from 5 to 100. It is handed
+nothing else: only the views from inside the disc, which is exactly what it
+gets from a group the clustering built.
+
+| | |
+|---|---|
+| sizes | one disc per scale, 0 to 5, at the geometric centre of the scale's radius range — so sizes follow each arena's own Rule 8/9 window, and with sample count held constant each scale holds about the same number of positions in every arena |
+| places | 24 sites, six on each of four contours from the wall to the most open floor (5%, 30%, 55%, 80% of the way), spread by farthest-point sampling |
+| non-fields | *scattered* (the field's member count, drawn from 16× its area), *shuffled* (drawn from anywhere), *oversized* (40% of the floor, twice the ceiling), *two lobes* and *ring* (the field's area, split or hollow) |
+| q | 5, 10, …, 100 |
+| arenas × channels | all eight × all six |
+
+**The code path is the pipeline's own.** `evaluate` mirrors
+`prepare_candidates` and `admit_fields` for a single group: the centroid over
+all members, the spread from a subsample of at most `SIGMA_MAX_MEMBERS`, sigma
+solved to put the cut at the q-th percentile, the readout's fallback for a
+degenerate sigma, `mask_from_grid`, and Rules 8, 9 and 1. Checked against
+`prepare_candidates` on real tree nodes at q = 35, 65 and 90: sigma agrees to
+~1e-6 and the masks are identical bin for bin (one bin, once, at float32
+rounding). Distance to the centroid does not depend on q, so each group's is
+computed once and the whole sweep reads it — the reason 20 values of q cost
+little more than one.
+
+## Three criteria, fixed before the run
+
+| criterion | measured as | "nearly as good" |
+|---|---|---|
+| accuracy | median IoU of the drawn field with the true one | within 5% of the best |
+| calibration | median drawn area ÷ true area; best where it crosses 1 | within 25% of the true area |
+| discrimination | true fields admitted − single-region non-fields admitted (Youden's J) | within 0.05 of the best |
+
+Each gets a best q, a 95% interval from a bootstrap that resamples whole
+(arena, channel) pairs — trials inside one pair share a feature space and are
+not independent — and the run of q that is nearly as good. The report says, per
+criterion, whether 65 is inside, and leads with the verdict. **It can come
+back "no"**, and on synthetic features with no look-alike floor it does.
+
+Two-lobed controls are reported and not scored: one centroid cannot represent
+two regions at any q, so scoring q on them would choose it for a reason q
+cannot affect. An (arena, channel) pair whose best IoU is under 0.25 recovers no
+field at any q and is left out of the robustness count, and named.
+
+**Downstream.** The pipeline stage rebuilds every real library at q = 50, 65
+and 80 (one tree per channel serves all three) and reports field count, median
+and smallest radius, scales occupied, and the Spearman correlations of
+elongation and of radius with wall distance. The q = 65 libraries are
+Experiment 2's.
+
+## Running
+
+One job per arena, then a report job that waits for them and sends the one
+email:
+
+```bash
+bash slurm/extent_validation.sh --submit
+```
+
+Or everything in one job:
+
+```bash
+sbatch slurm/extent_validation.sh
+```
+
+Rebuild the report and figures from the cache, without recomputing:
+
+```bash
+sbatch --mem=16G --time=1:00:00 slurm/extent_validation.sh --report-only
+```
+
+Options: `--envs`, `--channels`, `--stages recovery,pipeline`, `--q`,
+`--pipeline-q`, `--gallery-channel` (V1 and the mailed V4; default `all`),
+`--example-env` (V1; default `circ_lm8_r6`), `--n-boot`, `--no-report`,
+`--report-only`, `--no-email`, `--no-gpu`.
+
+## Outputs
+
+`data_cache/extent_validation/<env>/`, written after every channel so a job
+that stops early keeps what it finished:
+
+| file | contents |
+|---|---|
+| `recovery.csv` | one row per (channel, true field, q): site, contour, wall distance, scale, radius, member count, sigma, IoU, recall, precision, centre error, log2 area ratio, drawn area and shape, contiguity, admission |
+| `controls.csv` | the same for every non-field, with `kind` |
+| `pipeline.csv`, `pipeline_scales.csv` | per (channel, q) library summary, and fields per scale |
+| `figdata.npz` | the grid, every true field and every field drawn at q = 65 (bit-packed), and V1's example per channel |
+| `meta.json` | geometry, radii, q grid, code revision, channels done, any pipeline failures |
+
+`data_cache/extent_validation/` — written by the report pass and attached to
+the email: `q_curves.csv` (the pooled criteria at every q with intervals),
+`cell_optima.csv` (best q per arena × channel), `level_optima.csv` (best q per
+scale and per wall contour), `downstream.csv`.
+
+## Figures
+
+`figures/extent_validation/` — PNG at 300 dpi, PDF with editable text, both
+at 174 mm double-column width, and all of them in
+`extent_validation_figures.pdf`.
+
+| figure | shows |
+|---|---|
+| V1 | one representative field (the trial nearest the median, not the best): the floor coloured by the q at which each spot joins the field, the area taken in as q grows split into true field and look-alike floor, and the field at q = 20, 65, 95 |
+| V2 | the three criteria against q, pooled with 95% interval, each arena as a thin line, best q marked, the nearly-as-good range shaded — **the main result** |
+| V3 | accuracy at 65 as % of each arena × channel pair's own best, with that pair's best q; a histogram of those best q; accuracy against q per scale and per wall contour |
+| V4 | every arena, true fields and the fields drawn at q = 65; one figure per channel, the `--gallery-channel` one mailed |
+| V5 | the real libraries at q = 50, 65, 80, each library a thin line |
+| V6 | each non-field against the real fields, with a sketch of what it is |

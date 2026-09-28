@@ -174,7 +174,8 @@ DEFAULT_CFG = dict(
     # EXTENT_PCTL = 65 selected on ideal cells admitted minus non-fields
     # admitted, which saturates between 65 and 80; 65 matches 80 there to
     # within noise while reconstructing the field substantially more
-    # accurately (IoU 0.545 against 0.462).
+    # accurately (IoU 0.545 against 0.462). That was the r = 10 disc;
+    # run_extent_validation.py re-tests it in the current arenas.
     #
     # Non-fields excluded from that count are `split` and `ring`: a cluster
     # described by one centroid cannot represent a two-lobed response -- the
