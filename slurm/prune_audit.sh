@@ -40,6 +40,16 @@
 # ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0 -- so the audit describes the
 # same libraries the reports do.
 #
+# FIGURES
+#
+#   P1_rule_shares.png       what each rule cut as a share of the candidates
+#                            the tree offered -- one row per arena, channels
+#                            pooled, segments summing to 100. This is the one
+#                            the report mails.
+#   P2_prune_funnels_<arena> the per-scale funnels, one figure per arena. The
+#                            only view of WHICH SCALE a rule emptied, written
+#                            to the figure directory but not mailed.
+#
 # RE-SENDING A REPORT WITHOUT RE-AUDITING
 #
 # There is no field cache here, deliberately: the audit needs the candidates

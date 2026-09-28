@@ -520,12 +520,29 @@ libraries it finished.
 | `prune_audit_scales.csv` | one row per library × scale: candidates built at that scale, then how many survived size, contiguity and competition, the number admitted, the coverage the scale reached (measured, not a threshold it had to pass), and a plain-language verdict |
 | `prune_audit_pairs.csv` | one row per library: the totals through the three admission rules and the number admitted, the candidate radius range against the size window, fragmentation rate, median `sigma_ratio`, and which scales survived |
 
-Figures — `figures/prune_audit/P1_prune_funnels_<env>.png`, one per arena:
-one panel per channel, five bars per scale — the candidates built there, then
-what survives size, contiguity and competition, each rule in its own colour,
-with the floor each scale covers annotated beneath it as the measurement it is. Counts on a linear axis, because the question is whether anything came
-through at all. Per arena rather than one sheet of 48 panels, since six
-channels of one arena is the comparison being made.
+Figures — `figures/prune_audit/`
+
+**`P1_rule_shares.png` is the one the report mails.** One row per arena,
+channels pooled, segments summing to 100: what size, contiguity and
+competition each cut as a share of the candidates the tree offered, and what
+was admitted. It answers the question the audit exists for — which rule is
+producing the library — in one panel, where the per-arena funnels take eight.
+Arenas run discs, then squares, then corridors, each panelled arena above its
+no-panel twin.
+
+**`P2_prune_funnels_<env>.png`, one per arena,** is written to the figure
+directory but *not* mailed: one panel per channel, four bars per scale — the
+candidates built there, then what survives size, contiguity and competition,
+each rule in its own colour, with the floor each scale covers annotated
+beneath it as the measurement it is. Counts on a linear axis, because the
+question is whether anything came through at all. Per arena rather than one
+sheet of 48 panels, since six channels of one arena is the comparison being
+made.
+
+P2 is the only view of **which scale** a rule emptied, and that is where the
+interesting failures are — contiguity is inert nearly everywhere and then
+takes a whole scale in the 2 m corridor. It stays on disk beside the CSVs for
+exactly that.
 
 The axis starts at scale 0. Candidates below the size floor are counted in
 `prune_audit_scales.csv` but not drawn — a tree produces them in the

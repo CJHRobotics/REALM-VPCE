@@ -46,7 +46,14 @@ so these are the same
 libraries that experiment reports, and the audit describes those fields rather
 than a re-tuned copy of them.
 
-The default is every arena against every channel, one figure per arena. That
+Figures: P1 is the one the report carries -- what each rule cut as a share of
+the candidates the tree offered, one row per arena, channels pooled, segments
+summing to 100. P2 keeps the per-arena, per-scale funnels, which are the only
+view of WHICH SCALE a rule emptied; they are written to the figure directory
+but not mailed, because eight walls of small multiples is not what a reader
+wants first.
+
+The default is every arena against every channel. That
 is 48 libraries and roughly a day and a half in one job, so the usual way to
 run it is one job per arena -- see slurm/prune_audit.sh --submit.
 
@@ -87,6 +94,19 @@ PCTL, THRESH = SD.SETTINGS[0]
 # skipped with a note rather than failing the run.
 def default_pairs():
     return [(e, c) for e in SD.ALL_ENVS for c in SD.CHANNELS]
+
+# Arena shape, declared rather than inferred: aspect ratio cannot tell a
+# square from a disc, and an lm0 arena has exactly its lm8 twin's outline.
+# run_field_geometry carries the same map for the same reason; if a third
+# script needs it, it belongs in run_scale_distribution beside ROLES.
+ARENA_SHAPE = {'circ_lm8_r3': 'disc', 'circ_lm8_r6': 'disc',
+               'circ_lm0_r3': 'disc', 'circ_lm0_r6': 'disc',
+               'corr_lm8_l10w10': 'square', 'corr_lm0_l10w10': 'square',
+               'corr_lm8_l10w2': 'corridor', 'corr_lm0_l10w2': 'corridor'}
+SHAPE_ORDER = {'disc': 0, 'square': 1, 'corridor': 2}
+# The admitted segment of P1. The three rules keep the colours they have in
+# P2's bars, so a rule is the same colour in both figures.
+ADMITTED_COLOR = '#3b3b3b'
 
 INK, INK_2, MUTED = SD.INK, SD.INK_2, SD.MUTED
 RULE_GRAY, SURFACE = SD.RULE_GRAY, SD.SURFACE
@@ -297,6 +317,85 @@ def diagnose(pair, scales):
     return f'{env_name} {cname}: {pair["n_admitted"]} fields, nothing emptied'
 
 
+def fig_rule_shares(pairs_df, fig_dir):
+    """P1: what each rule cut, as a share of the candidates the tree offered.
+
+    One row per arena, channels pooled, segments summing to 100. This is the
+    figure the report leads with, because it answers the question the audit
+    exists for -- which rule is producing the library -- in one panel, where
+    the per-arena funnels take eight.
+
+    What it cannot show is WHICH SCALE a rule emptied, and that is where the
+    interesting failures live: contiguity is inert nearly everywhere and then
+    takes a whole scale in a 2 m corridor. P2 keeps that view, and the
+    per-scale CSV keeps the numbers.
+
+    Arenas run discs, then squares, then corridors, smallest first -- the
+    reading order the rest of the series uses.
+    """
+    if not len(pairs_df):
+        return []
+    d = pairs_df.copy()
+    d['cut_size'] = d.n_candidates - d.pass_size
+    d['cut_contig'] = d.pass_size - d.pass_contiguity
+    d['cut_compete'] = d.pass_contiguity - d.pass_competition
+    # With the coverage filter on, what competition passed and what was
+    # admitted differ, and the gap is Rule 12's. At the default it is zero and
+    # the segment is dropped rather than drawn as a sliver of nothing.
+    d['cut_coverage'] = d.pass_competition - d.n_admitted
+    # Shape, then area, then the panelled arena before its no-panel twin --
+    # the order Experiment 2's figures use, so a pair sits together and the
+    # lm8 row is the one on top. `_lm0_` is a filename convention and is safe
+    # to read; arena SHAPE is not, which is why that comes from ARENA_SHAPE.
+    order = sorted(d.env.unique(),
+                   key=lambda e: (SHAPE_ORDER.get(ARENA_SHAPE.get(e), 3),
+                                  float(d[d.env == e].env_area_m2.iloc[0]),
+                                  '_lm0_' in e, e))
+    segs = [('size', 'cut_size', ADMISSION_COLORS[0]),
+            ('contiguity', 'cut_contig', ADMISSION_COLORS[1]),
+            ('competition', 'cut_compete', ADMISSION_COLORS[2])]
+    if float(d.cut_coverage.sum()) > 0:
+        segs.append(('coverage', 'cut_coverage', COVERAGE_COLOR))
+    segs.append(('admitted', 'n_admitted', ADMITTED_COLOR))
+
+    fig, ax = plt.subplots(figsize=(9.2, 0.52 * len(order) + 1.9))
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+    y = np.arange(len(order))[::-1]
+    left = np.zeros(len(order))
+    for label, col, colour in segs:
+        v = np.array([100.0 * d[d.env == e][col].sum() /
+                      d[d.env == e].n_candidates.sum() for e in order])
+        ax.barh(y, v, left=left, height=0.68, color=colour, label=label,
+                edgecolor=SURFACE, linewidth=0.8)
+        for yi, (l, wdt) in enumerate(zip(left, v)):
+            if wdt >= 3.0:
+                ax.text(l + wdt / 2, y[yi], f'{wdt:.0f}', ha='center',
+                        va='center', fontsize=7.5, color='white')
+        left += v
+    ax.set_yticks(y)
+    ax.set_yticklabels([f'{e}\n({ARENA_SHAPE.get(e, "?")})' for e in order],
+                       fontsize=7.5)
+    ax.set_xlim(0, 100)
+    ax.set_xlabel('per cent of the candidates the tree offered', fontsize=9,
+                  color=MUTED)
+    ax.tick_params(labelsize=8, colors=MUTED)
+    for sp in ('top', 'right', 'left'):
+        ax.spines[sp].set_visible(False)
+    ax.spines['bottom'].set_color(RULE_GRAY)
+    ax.legend(ncol=len(segs), fontsize=8.5, frameon=False, loc='lower center',
+              bbox_to_anchor=(0.5, 1.01))
+    ax.set_title('P1  what the admission rules cut, and what survives\n'
+                 'channels pooled; segments are shares of the same total, so '
+                 'each row sums to 100', fontsize=10, color=INK, pad=28)
+    fig.tight_layout()
+    path = os.path.join(fig_dir, 'P1_rule_shares.png')
+    fig.savefig(path, dpi=200, bbox_inches='tight', facecolor=SURFACE)
+    plt.close(fig)
+    print(f'  {path}', flush=True)
+    return [path]
+
+
 def fig_funnels(scales_df, pairs_df, fig_dir):
     """One figure per arena, one panel per channel: what each rule lets through.
 
@@ -385,7 +484,7 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
                    bar_labs, loc='upper center', ncol=len(bar_labs),
                    frameon=False, fontsize=8,
                    bbox_to_anchor=(0.5, 1 - 0.48 / height))
-        fig.suptitle(f"P1  {env_name}: which rule takes each scale's candidates\n"
+        fig.suptitle(f"P2  {env_name}: which rule takes each scale's candidates\n"
                      'bars left to right: built at that scale, then what '
                      f'survives {", ".join(names[:-1])} and {names[-1]}; '
                      'candidates under the size floor are in the CSV, not '
@@ -394,7 +493,7 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
                         'floor it covers -- measured, admitting nothing'),
                      fontsize=10, color=INK, y=1 - 0.06 / height)
         fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
-        path = os.path.join(fig_dir, f'P1_prune_funnels_{env_name}.png')
+        path = os.path.join(fig_dir, f'P2_prune_funnels_{env_name}.png')
         fig.savefig(path, dpi=150, bbox_inches='tight')
         plt.close(fig)
         print(f'  {path}', flush=True)
@@ -421,9 +520,17 @@ class PruneAuditReport(ExperimentReport):
         return f'{pre}{len(p)} libraries, {empty} empty or near-empty'
 
     def figures(self):
-        """The P1 funnels this run wrote, not whatever is in the directory."""
+        """What the mail carries: P1, the one-panel summary.
+
+        P2's per-arena funnels are still written to the figure directory and
+        are still the only view of WHICH SCALE a rule emptied -- but eight
+        walls of small multiples is not what a reader wants first, and P1 says
+        the same thing about the rules in one panel. They are on disk next to
+        the CSVs if the per-scale view is the question.
+        """
         return [f for f in getattr(self, 'figure_paths', [])
-                if f and os.path.exists(f)]
+                if f and os.path.exists(f)
+                and os.path.basename(f).startswith('P1')]
 
     def data_files(self):
         return [p for p in (f'{self.out_dir}/prune_audit_scales.csv',
@@ -585,7 +692,8 @@ def report_only(out_dir, fig_dir, base_C, args):
                  for r in pairs_df.to_dict('records')]
 
     print('\nfigures:', flush=True)
-    fig_paths = fig_funnels(scales_df, pairs_df, fig_dir)
+    fig_paths = (fig_rule_shares(pairs_df, fig_dir)
+                 + fig_funnels(scales_df, pairs_df, fig_dir))
 
     rep = PruneAuditReport(env_name=','.join(sorted(pairs_df.env.unique())),
                            out_dir=out_dir, fig_dir=fig_dir, results=pairs_df,
@@ -596,11 +704,13 @@ def report_only(out_dir, fig_dir, base_C, args):
                            else float(base_C['TILING_FRAC_MIN']))
     n_fig, n_dat = len(rep.figures()), len(rep.data_files())
     if fig_paths and not n_fig:
-        print(f'  !! {len(fig_paths)} figures were written but the report will '
-              f'attach none -- check PruneAuditReport.figures()', flush=True)
-    else:
-        print(f'  report will attach {n_fig + n_dat} files ({n_fig} figures)',
+        print(f'  !! {len(fig_paths)} figures were written but the report '
+              f'will attach none -- check PruneAuditReport.figures()',
               flush=True)
+    else:
+        print(f'  report will attach {n_fig + n_dat} files ({n_fig} '
+              f'figure(s)); {len(fig_paths) - n_fig} more are on disk in '
+              f'{fig_dir}', flush=True)
     print('\n' + rep.compose(), flush=True)
     if not args.no_email:
         rep.send()
@@ -691,7 +801,8 @@ def main():
     pairs_df.to_csv(f'{out_dir}/prune_audit_pairs.csv', index=False)
 
     print('\nfigures:', flush=True)
-    fig_paths = fig_funnels(scales_df, pairs_df, fig_dir)
+    fig_paths = (fig_rule_shares(pairs_df, fig_dir)
+                 + fig_funnels(scales_df, pairs_df, fig_dir))
 
     rep_obj = PruneAuditReport(env_name=','.join(sorted({e for e, _ in pairs})),
                                out_dir=out_dir, fig_dir=fig_dir, results=pairs_df,
@@ -704,14 +815,15 @@ def main():
     # when an edit to the report class dropped its figures() and data_files()
     # overrides and they fell through to the base class's empty ones. Cheap to
     # check, and the check names the cause.
-    n_attach = len(rep_obj.figures()) + len(rep_obj.data_files())
-    if fig_paths and not rep_obj.figures():
-        print(f'  !! {len(fig_paths)} figures were written but the report will '
-              f'attach none of them -- check PruneAuditReport.figures()',
+    n_fig, n_dat = len(rep_obj.figures()), len(rep_obj.data_files())
+    if fig_paths and not n_fig:
+        print(f'  !! {len(fig_paths)} figures were written but the report '
+              f'will attach none -- check PruneAuditReport.figures()',
               flush=True)
     else:
-        print(f'  report will attach {n_attach} files '
-              f'({len(rep_obj.figures())} figures)', flush=True)
+        print(f'  report will attach {n_fig + n_dat} files ({n_fig} '
+              f'figure(s)); {len(fig_paths) - n_fig} more are on disk in '
+              f'{fig_dir}', flush=True)
     if missing:
         print(f'\n!! datasets not found, skipped: {", ".join(sorted(set(missing)))}')
     print('\n' + rep_obj.compose(), flush=True)
