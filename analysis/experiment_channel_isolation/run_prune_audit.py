@@ -420,6 +420,16 @@ class PruneAuditReport(ExperimentReport):
                else f'[Rule 12 coverage {tf:g}] ')
         return f'{pre}{len(p)} libraries, {empty} empty or near-empty'
 
+    def figures(self):
+        """The P1 funnels this run wrote, not whatever is in the directory."""
+        return [f for f in getattr(self, 'figure_paths', [])
+                if f and os.path.exists(f)]
+
+    def data_files(self):
+        return [p for p in (f'{self.out_dir}/prune_audit_scales.csv',
+                            f'{self.out_dir}/prune_audit_pairs.csv')
+                if os.path.exists(p)]
+
     def body(self):
         tf = getattr(self, 'tiling_frac_min', SD.DEFAULT_TILING)
         pre = []
@@ -452,7 +462,7 @@ class PruneAuditReport(ExperimentReport):
         cols = ['env', 'channel', 'n_candidates', 'pass_size', 'pass_contiguity',
                 'pass_competition', 'n_admitted', 'median_cc_frac',
                 'median_sigma_ratio', 'scales_kept']
-        out.append(S('THE FOUR RULES, PER LIBRARY', self.table(p[cols])))
+        out.append(S('THE THREE ADMISSION RULES, PER LIBRARY', self.table(p[cols])))
 
         for r in p.itertuples():
             d = sc[(sc.env == r.env) & (sc.channel == r.channel)]
@@ -476,9 +486,13 @@ class PruneAuditReport(ExperimentReport):
             'distant places: it responds in both, and the field breaks apart.',
             'competition   same-scale neighbours suppress each other. Counts '
             'falling here is normal, and is how the ladder thins with scale.',
-            'coverage      a scale whose survivors cover too little floor is '
-            'dropped whole. A scale with candidates but nothing admitted was '
-            'emptied wholesale rather than thinned.', '',
+            'admitted      what came through all three. A scale with '
+            'candidates but nothing admitted was emptied by one of the rules '
+            'above, and the verdict column names which.', '',
+            'coverage_reached is MEASURED, NOT A RULE: the share of the floor '
+            'that scale\'s survivors cover, unioned. Rule 12 used to delete a '
+            'scale that covered too little and no longer does, so this column '
+            'describes a scale rather than deciding it.', '',
             'median_sigma_ratio near 1 means a node\'s members are as far '
             'apart in feature space as two random locations are: the response '
             'is flat, and a flat response makes a field that either fills the '
@@ -608,6 +622,19 @@ def main():
     rep_obj.scales, rep_obj.diagnoses = scales_df, diagnoses
     rep_obj.figure_paths = fig_paths
     rep_obj.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
+    # Figures written but not attached is a silent failure: the run succeeds,
+    # the report arrives, and only the figures are missing. It happened once,
+    # when an edit to the report class dropped its figures() and data_files()
+    # overrides and they fell through to the base class's empty ones. Cheap to
+    # check, and the check names the cause.
+    n_attach = len(rep_obj.figures()) + len(rep_obj.data_files())
+    if fig_paths and not rep_obj.figures():
+        print(f'  !! {len(fig_paths)} figures were written but the report will '
+              f'attach none of them -- check PruneAuditReport.figures()',
+              flush=True)
+    else:
+        print(f'  report will attach {n_attach} files '
+              f'({len(rep_obj.figures())} figures)', flush=True)
     if missing:
         print(f'\n!! datasets not found, skipped: {", ".join(sorted(set(missing)))}')
     print('\n' + rep_obj.compose(), flush=True)
