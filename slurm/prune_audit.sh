@@ -36,7 +36,7 @@
 # candidates survived each stage, rather than from a second implementation of
 # the same rules that could drift from it.
 #
-# Configuration is Experiment 2's operating point exactly -- EXTENT_PCTL 65,
+# Configuration is Experiment 2's operating point exactly -- EXTENT_PCTL 80,
 # ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0 -- so the audit describes the
 # same libraries the reports do.
 #

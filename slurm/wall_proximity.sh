@@ -10,7 +10,7 @@
 #   circ_lm8_r6      r = 6    113.10 m^2   medium
 #   corr_lm8_l10w2   10 x 2 m  20.00 m^2   corridor
 #
-# Same configuration means exactly Experiment 2's: EXTENT_PCTL 65, ACT_THRESH
+# Same configuration means exactly Experiment 2's: EXTENT_PCTL 80, ACT_THRESH
 # 0.5, Rule 2 off, LAMBDA 0, seed 0. None of it is exposed as an option. The
 # libraries are read from Experiment 2's cache (data_cache/scale_distribution)
 # when they are there and built into it when they are not, with the same code

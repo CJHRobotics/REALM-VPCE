@@ -33,7 +33,7 @@
 # arena, channel and scale.
 #
 # Libraries are Experiment 2's, unchanged and from its cache under its cache
-# key: EXTENT_PCTL 65, ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0. None of it
+# key: EXTENT_PCTL 80, ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0. None of it
 # is exposed as an option. Only the position arrays are read from the HDF5
 # datasets — never the feature blocks — so with the cache in place this is a
 # small job.

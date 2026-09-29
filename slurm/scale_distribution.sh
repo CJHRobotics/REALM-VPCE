@@ -67,7 +67,7 @@
 #   sbatch slurm/scale_distribution.sh                        # all eight arenas
 #   sbatch slurm/scale_distribution.sh --envs circ_lm8_r3     # one, in parallel
 #   sbatch slurm/scale_distribution.sh --use-cache            # reuse banks
-#   sbatch slurm/scale_distribution.sh --settings 50:0.5,65:0.5,80:0.5
+#   sbatch slurm/scale_distribution.sh --settings 65:0.5,80:0.5,95:0.5
 #                                                             # re-open the sweep
 # Rule 2 (--split-half-iou-min) is currently UNUSABLE and the run refuses it:
 # at the lattice bin the two split-half maps occupy disjoint bins, so every
@@ -91,8 +91,9 @@
 # same summary files and figures, so a single-arena job that finishes after
 # the combined pass overwrites it.
 #
-# THE THRESHOLD SWEEP IS NOT IN THE DEFAULT. EXTENT_PCTL saturates at 65
-# (run_field_recovery, against ideal cells of known size), and the ACT_THRESH
+# THE THRESHOLD SWEEP IS NOT IN THE DEFAULT. EXTENT_PCTL is 80, read from
+# rules.py and set by the extent validation against ideal cells of known size
+# in all eight arenas (it was 65 until 29 September 2026), and the ACT_THRESH
 # invariance check was exact to 0. The first full run also found log-normal
 # winning at 50, 65 and 80 alike, but those fits ignored the Rule 8/9 size
 # window and pick log-normal whatever the shape, so whether the shape holds

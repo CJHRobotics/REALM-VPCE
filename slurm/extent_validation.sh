@@ -1,11 +1,13 @@
 #!/bin/bash
 #
-# Is q = 65 the right field extent? The validation behind EXTENT_PCTL.
+# Where should a field's edge be drawn? The calibration behind EXTENT_PCTL.
 #
 # q sets where a field's edge is drawn: the boundary encloses q% of the group
-# of positions the field was built from. It was chosen as 65 on 21 August 2026
-# in the r = 10 disc, which no longer exists. This asks again, in the eight
-# arenas the papers use now, and is written so the answer can come back "no".
+# of positions the field was built from. It was 65, chosen in the r = 10 disc,
+# until job 494145 (29 September 2026) found it outside the nearly-as-good
+# range on accuracy and calibration in the eight arenas in use now. Only 75-85
+# passed all three criteria, and EXTENT_PCTL is now 80. The report always
+# judges whatever value rules.py holds, and can always come back "no".
 #
 # The model is handed place fields whose answer is known -- a disc of floor,
 # one per scale, at 24 sites from the wall to the open floor -- and its own
@@ -15,19 +17,24 @@
 # run: accuracy (overlap with the true field), calibration (drawn area over
 # true area) and discrimination (true fields admitted minus non-fields
 # admitted). Each gets a best q, a 95% bootstrap interval and a range that does
-# nearly as well, and the report says whether 65 is inside each.
+# nearly as well, and the report says whether the value in use is inside each.
 #
 # The pipeline stage then rebuilds every real library at q = 50, 65 and 80, so
 # the report can say how much of what the papers report rests on the value.
+#
+# The report also measures whether drawing a round field stretches it along a
+# wall (V7): true against drawn elongation by wall distance, and the wall
+# correlation for true discs, drawn discs and the model's own libraries.
 #
 # FIGURES (analysis/experiment_channel_isolation/figures/extent_validation/)
 #
 #   V1  what q does, on one representative field
 #   V2  the three criteria against q -- the main result
 #   V3  robustness: arena x channel, scale, wall distance
-#   V4  what q = 65 draws in every arena, one figure per channel (one mailed)
+#   V4  what the value in use draws in every arena, one figure per channel
 #   V5  the libraries at q = 50, 65, 80
 #   V6  discrimination, control by control
+#   V7  whether drawing a round field stretches it along the wall
 #
 # Each as PNG (300 dpi) and PDF (editable text, 174 mm double-column width),
 # and all of them in extent_validation_figures.pdf, which the mail attaches.
@@ -36,8 +43,14 @@
 #
 #   bash   slurm/extent_validation.sh --submit        # the usual way
 #   bash   slurm/extent_validation.sh --submit circ_lm8_r3,circ_lm8_r6
+#   bash   slurm/extent_validation.sh --submit --stages recovery
 #   sbatch slurm/extent_validation.sh                 # every arena in one job
 #   sbatch slurm/extent_validation.sh --stages recovery   # skip the libraries
+#
+# --submit takes an optional arena list, then passes anything else on to every
+# arena's job. `--stages recovery` re-runs only the q sweep -- minutes per
+# arena -- and leaves each arena's cached pipeline.csv, the slow part, in
+# place for the report to read.
 #
 # --submit runs on the login node and only calls sbatch: one job per arena,
 # each computing and caching without mailing, then one report job that waits
@@ -86,11 +99,16 @@ if [[ "${1:-}" == "--submit" ]]; then
     # uses as the repo, so submit from the repo root wherever this is run.
     cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
     mkdir -p slurm/logs
-    list="${2:-$SUBMIT_ENVS}"
+    shift
+    list="$SUBMIT_ENVS"
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        list="$1"
+        shift
+    fi
     ids=()
     for e in ${list//,/ }; do
         id=$(sbatch --parsable --job-name="extent-val-$e" \
-             slurm/extent_validation.sh --envs "$e" --no-report)
+             slurm/extent_validation.sh --envs "$e" --no-report ${@+"$@"})
         echo "  $e -> job $id"
         ids+=("$id")
     done

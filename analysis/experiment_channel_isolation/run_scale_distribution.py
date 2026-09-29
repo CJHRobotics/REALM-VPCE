@@ -48,12 +48,13 @@ Harland show their exponential fit becomes quasi-linear at a lower
 field-detection threshold, so distribution shape is not threshold-independent
 and the comparison is meaningless without checking ours.
 
-`EXTENT_PCTL` saturates at 65 (run_field_recovery, against ideal place cells
-of known size), so the default is that single operating point. The first full
-run of this experiment swept 50 / 65 / 80 and found log-normal winning at every
-setting, but those fits ignored the size window and would have picked
-log-normal whatever the shape, so that sweep says nothing about whether the
-shape holds across settings. `--settings 50:0.5,65:0.5,80:0.5` re-opens it.
+The default is the single operating point in `rules.DEFAULT_CFG`,
+`EXTENT_PCTL = 80`, set by run_extent_validation.py against ideal place cells
+of known size in all eight arenas (it was 65 until 29 September 2026). The
+first full run of this experiment swept 50 / 65 / 80 and found log-normal
+winning at every setting, but those fits ignored the size window and would have
+picked log-normal whatever the shape, so that sweep says nothing about whether
+the shape holds across settings. `--settings 65:0.5,80:0.5,95:0.5` re-opens it.
 
 `ACT_THRESH` was never the knob and cannot be. Under `SIGMA_MODE = 'quantile'`
 sigma is solved so the threshold contour lands at `Q`, the `EXTENT_PCTL`
@@ -65,7 +66,7 @@ and substituting back into the mask boundary gives `Q` for any `T`. The
 threshold cancels exactly; sweeping it varies sigma and leaves every mask,
 field and admission decision untouched. That is why `run_threshold_sweep.py`
 was retired (see RETIRED.md). Measured at 24 paired runs: identical field
-counts, maximum area difference exactly 0. `--settings 65:0.5,65:0.2`
+counts, maximum area difference exactly 0. `--settings 80:0.5,80:0.2`
 re-checks it.
 
 Arenas
@@ -206,20 +207,22 @@ CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
 CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
                   'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}
 
-# (EXTENT_PCTL, ACT_THRESH). One setting: the operating point.
+# (EXTENT_PCTL, ACT_THRESH). One setting: the operating point, READ FROM THE
+# RULES rather than written down again. Every experiment that shares these
+# libraries -- the prune audit, field geometry, wall proximity -- takes its
+# setting from SETTINGS[0], so this line is what keeps them all on the value
+# rules.py uses. It was a literal (65, 0.5), and moving EXTENT_PCTL to 80 on
+# 29 September 2026 would otherwise have left every one of them at 65.
 #
-# The sweep this used to run has served its purpose and is retired from the
-# default. EXTENT_PCTL saturates at 65 -- established by run_field_recovery
-# against ideal place cells of known size -- and the first full run of this
-# experiment found log-normal winning on AIC at 50, 65 and 80 alike, in all
-# 24 environment x channel libraries. The threshold caveat is therefore
-# answered rather than open, and re-running the sweep every time buys nothing.
+# EXTENT_PCTL is set by run_extent_validation.py against ideal place cells of
+# known size. Library filenames carry it (`_p80_`), so libraries built at a
+# previous value are never read back as the current ones.
 #
 # Pass --settings to sweep again if something upstream changes: e.g.
-#   --settings 50:0.5,65:0.5,80:0.5      re-open the EXTENT_PCTL sweep
-#   --settings 65:0.5,65:0.2             re-check the ACT_THRESH invariance
+#   --settings 65:0.5,80:0.5,95:0.5      re-open the EXTENT_PCTL sweep
+#   --settings 80:0.5,80:0.2             re-check the ACT_THRESH invariance
 # Two settings sharing an EXTENT_PCTL still trigger the invariance check.
-SETTINGS = [(65, 0.5)]
+SETTINGS = [(int(R.DEFAULT_CFG['EXTENT_PCTL']), float(R.DEFAULT_CFG['ACT_THRESH']))]
 
 # The Rule 2 setting the figures and the report are drawn at. Set from the
 # first --split-half-iou-min entry, so a sweep still has one primary view and
@@ -270,7 +273,7 @@ def at_operating_point(df):
         col = df.split_half_iou_min
         m &= col.isna() if PRIMARY_IOU is None else (col == PRIMARY_IOU)
     return df[m]
-DEFAULT_PCTL, DEFAULT_T = 65, 0.5
+DEFAULT_PCTL, DEFAULT_T = SETTINGS[0]
 
 N_BOOT = 200               # parametric-bootstrap draws for the KS p-value
 MIN_FIELDS = 10            # below this a three-way fit comparison is noise
@@ -1824,14 +1827,14 @@ class ScaleDistributionReport(ExperimentReport):
             'lower detection threshold, so distribution shape is not '
             'threshold-independent and the comparison is meaningless without '
             'checking ours.', '',
-            '  EXTENT_PCTL saturates at 65, established by run_field_recovery '
-            'against ideal place cells of known size, so the default is that '
-            'single operating point.',
+            f'  EXTENT_PCTL is {DEFAULT_PCTL}, set by run_extent_validation '
+            'against ideal place cells of known size in all eight arenas, so '
+            'the default is that single operating point.',
             '  The first full run swept 50 / 65 / 80 and found log-normal '
             'winning at every setting, but those fits ignored the size window '
             'and would have picked log-normal whatever the shape. Whether the '
             'shape holds across settings is therefore open: re-run with '
-            '--settings 50:0.5,65:0.5,80:0.5 to check.', '',
+            '--settings 65:0.5,80:0.5,95:0.5 to check.', '',
             'ACT_THRESH is not the knob and cannot be. Under SIGMA_MODE = '
             '"quantile" sigma is solved so the ACT_THRESH contour lands at '
             'the EXTENT_PCTL quantile, and the threshold cancels exactly from '
@@ -2271,7 +2274,7 @@ def main():
              f'operating point\'s'))
     print(f'  areas    : {"varies — Fig 6E readable" if len(envs) > 1 else "one"}'
           '  (a single area cannot speak to Harland 3F-G or 6E)')
-    print('  note     : EXTENT_PCTL saturates at 65 and the sweep is settled;')
+    print(f'  note     : EXTENT_PCTL {DEFAULT_PCTL} is set by the extent validation;')
     print('             pass --settings to re-open it. ACT_THRESH cancels')
     print('             under SIGMA_MODE=quantile and is not a knob.')
     print('=' * 72, flush=True)

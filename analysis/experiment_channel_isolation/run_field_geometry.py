@@ -83,7 +83,7 @@ its lm8 twin's outline:
     corr_lm8_l10w2, corr_lm0_l10w2                        corridor
 
 Libraries are Experiment 2's, unchanged and from its cache under its cache
-key: EXTENT_PCTL 65, ACT_THRESH 0.5, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0, seed 0. Nothing
+key: EXTENT_PCTL 80, ACT_THRESH 0.5, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0, seed 0. Nothing
 here is a knob.
 
 Usage

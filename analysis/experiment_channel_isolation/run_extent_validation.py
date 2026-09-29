@@ -1,4 +1,4 @@
-"""Is q = 65 the right field extent? A validation against fields of known shape.
+"""Where should a field's edge be drawn? q, calibrated against fields of known shape.
 
 What q is
 ---------
@@ -7,19 +7,28 @@ the field on the floor, the model has to decide how unlike the group's typical
 view a position may be and still count as inside. q sets that line: the
 boundary is placed so that it encloses q% of the group's own members
 (`SIGMA_MODE = 'quantile'`, `EXTENT_PCTL = q`; the response threshold cancels,
-see RETIRED.md). The model runs at q = 65.
+see RETIRED.md). The model runs at q = 80, set by this analysis.
 
 Think of drawing a line around a flock of birds. Draw it around every bird,
 stragglers included, and it takes in a great deal of empty sky. Draw it around
 only the densest core and it leaves out much of the flock. q is how much of the
 flock the line goes around. In feature space the "empty sky" is floor that
 merely looks like the field -- every position closer to the group's typical
-view than the boundary is let in, member or not.
+view than the boundary is let in, member or not. In these arenas that is mostly
+a ring of floor just outside the field's edge, which looks like the edge.
 
-q = 65 was chosen on 21 August 2026 by run_field_recovery.py, in the r = 10
-disc. That arena is gone, and the lattice, the analysis bin and every arena the
-papers report have changed since. This asks the question again in the eight
-arenas in use now, and is written so that the answer can come back "no".
+History. q = 65 was chosen on 21 August 2026 by run_field_recovery.py, in the
+r = 10 disc, which is gone. This analysis asked the question again in the eight
+arenas in use now, written so that the answer could come back "no" -- and it
+did (job 494145, 29 September 2026): 65 fell outside the nearly-as-good range
+on accuracy (IoU 0.625 against 0.692) and on calibration (fields drawn at x0.67
+their true area). Only 75-85 passed all three criteria, and EXTENT_PCTL moved
+to 80. The best q falls as an arena gets more visually ambiguous -- 85-90 in
+the r = 3 discs, 40-60 in the corridor without landmarks -- which is why the
+r = 10 disc, with small cues in a large room, favoured a tighter cut.
+
+The same run showed round fields near a wall drawn stretched along it, so the
+report also measures how much elongation the drawing step adds (V7).
 
 The test
 --------
@@ -75,6 +84,7 @@ Figures
   V4  what q = 65 returns in every arena (one figure per channel)
   V5  downstream: the field libraries at q = 50, 65, 80
   V6  discrimination, control by control
+  V7  whether drawing a round field stretches it along the wall
 
 Usage
     python run_extent_validation.py                     # every arena, then report
@@ -112,6 +122,7 @@ for p in (REPO, HERE):
 
 import channels as ch                                                # noqa: E402
 import rules as R                                                    # noqa: E402
+import run_field_geometry as FG                                      # noqa: E402
 import run_scale_distribution as SD                                  # noqa: E402
 from realm_tools.experiment_lib.reporting import ExperimentReport    # noqa: E402
 
@@ -165,7 +176,7 @@ EXAMPLE_ENV = 'circ_lm8_r6'
 # field is the same fraction of every disc, and at scale 3 it is too small in
 # a full-arena map to read at print size.
 EXAMPLE_SCALE = 4
-EXAMPLE_Q = (20, 65, 95)
+EXAMPLE_Q = (20, Q_OP, 95)
 GALLERY_CHANNEL = 'all'
 GALLERY_SCALE = 2
 
@@ -388,8 +399,16 @@ def control_members(kind, xy, d_wall, site, r, n_ref, rng, bin_m):
 
 
 def build_groups(xy, env, radii, bin_m, rng):
-    """Every group the run scores, the same for every channel of an arena."""
+    """Every group the run scores, the same for every channel of an arena.
+
+    Each site carries the inward normal of its nearest wall, taken from
+    Experiment 4's own `nearest_wall` with the lattice spacing as its corner
+    tolerance, so an angle to the wall here means what it means there.
+    """
     sites = plant_sites(xy, env, rng)
+    for s in sites:
+        _, _, normal, _ = FG.nearest_wall(s['cx'], s['cy'], env, bin_m)
+        s['wall_normal_rad'] = float(normal)
     d_wall = R.wall_distance(xy[:, 0], xy[:, 1], env)
     groups = []
 
@@ -400,6 +419,7 @@ def build_groups(xy, env, radii, bin_m, rng):
                            site_id=site['site_id'], contour=site['contour'],
                            wall_frac=site['wall_frac'],
                            wall_dist_m=site['wall_dist_m'],
+                           wall_normal_rad=site['wall_normal_rad'],
                            cx=site['cx'], cy=site['cy'], scale=scale,
                            nominal_r_m=r, n_members=int(len(mem)), members=mem))
 
@@ -477,7 +497,7 @@ class FeatureSpace:
             torch.cuda.empty_cache()
 
 
-def score(mask, imask, ts, G, C, lim):
+def score(mask, imask, ts, G, C, lim, normal=np.nan):
     """Everything measured about one drawn field, against the true one."""
     sh = R.field_shape(mask, G)
     cc, ncomp = R.largest_component_fraction(mask)
@@ -494,6 +514,8 @@ def score(mask, imask, ts, G, C, lim):
         log2_area_ratio=float(np.log2(max(sh['area'], ba) / max(ts['area'], ba))),
         rec_area_m2=float(sh['area']), rec_r_eq_m=float(sh['r_eq']),
         elongation=float(sh['elongation']),
+        orientation_rad=float(sh['theta']),
+        angle_to_wall_deg=float(FG.acute_angle_deg(sh['theta'], normal)),
         cc_frac=float(cc), n_components=int(ncomp),
         pass_size=bool(lim[0] <= sh['area'] <= lim[1]),
         pass_contiguity=bool(cc >= C['CC_FRAC_MIN']))
@@ -540,15 +562,22 @@ def evaluate(fs, groups, G, occupied, flat, C, lim, q_grid, rng,
             imask = imask.reshape(G['gx'], G['gy']) & G['in_env']
             ts = R.field_shape(imask, G)
             static = {k: v for k, v in g.items() if k != 'members'}
+            # The true field's own shape. A disc the wall cuts is elongated
+            # along it before anything is drawn, so every claim about what the
+            # drawing adds is made against this, not against a round 1.
             static.update(ideal_area_m2=float(ts['area']),
-                          ideal_r_eq_m=float(ts['r_eq']))
+                          ideal_r_eq_m=float(ts['r_eq']),
+                          ideal_elongation=float(ts['elongation']),
+                          ideal_angle_to_wall_deg=float(FG.acute_angle_deg(
+                              ts['theta'], g.get('wall_normal_rad', np.nan))))
             for i, q in enumerate(q_arr):
                 sigma = np.sqrt((q2[i] - dc2[0]) / two_ln) if q2[i] > dc2[0] else 0.0
                 s = sigma if sigma > 0 else 1.0
                 grid = np.exp(-bin_d2 / (2.0 * s * s)).astype(np.float32)
                 mask, _ = R.mask_from_grid(grid, G, occupied, C)
                 rows.append(dict(static, q=float(q), sigma=float(sigma),
-                                 **score(mask, imask, ts, G, C, lim)))
+                                 **score(mask, imask, ts, G, C, lim,
+                                         g.get('wall_normal_rad', np.nan))))
                 if i == i_op and g['kind'] == 'disc':
                     masks_op[g['group_id']] = np.packbits(mask.ravel())
             if g['group_id'] in keep:
@@ -955,6 +984,62 @@ def downstream_table(pipe):
     return pd.DataFrame(rows)
 
 
+ELONGATED = 1.2     # a field this elongated or more has an orientation worth reading
+
+
+def wall_shape(rec, pipe):
+    """Does drawing a field stretch it along the wall? Measured at Q_OP.
+
+    Every reference field is a disc, so any elongation the drawn field has
+    beyond its true field's comes from the drawing: the Gaussian read out in
+    feature space, which near a wall changes less along it than towards it.
+    The true field is not round everywhere -- a disc the wall cuts is itself
+    elongated along the wall -- so the comparison is always drawn against true,
+    never drawn against 1.
+
+    Returns (by_contour, rhos). `by_contour`: medians and quartiles of true and
+    drawn elongation, and the share of elongated fields that lie along the wall
+    (angle to the wall's normal at least FG.PERP_DEG; a random orientation
+    gives 50%). `rhos`: per arena-channel pair, Spearman rho of elongation
+    against distance to the wall for the true discs and the drawn ones, beside
+    the same statistic for that pair's own field library.
+    """
+    need = {'ideal_elongation', 'angle_to_wall_deg', 'ideal_angle_to_wall_deg'}
+    if not len(rec) or not need <= set(rec.columns):
+        return pd.DataFrame(), pd.DataFrame()
+    r = rec[np.isclose(rec.q, Q_OP)].copy()
+    rows = []
+    for c, g in r.groupby('contour'):
+        row = dict(contour=int(c), wall_frac=float(g.wall_frac.iloc[0]),
+                   n=int(len(g)))
+        for tag, el, ang in (('true', 'ideal_elongation', 'ideal_angle_to_wall_deg'),
+                             ('drawn', 'elongation', 'angle_to_wall_deg')):
+            e = g[el].dropna()
+            row.update({f'{tag}_elong_med': float(e.median()),
+                        f'{tag}_elong_q1': float(e.quantile(0.25)),
+                        f'{tag}_elong_q3': float(e.quantile(0.75))})
+            long_ = g[(g[el] >= ELONGATED) & g[ang].notna()]
+            row[f'{tag}_n_elongated'] = int(len(long_))
+            row[f'{tag}_pct_along_wall'] = (100.0 * float((long_[ang] >= FG.PERP_DEG).mean())
+                                            if len(long_) else np.nan)
+        rows.append(row)
+    by_contour = pd.DataFrame(rows)
+
+    lib = {}
+    if pipe is not None and len(pipe) and 'rho_elong_wall' in pipe.columns:
+        at = pipe[np.isclose(pipe.q, Q_OP)]
+        lib = {(e, c): v for e, c, v in zip(at.env, at.channel, at.rho_elong_wall)}
+    rr = []
+    for (e, c), g in r.groupby(['env', 'channel']):
+        if len(g) < 10:
+            continue
+        rr.append(dict(env=e, channel=c,
+                       rho_true=float(spearmanr(g.ideal_elongation, g.wall_dist_m)[0]),
+                       rho_drawn=float(spearmanr(g.elongation, g.wall_dist_m)[0]),
+                       rho_library=float(lib.get((e, c), np.nan))))
+    return by_contour, pd.DataFrame(rr)
+
+
 # ------------------------------------------------------------------ figures
 
 class Figures:
@@ -1143,7 +1228,7 @@ def fig_mechanism(ex, figs):
         ratio = m.sum() / max(imask.sum(), 1)
         verdict = ('too small' if ratio < 0.8 else 'too large' if ratio > 1.25
                    else 'about right')
-        ax.set_title(f'q = {q}: {verdict}\nIoU {iou:.2f}, area ×{ratio:.2f}',
+        ax.set_title(f'q = {q:g}: {verdict}\nIoU {iou:.2f}, area ×{ratio:.2f}',
                      fontsize=7, pad=3)
         if k == 0:
             _scale_bar(ax, ex['geom'])
@@ -1520,6 +1605,90 @@ def fig_downstream(down, shift, figs):
     figs.save(fig, 'V5_downstream')
 
 
+def fig_wall_shape(by_contour, rhos, figs):
+    """V7 -- does drawing a field stretch it along the wall?"""
+    if not len(by_contour):
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(FIG_W, 2.4),
+                             gridspec_kw=dict(wspace=0.5,
+                                              width_ratios=[1.0, 1.0, 1.15]))
+    x = np.arange(len(by_contour))
+    labels = [f'{v:.2f}' for v in by_contour.wall_frac]
+    series = (('true', MUTED, -0.13, 'true field (the disc, as the wall cuts it)'),
+              ('drawn', BLUE, 0.13, f'field drawn at q = {Q_OP:g}'))
+
+    # (a) elongation, true against drawn, by wall contour
+    ax = axes[0]
+    ax.axhline(1.0, color=RULE_GRAY, lw=0.8, zorder=0)
+    for tag, col, dx, _ in series:
+        med = by_contour[f'{tag}_elong_med'].to_numpy()
+        lo = med - by_contour[f'{tag}_elong_q1'].to_numpy()
+        hi = by_contour[f'{tag}_elong_q3'].to_numpy() - med
+        ax.errorbar(x + dx, med, yerr=[lo, hi], fmt='o', color=col, ms=4.5,
+                    mfc='white', mew=1.2, elinewidth=1.0, capsize=0, zorder=3)
+    # Capped, so a few fragmented fields cannot flatten the medians; a whisker
+    # longer than the axis simply runs off the top.
+    q3max = float(np.nanmax([by_contour[f'{t}_elong_q3'].max() for t, *_ in series]))
+    ax.set_ylim(0.9, min(max(2.0, 1.08 * q3max), 4.0))
+    ax.set_ylabel('elongation (long ÷ short axis)')
+    _title(ax, 'Elongation', 'median and middle half')
+
+    # (b) orientation of the elongated fields
+    ax = axes[1]
+    ax.axhline(50, color=RULE_GRAY, lw=0.8, zorder=0)
+    ax.annotate('random', xy=(len(x) - 0.5, 50), xytext=(0, 2),
+                textcoords='offset points', ha='right', va='bottom',
+                fontsize=6, color=INK_2)
+    for tag, col, dx, _ in series:
+        ax.plot(x + dx, by_contour[f'{tag}_pct_along_wall'], 'o', color=col,
+                ms=4.8, mfc='white', mew=1.2, zorder=3)
+    ax.set_ylim(0, 105)
+    ax.set_ylabel(f'% lying along the wall (≥ {FG.PERP_DEG:g}°)')
+    _title(ax, 'Orientation', f'fields with elongation ≥ {ELONGATED:g}')
+
+    for ax in axes[:2]:
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_xlim(-0.5, len(x) - 0.5)
+        ax.set_xlabel('wall (0) → open floor (1)')
+        _grid_y(ax)
+
+    # (c) the wall correlation, per arena-channel pair
+    ax = axes[2]
+    cols = [('rho_true', 'true\ndiscs', MUTED), ('rho_drawn', 'drawn\ndiscs', BLUE),
+            ('rho_library', 'model\'s\nlibrary', INK)]
+    rng = np.random.default_rng(0)
+    ax.axhline(0, color=RULE_GRAY, lw=0.8, zorder=0)
+    for k, (c, lab, col) in enumerate(cols):
+        v = rhos[c].dropna().to_numpy() if c in rhos else np.array([])
+        if not len(v):
+            continue
+        ax.scatter(k + rng.uniform(-0.17, 0.17, len(v)), v, s=9, color=col,
+                   alpha=0.55, lw=0, zorder=2)
+        m = float(np.median(v))
+        ax.plot([k - 0.28, k + 0.28], [m, m], color=col, lw=2.0, zorder=3,
+                solid_capstyle='butt')
+        ax.annotate(f'{m:+.2f}', xy=(k + 0.3, m), xytext=(2, 0),
+                    textcoords='offset points', va='center', fontsize=6.3,
+                    color=INK)
+    ax.set_xticks(range(len(cols)))
+    ax.set_xticklabels([lab for _, lab, _ in cols], fontsize=6.3)
+    ax.set_xlim(-0.5, len(cols) - 0.3)
+    ax.set_ylim(-1, 1)
+    ax.set_ylabel('Spearman ρ, elongation vs wall distance')
+    _grid_y(ax)
+    _title(ax, 'Per arena and channel', 'dot: one pair; bar: median')
+
+    for k, ax in enumerate(axes):
+        _panel_label(ax, 'abc'[k], dx=-26, dy=14)
+    _figure_key(fig, [Line2D([], [], color=col, marker='o', ms=4.5, mfc='white',
+                             mew=1.2, lw=0, label=lab) for _, col, _, lab in series]
+                + [Line2D([], [], color=INK, lw=2.0,
+                          label=f'the model\'s own fields at q = {Q_OP:g}')],
+                y=1.05)
+    figs.save(fig, 'V7_wall_shape')
+
+
 def fig_controls(rec, ctl, q, figs):
     """V6 -- each kind of non-field, against the real fields it stands beside."""
     if not len(ctl):
@@ -1810,6 +1979,47 @@ class ExtentValidationReport(ExperimentReport):
                                               for e, f_ in failed.items()
                                               for c_, msg in f_.items())))
 
+        wc, wr = self.wall_c, self.wall_r
+        if len(wc):
+            t = wc[['wall_frac', 'true_elong_med', 'drawn_elong_med',
+                    'true_pct_along_wall', 'drawn_pct_along_wall']].copy()
+            t.columns = ['wall (0) to open (1)', 'true elong', 'drawn elong',
+                         'true % along', 'drawn % along']
+            med = wr[['rho_true', 'rho_drawn', 'rho_library']].median() \
+                if len(wr) else pd.Series(dtype=float)
+            txt = _wrap(
+                f'Every true field here is a disc, so any elongation the drawn '
+                f'field has beyond its true field\'s is added by the drawing '
+                f'itself: the Gaussian read out in feature space, where views '
+                f'near a wall change less moving along it than moving towards '
+                f'it. The true field is not always round -- a disc the wall '
+                f'cuts is already elongated along the wall -- so drawn is '
+                f'compared with true, never with 1. At q = {Q_OP:g}, by wall '
+                f'contour; "% along" is the share of fields with elongation of '
+                f'at least {ELONGATED:g} whose long axis is {FG.PERP_DEG:g} '
+                f'degrees or more from the wall\'s normal, which a random '
+                f'orientation puts at 50%.')
+            txt += '\n\n' + self.table(t, float_format='%.2f')
+            if len(med):
+                txt += '\n\n' + _wrap(
+                    f'Spearman rho of elongation against distance to the wall, '
+                    f'computed per arena-channel pair and then the median over '
+                    f'pairs: true discs {med.rho_true:+.2f}, the same discs as '
+                    f'drawn {med.rho_drawn:+.2f}, and the model\'s own field '
+                    f'libraries {med.rho_library:+.2f}. The first is what the '
+                    f'wall\'s cut alone produces; the gap between the first and '
+                    f'the second is what drawing a round field adds, in either '
+                    f'direction. Set the third beside the second with care: the '
+                    f'discs sit at four fixed wall distances and span every '
+                    f'scale evenly, while a library\'s fields sit wherever the '
+                    f'tree put them and are mostly fine, so the two differ in '
+                    f'more than the shape of the group. The comparison says '
+                    f'whether drawing alone can produce a correlation of the '
+                    f'size the libraries show; it does not split the libraries\' '
+                    f'correlation into parts.')
+            out.append(self.section('Does drawing a field stretch it along the '
+                                    'wall?', txt))
+
         ctl = self.data['ctl']
         if len(ctl):
             at = ctl[np.isclose(ctl.q, Q_OP)].groupby('kind').admitted.mean() * 100
@@ -1876,6 +2086,15 @@ class ExtentValidationReport(ExperimentReport):
              'field count, showing where extra fields land; (d) number of '
              'scales with fields; (e, f) the wall correlations the geometry '
              'experiments report.'),
+            ('V7  Does drawing a field stretch it along the wall?',
+             f'All true fields are discs, drawn at q = {Q_OP:g}. (a) Elongation '
+             'of the true field (grey, as the wall cuts it) and of the drawn '
+             'field (blue), by distance from the wall: median and middle half. '
+             f'(b) Of the fields with elongation {ELONGATED:g} or more, the '
+             'share whose long axis lies along the wall; random orientation '
+             'gives 50%. (c) Spearman correlation of elongation with distance '
+             'to the wall, one dot per arena-channel pair, for the true discs, '
+             'the same discs drawn, and the model\'s own field library.'),
             ('V6  Each kind of non-field',
              'Top: a sketch of each control, members as orange dots, the size of '
              'the real field it stands beside in black. Below: how often it is '
@@ -1910,7 +2129,8 @@ class ExtentValidationReport(ExperimentReport):
     def data_files(self):
         return [f'{self.out_dir}/{n}' for n in
                 ('q_curves.csv', 'cell_optima.csv', 'level_optima.csv',
-                 'downstream.csv') if os.path.exists(f'{self.out_dir}/{n}')]
+                 'downstream.csv', 'wall_shape.csv', 'wall_shape_pairs.csv')
+                if os.path.exists(f'{self.out_dir}/{n}')]
 
 
 def report(args, cache_dir, fig_dir, envs):
@@ -1934,6 +2154,7 @@ def report(args, cache_dir, fig_dir, envs):
     lev_cont, curves_cont = level_optima(rec, 'contour', q, args.n_boot, args.seed)
     down = downstream_table(data['pipe'])
     shift = scale_shift(data['pscale'])
+    wall_c, wall_r = wall_shape(rec, data['pipe'])
 
     qc = pd.DataFrame(dict(q=cur['q'], **{k: v for k, v in cur['point'].items()},
                            **{f'{k}_lo': v[0] for k, v in cur['band'].items()},
@@ -1946,8 +2167,11 @@ def report(args, cache_dir, fig_dir, envs):
                                             index=False)
     if len(down):
         down.to_csv(f'{cache_dir}/downstream.csv', index=False)
+    if len(wall_c):
+        wall_c.to_csv(f'{cache_dir}/wall_shape.csv', index=False)
+        wall_r.to_csv(f'{cache_dir}/wall_shape_pairs.csv', index=False)
 
-    print('\n  criterion        best q   95% CI      nearly as good   65 inside')
+    print(f'\n  criterion        best q   95% CI      nearly as good   {Q_OP:g} inside')
     for k_, v in crit.items():
         print(f'  {k_:15s}  {_q(v["best"]):>6s}   {_q(v["ci"][0]):>3s}-{_q(v["ci"][1]):<5s}'
               f'   {_q(v["range"][0]):>3s}-{_q(v["range"][1]):<10s}   {v["inside"]}')
@@ -1968,6 +2192,7 @@ def report(args, cache_dir, fig_dir, envs):
         fig_gallery(data, c, GALLERY_SCALE, figs, mail=(c == ex_ch))
     fig_downstream(down, shift, figs)
     fig_controls(rec, ctl, q, figs)
+    fig_wall_shape(wall_c, wall_r, figs)
     figs.close()
 
     rep = ExtentValidationReport(env_name=f'{len(data["envs"])} arenas',
@@ -1976,6 +2201,7 @@ def report(args, cache_dir, fig_dir, envs):
     rep.data, rep.cur, rep.crit, rep.cells = data, cur, crit, cells
     rep.lev_scale, rep.lev_cont, rep.down, rep.figs = lev_scale, lev_cont, down, figs
     rep.shift = shift
+    rep.wall_c, rep.wall_r = wall_c, wall_r
     rep.example = dict(env=ex_env, channel=ex_ch)
     rep.gallery_channel = ex_ch
     print('\n' + rep.compose(), flush=True)

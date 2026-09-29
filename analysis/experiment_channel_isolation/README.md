@@ -205,9 +205,11 @@ Harland show their exponential fit becomes quasi-linear at a lower
 field-detection threshold, so distribution shape is not threshold-independent
 and the comparison is meaningless without checking ours. What is known:
 
-- `EXTENT_PCTL` saturates at 65 — `run_field_recovery.py`, against ideal place
-  cells of known size, in the retired r = 10 disc. `run_extent_validation.py`
-  re-tests it in the current eight arenas (see *Extent validation* below).
+- `EXTENT_PCTL` is **80**, set by `run_extent_validation.py` against ideal
+  place cells of known size in all eight arenas (see *Extent validation*
+  below). It was 65 — chosen by `run_field_recovery.py` in the retired r = 10
+  disc — until 29 September 2026. Library filenames carry the value (`_p80_`),
+  so libraries built at 65 are never read back as current ones.
 - The first full run of this experiment swept 50 / 65 / 80 and found
   log-normal winning on AIC at every setting, in all 24 environment × channel
   libraries. **Those fits ignored the size window** and would have picked
@@ -216,9 +218,11 @@ and the comparison is meaningless without checking ours. What is known:
 - The `ACT_THRESH` invariance check ran at 24 paired runs: identical field
   counts, maximum area difference exactly **0**.
 
-The default is therefore the single operating point, `65:0.5`. Re-open either
-check with `--settings 50:0.5,65:0.5,80:0.5` or `--settings 65:0.5,65:0.2` if
-something upstream changes.
+The default is therefore the single operating point, read from `rules.py`
+(`80:0.5`). Every experiment that shares these libraries takes it from
+`SETTINGS[0]` here, so changing `EXTENT_PCTL` in the rules moves them all. Re-open
+either check with `--settings 65:0.5,80:0.5,95:0.5` or `--settings 80:0.5,80:0.2`
+if something upstream changes.
 
 **Our analogous knob is `EXTENT_PCTL`, not `ACT_THRESH`.** Under
 `SIGMA_MODE = 'quantile'` sigma is solved so the threshold contour lands at
@@ -230,7 +234,7 @@ See `RETIRED.md`.
 
 `ACT_THRESH` was never the knob and cannot be — the algebra above means
 sweeping it varies sigma and leaves every mask, field and admission decision
-untouched. `--settings 65:0.5,65:0.2` re-runs the invariance check, which
+untouched. `--settings 80:0.5,80:0.2` re-runs the invariance check, which
 compares the two banks and reports the measured difference rather than
 asserting the algebra.
 
@@ -463,7 +467,7 @@ implementation that could drift from it. Those records are arrays, and the
 JSON report Experiment 2 writes already drops arrays, so they cost nothing
 there.
 
-Configuration is Experiment 2's operating point exactly (EXTENT_PCTL 65,
+Configuration is Experiment 2's operating point exactly (EXTENT_PCTL 80,
 ACT_THRESH 0.5, Rule 2 off, LAMBDA 0, seed 0), so the audit describes the same
 libraries those reports describe.
 
@@ -752,12 +756,46 @@ differ.
 
 ---
 
-# Extent validation: is q = 65 where the evidence puts it?
+# Extent validation: where should a field's edge be drawn?
 
-`run_extent_validation.py` — the justification for `EXTENT_PCTL = 65`,
-re-run in the eight arenas every result now comes from. It replaces
-`run_field_recovery.py`, which chose 65 on 21 August 2026 in the r = 10 disc and
-can no longer run (see `RETIRED.md`).
+`run_extent_validation.py` — the calibration behind `EXTENT_PCTL`. It replaced
+`run_field_recovery.py`, which chose 65 on 21 August 2026 in the r = 10 disc
+and can no longer run (see `RETIRED.md`). Its report always judges whatever
+value `rules.py` holds, and can come back "no".
+
+## What it found (job 494145, 29 September 2026)
+
+It came back "no" for 65. Pooled over eight arenas × six channels:
+
+| criterion | best q (95% CI) | nearly as good | at 65 | at 80 |
+|---|---|---|---|---|
+| accuracy (IoU) | 80 (75–85) | 70–85 | 0.625 | 0.692 |
+| calibration (drawn ÷ true area) | 82 (79–85) | 75–85 | ×0.67 | ×0.95 |
+| discrimination (Youden's J) | 75 | 65–85 | 0.697 | 0.700 |
+
+Only 75–85 passes all three. **`EXTENT_PCTL` moved to 80**: the accuracy
+peak, nearest the right-size point, and near-best for scales 0–4 and all four
+wall contours, where 65 was near-best for one scale and one contour.
+
+- **Why 65 was too tight.** Below about q = 70 almost no look-alike floor
+  enters, so the drawn field is just the inner q% of the group — at 65, a third
+  too small in area. Past it, a ring of floor just outside the field's edge
+  starts to enter, because it looks like the edge; the drawn field is the right
+  size where that ring replaces the members left out.
+- **The best q is a property of the arena.** It falls as a space gets more
+  visually ambiguous: 85–90 in the r = 3 discs, 75–80 in the r = 6 discs and
+  squares, 40–60 in the corridor without landmarks, 95 for lidar outside the
+  corridors. The r = 10 disc, with small cues in a large room, is why 65 was
+  chosen once.
+- **The papers' results do not rest on it.** Rebuilt at 50, 65 and 80, field
+  counts move about 20% per step; median radius moves about 1%, every library
+  keeps six scales, and the wall correlations stay put (elongation −0.61 to
+  −0.62, size ≈ 0.06).
+- **Drawing a round field near a wall stretches it along the wall** (V4). The
+  report now measures how much (V7): true against drawn elongation by wall
+  distance, and the wall correlation for true discs, drawn discs and the
+  libraries. The first run predates that measurement; `--stages recovery`
+  adds it in minutes.
 
 ## What q is
 
@@ -816,7 +854,7 @@ field at any q and is left out of the robustness count, and named.
 **Downstream.** The pipeline stage rebuilds every real library at q = 50, 65
 and 80 (one tree per channel serves all three) and reports field count, median
 and smallest radius, scales occupied, and the Spearman correlations of
-elongation and of radius with wall distance. The q = 65 libraries are
+elongation and of radius with wall distance. The libraries at the value in use are
 Experiment 2's.
 
 ## Running
@@ -855,13 +893,15 @@ that stops early keeps what it finished:
 | `recovery.csv` | one row per (channel, true field, q): site, contour, wall distance, scale, radius, member count, sigma, IoU, recall, precision, centre error, log2 area ratio, drawn area and shape, contiguity, admission |
 | `controls.csv` | the same for every non-field, with `kind` |
 | `pipeline.csv`, `pipeline_scales.csv` | per (channel, q) library summary, and fields per scale |
-| `figdata.npz` | the grid, every true field and every field drawn at q = 65 (bit-packed), and V1's example per channel |
+| `figdata.npz` | the grid, every true field and every field drawn at the value in use (bit-packed), and V1's example per channel |
 | `meta.json` | geometry, radii, q grid, code revision, channels done, any pipeline failures |
 
 `data_cache/extent_validation/` — written by the report pass and attached to
 the email: `q_curves.csv` (the pooled criteria at every q with intervals),
 `cell_optima.csv` (best q per arena × channel), `level_optima.csv` (best q per
-scale and per wall contour), `downstream.csv`.
+scale and per wall contour), `downstream.csv`, `wall_shape.csv` (true and drawn
+elongation and orientation by wall contour) and `wall_shape_pairs.csv` (the
+wall correlation per pair).
 
 ## Figures
 
@@ -873,7 +913,8 @@ at 174 mm double-column width, and all of them in
 |---|---|
 | V1 | one representative field (the trial nearest the median, not the best): the floor coloured by the q at which each spot joins the field, the area taken in as q grows split into true field and look-alike floor, and the field at q = 20, 65, 95 |
 | V2 | the three criteria against q, pooled with 95% interval, each arena as a thin line, best q marked, the nearly-as-good range shaded — **the main result** |
-| V3 | accuracy at 65 as % of each arena × channel pair's own best, with that pair's best q; a histogram of those best q; accuracy against q per scale and per wall contour |
-| V4 | every arena, true fields and the fields drawn at q = 65; one figure per channel, the `--gallery-channel` one mailed |
+| V3 | accuracy at the value in use as % of each arena × channel pair's own best, with that pair's best q; a histogram of those best q; accuracy against q per scale and per wall contour |
+| V4 | every arena, true fields and the fields drawn at the value in use; one figure per channel, the `--gallery-channel` one mailed |
 | V5 | the real libraries at q = 50, 65, 80, each library a thin line |
 | V6 | each non-field against the real fields, with a sketch of what it is |
+| V7 | true against drawn elongation by wall distance, the share of elongated fields lying along the wall, and the wall correlation for true discs, drawn discs and the model's own libraries |

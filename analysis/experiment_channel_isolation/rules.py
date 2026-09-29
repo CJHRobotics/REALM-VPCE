@@ -171,19 +171,37 @@ DEFAULT_CFG = dict(
     #   ideal cells admitted           'pairwise'  0 - 20%
     #                                  'quantile'  75 - 100%
     #
-    # EXTENT_PCTL = 65 selected on ideal cells admitted minus non-fields
-    # admitted, which saturates between 65 and 80; 65 matches 80 there to
-    # within noise while reconstructing the field substantially more
-    # accurately (IoU 0.545 against 0.462). That was the r = 10 disc;
-    # run_extent_validation.py re-tests it in the current arenas.
+    # EXTENT_PCTL = 80, from run_extent_validation.py (job 494145, 29
+    # September 2026): ideal cells at every scale and 24 sites, in all eight
+    # arenas and six channels, drawn at every q from 5 to 100 and scored on
+    # three criteria fixed before the run. Pooled:
     #
-    # Non-fields excluded from that count are `split` and `ring`: a cluster
+    #                    best q (95% CI)   within tolerance   at 65      at 80
+    #   overlap (IoU)    80 (75-85)        70-85              0.625      0.692
+    #   area ratio       82 (79-85)        75-85              x0.67      x0.95
+    #   Youden's J       75                65-85              0.697      0.700
+    #
+    # Only 75-85 passes all three; 80 is the accuracy peak, nearest the
+    # right-size point, and near-best for scales 0-4 and all four wall
+    # contours. Below ~70 almost no look-alike floor enters, so the drawn field
+    # is simply the inner q% of the group -- at 65, a third too small in area.
+    #
+    # It was 65 until then, chosen by run_field_recovery.py in the r = 10
+    # disc, where small cues in a large room made much of the floor look
+    # alike and a tighter cut paid. The best q falls as a space gets more
+    # ambiguous -- 85-90 in the r = 3 discs, 40-60 in the corridor without
+    # landmarks -- so 80 is a value for these arenas, not a constant of the
+    # model. Rebuilding every library at 50, 65 and 80 moved field counts by
+    # about 20% per step and left the scales occupied and both wall
+    # correlations unchanged.
+    #
+    # Non-fields excluded from the J count are `split` and `ring`: a cluster
     # described by one centroid cannot represent a two-lobed response -- the
     # centroid sits between the lobes, so the field fills the gap -- and no
     # EXTENT_PCTL repairs it. That is a limit of the single-centroid
     # description, and the route past it is multi-field place cells.
     SIGMA_MODE       = 'quantile',
-    EXTENT_PCTL      = 65,
+    EXTENT_PCTL      = 80,
 
     # --- Rule 4 -----------------------------------------------------------
     # cost(a,b) = d_feature^2 / med(d_feature^2) + LAMBDA * d_xy^2 / med(d_xy^2)

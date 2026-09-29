@@ -40,7 +40,7 @@ The counts come from the rules engine itself, which records the survivors of
 each stage, rather than from a second implementation here that could drift
 from it.
 
-The configuration is Experiment 2's operating point exactly -- EXTENT_PCTL 65,
+The configuration is Experiment 2's operating point exactly -- EXTENT_PCTL 80,
 ACT_THRESH 0.5, Rule 2 off, Rule 12 measured not enforced, LAMBDA 0, seed 0 --
 so these are the same
 libraries that experiment reports, and the audit describes those fields rather
