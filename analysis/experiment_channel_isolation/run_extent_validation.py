@@ -1077,7 +1077,7 @@ def fig_mechanism(ex, figs):
 
     fig = plt.figure(figsize=(FIG_W, 4.55))
     gs = fig.add_gridspec(2, 1, height_ratios=[1.12, 1.0], hspace=0.42)
-    top = gs[0].subgridspec(1, 4, width_ratios=[1.0, 0.045, 0.34, 1.3], wspace=0.05)
+    top = gs[0].subgridspec(1, 4, width_ratios=[1.0, 0.045, 0.55, 1.3], wspace=0.05)
     bot = gs[1].subgridspec(1, 3, wspace=0.12)
 
     # (a) the join map
@@ -1106,8 +1106,8 @@ def fig_mechanism(ex, figs):
     # (b) what the boundary takes in as q grows
     ax = fig.add_subplot(top[3])
     ax.fill_between(qs, 0, true_in, color=BLUE, alpha=0.18, lw=0)
-    ax.plot(qs, true_in, color=BLUE, lw=1.3, label='true field inside the boundary')
-    ax.plot(qs, let_in, color=ORANGE, lw=1.3, label='other floor let in (look-alikes)')
+    ax.plot(qs, true_in, color=BLUE, lw=1.3, label='true field inside')
+    ax.plot(qs, let_in, color=ORANGE, lw=1.3, label='look-alike floor let in')
     ax.plot(qs, whole, color=INK, lw=1.5, label='whole field drawn')
     ax.axhline(true_area, color=MUTED, lw=0.8, zorder=1)
     ax.annotate('size of the true field', xy=(2, true_area), xytext=(0, 2),
@@ -1433,23 +1433,62 @@ def fig_gallery(data, cname, scale, figs, mail):
     figs.save(fig, f'V4_gallery_{cname}', mail=mail)
 
 
+# The smallest field is not among them: it sits on the Rule 8 floor at every
+# q, so it is flat by construction. Where the extra fields go is shown by scale
+# instead (scale_shift).
 DOWNSTREAM = [('n_fields_pct_of_op', 'Fields in the library', True),
               ('median_radius_m_pct_of_op', 'Median field radius', True),
-              ('min_radius_m_pct_of_op', 'Smallest field radius', True),
               ('n_scales', 'Scales occupied', False),
-              ('rho_elong_wall', 'Elongation vs wall distance', False),
-              ('rho_radius_wall', 'Field size vs wall distance', False)]
+              ('rho_elong_wall', 'Elongation vs wall', False),
+              ('rho_radius_wall', 'Field size vs wall', False)]
 
 
-def fig_downstream(down, figs):
+def scale_shift(pscale):
+    """Each scale's field count as % of its count at Q_OP, median over libraries.
+
+    Rows are scales, columns q. A scale a library leaves empty at some q counts
+    as zero fields there; one it leaves empty at Q_OP has no baseline and drops
+    out of that scale's median.
+    """
+    if pscale is None or not len(pscale) or \
+            not np.isclose(pscale.q, Q_OP).any():
+        return pd.DataFrame()
+    piv = pscale.pivot_table(index=['env', 'channel', 'scale'], columns='q',
+                             values='n_fields', aggfunc='sum', fill_value=0)
+    base = piv[[c for c in piv.columns if np.isclose(c, Q_OP)][0]]
+    rel = piv[base > 0].div(base[base > 0], axis=0) * 100.0
+    return rel.groupby('scale').median()
+
+
+def fig_downstream(down, shift, figs):
     """V5 -- the field libraries at q = 50, 65, 80."""
     if not len(down):
         return
     qs = sorted(down.q.unique())
     fig, axes = plt.subplots(2, 3, figsize=(FIG_W, 3.9),
                              gridspec_kw=dict(wspace=0.45, hspace=0.55))
+    # (c) where the change in field count lands, scale by scale
+    ax = axes.flat[2]
+    if len(shift):
+        for sc, row in shift.iterrows():
+            ax.plot(row.index, row.values, '-o', color=SCALE_COLORS[int(sc) % 6],
+                    lw=1.2, ms=3, mfc='white', mew=0.9, label=f'{int(sc)}')
+        ax.axhline(100, color=MUTED, lw=0.8, zorder=0)
+        ax.legend(title='scale', title_fontsize=6, fontsize=6, ncol=3,
+                  handlelength=1.0, columnspacing=0.8, labelspacing=0.2,
+                  loc='best')
+        ax.set_ylabel(f'% of its count at q = {Q_OP:g}')
+        ax.set_xticks(qs)
+        ax.set_xlim(min(qs) - 5, max(qs) + 5)
+        ax.set_xlabel('q')
+        ax.axvline(Q_OP, color=INK, lw=0.8, zorder=0.5)
+        ax.set_title('Fields per scale', loc='left', fontweight='bold')
+        _grid_y(ax)
+    else:
+        ax.set_visible(False)
+    slots = [0, 1, 3, 4, 5]
     for k, (col, lab, rel) in enumerate(DOWNSTREAM):
-        ax = axes.flat[k]
+        ax = axes.flat[slots[k]]
         if col not in down.columns:
             ax.set_visible(False)
             continue
@@ -1475,7 +1514,9 @@ def fig_downstream(down, figs):
         ax.axvline(Q_OP, color=INK, lw=0.8, zorder=0.5)
         ax.set_title(lab, loc='left', fontweight='bold')
         _grid_y(ax)
-        _panel_label(ax, 'abcdef'[k], dx=-26)
+    for k, ax in enumerate(axes.flat):
+        if ax.get_visible():
+            _panel_label(ax, 'abcdef'[k], dx=-26)
     figs.save(fig, 'V5_downstream')
 
 
@@ -1486,17 +1527,19 @@ def fig_controls(rec, ctl, q, figs):
     kinds = [k for k in CONTROL_KINDS if (ctl.kind == k).any()]
     fig = plt.figure(figsize=(FIG_W, 2.45))
     gs = fig.add_gridspec(2, len(kinds), height_ratios=[0.5, 1.0], hspace=0.12,
-                          wspace=0.16)
+                          wspace=0.22)
     tpr = rec.groupby('q').admitted.mean().reindex(q) * 100
     rng = np.random.default_rng(3)
     for k, kind in enumerate(kinds):
         icon = fig.add_subplot(gs[0, k])
         _control_icon(icon, kind, rng)
         scored = kind in SINGLE_REGION
-        icon.set_title(CONTROL_LABEL[kind] + ('' if scored else ' (not scored)'),
-                       loc='left', fontsize=6.5, fontweight='bold', pad=3,
-                       color=INK if scored else MUTED)
-        _panel_label(icon, 'abcde'[k], dx=-4, dy=10)
+        icon.set_title(CONTROL_LABEL[kind], loc='left', fontsize=6.8,
+                       fontweight='bold', pad=11, color=INK if scored else MUTED)
+        icon.text(0, 1.02, 'scored' if scored else 'shown, not scored',
+                  transform=icon.transAxes, fontsize=6, ha='left', va='bottom',
+                  color=INK_2 if scored else MUTED)
+        _panel_label(icon, 'abcde'[k], dx=-4, dy=18)
         ax = fig.add_subplot(gs[1, k])
         f = ctl[ctl.kind == kind].groupby('q').admitted.mean().reindex(q) * 100
         ax.plot(q, tpr.values, color=BLUE, lw=1.2)
@@ -1673,7 +1716,7 @@ class ExtentValidationReport(ExperimentReport):
         tab.columns = ['criterion', 'best q', '95% CI', 'nearly as good',
                        f'at q = {Q_OP:g}', f'{Q_OP:g} inside?']
         out.append(self.section(
-            'Where q = 65 sits', self.table(tab) + '\n\n' + _wrap(
+            f'Where q = {Q_OP:g} sits', self.table(tab) + '\n\n' + _wrap(
                 f'"Nearly as good" is fixed in the code, not chosen after '
                 f'looking: within 5% of the best median IoU; drawn area within '
                 f'25% of the true area; J within 0.05 of its best.\n\n'
@@ -1743,13 +1786,22 @@ class ExtentValidationReport(ExperimentReport):
                 f'The real pipeline -- tree, rules, everything -- rebuilt at q = '
                 + ', '.join(f'{v:g}' for v in sorted(down.q.unique())) +
                 f'. The q = {Q_OP:g} libraries are Experiment 2\'s libraries. '
-                f'Medians over every arena-channel library; the first three rows '
+                f'Medians over every arena-channel library; the first two rows '
                 f'are percent of the same library at q = {Q_OP:g}.')
-            out.append(self.section('What changes downstream',
-                                    txt + '\n\n' + self.table(
-                                        pooled.T.reset_index().rename(
-                                            columns={'index': 'quantity'}),
-                                        float_format='%.2f')))
+            body = txt + '\n\n' + self.table(
+                pooled.T.reset_index().rename(columns={'index': 'quantity'}),
+                float_format='%.2f')
+            sh = self.shift
+            if len(sh):
+                t = sh.copy()
+                t.columns = [f'q = {v:g}' for v in t.columns]
+                t = t.reset_index()
+                t['scale'] = t.scale.astype(int)
+                body += '\n\n' + _wrap(
+                    f'Where the change in field count lands: each scale\'s count '
+                    f'as a percent of its count at q = {Q_OP:g}, median over '
+                    f'libraries.') + '\n\n' + self.table(t, float_format='%.0f')
+            out.append(self.section('What changes downstream', body))
         failed = {e: m['pipeline_failed'] for e, m in self.data['meta'].items()
                   if m.get('pipeline_failed')}
         if failed:
@@ -1791,8 +1843,8 @@ class ExtentValidationReport(ExperimentReport):
              f'closest to the median for that scale, so it is typical rather '
              f'than flattering. (a) Every spot on the floor coloured by the q at '
              f'which it would join the field; the field at any q is everything '
-             f'darker than q. Look-alike floor far from the field shows up as '
-             f'dark patches elsewhere. (b) As q grows, the boundary takes in '
+             f'darker than q. Anything coloured outside the black outline is '
+             f'look-alike floor. (b) As q grows, the boundary takes in '
              f'more of the true field (blue) and more look-alike floor '
              f'(orange). The drawn field (black) matches the true size (grey '
              f'line) where the circle sits. (c-e) The field itself at three '
@@ -1809,18 +1861,21 @@ class ExtentValidationReport(ExperimentReport):
              f'(a) Each cell: the overlap at q = {Q_OP:g} as a percentage of the '
              'best overlap any q achieves for that arena and channel; the number '
              'is that pair\'s own best q. Grey cells recover no field at any q. '
-             '(b) Overlap against q for each field size, with each curve\'s '
-             'best marked. (c) The same by distance from the wall.'),
-            ('V4  What q = 65 draws',
+             '(b) How many pairs peak at each q. (c) Overlap against q for '
+             'each field size, with each curve\'s best marked. (d) The same by '
+             'distance from the wall.'),
+            (f'V4  What q = {Q_OP:g} draws',
              f'Every arena, {CHANNEL_LABEL.get(self.gallery_channel, self.gallery_channel)} '
              f'channel, scale {GALLERY_SCALE}. Grey: the true fields. Blue: the '
              f'fields drawn at q = {Q_OP:g}. One figure per channel is in the '
              'figure directory; this one is mailed.'),
             ('V5  What changes downstream',
              'Each thin line is one arena-channel library rebuilt by the full '
-             'pipeline at each q; bold is the median. (a-c) relative to the same '
-             'library at q = 65; (d) number of scales with fields; (e, f) the '
-             'wall correlations the geometry experiments report.'),
+             'pipeline at each q; bold is the median. (a, b) relative to the '
+             f'same library at q = {Q_OP:g}; (c) the same for each scale\'s '
+             'field count, showing where extra fields land; (d) number of '
+             'scales with fields; (e, f) the wall correlations the geometry '
+             'experiments report.'),
             ('V6  Each kind of non-field',
              'Top: a sketch of each control, members as orange dots, the size of '
              'the real field it stands beside in black. Below: how often it is '
@@ -1878,6 +1933,7 @@ def report(args, cache_dir, fig_dir, envs):
     lev_scale, curves_scale = level_optima(rec, 'scale', q, args.n_boot, args.seed)
     lev_cont, curves_cont = level_optima(rec, 'contour', q, args.n_boot, args.seed)
     down = downstream_table(data['pipe'])
+    shift = scale_shift(data['pscale'])
 
     qc = pd.DataFrame(dict(q=cur['q'], **{k: v for k, v in cur['point'].items()},
                            **{f'{k}_lo': v[0] for k, v in cur['band'].items()},
@@ -1910,7 +1966,7 @@ def report(args, cache_dir, fig_dir, envs):
                    cur['q'], data['envs'], chans, crit, figs)
     for c in chans:
         fig_gallery(data, c, GALLERY_SCALE, figs, mail=(c == ex_ch))
-    fig_downstream(down, figs)
+    fig_downstream(down, shift, figs)
     fig_controls(rec, ctl, q, figs)
     figs.close()
 
@@ -1919,6 +1975,7 @@ def report(args, cache_dir, fig_dir, envs):
                                  log_path=os.environ.get('REALM_LOG_PATH'))
     rep.data, rep.cur, rep.crit, rep.cells = data, cur, crit, cells
     rep.lev_scale, rep.lev_cont, rep.down, rep.figs = lev_scale, lev_cont, down, figs
+    rep.shift = shift
     rep.example = dict(env=ex_env, channel=ex_ch)
     rep.gallery_channel = ex_ch
     print('\n' + rep.compose(), flush=True)
