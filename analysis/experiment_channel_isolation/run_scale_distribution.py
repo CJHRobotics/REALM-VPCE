@@ -126,6 +126,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse, Patch
+from matplotlib.ticker import MaxNLocator
 import matplotlib.colors as mcolors
 from scipy import optimize, special, stats
 
@@ -204,8 +205,54 @@ ELIAV_MEAN_LEN_M = {'200 m tunnel': 5.9, '6 m segment': 1.5}
 ELIAV_SIZE_RATIO = {'200 m tunnel': 4.4, '6 m segment': 1.6}
 
 CHANNELS = ['hog', 'color', 'spatial', 'lidar', 'visual', 'all']
-CHANNEL_COLORS = {'hog': '#1f77b4', 'color': '#d62728', 'spatial': '#2ca02c',
-                  'lidar': '#9467bd', 'visual': '#ff7f0e', 'all': '#17becf'}
+# One identity per channel, shared by every figure in the series. Six hues
+# cannot all be told apart pairwise -- the validator fails any six-colour set
+# with every pair in play -- so colour carries identity within two groups and
+# line style separates the groups: the four single-sensor channels are solid,
+# the two combinations dashed. Each group passes the validator all-pairs
+# (solid: worst colour-blind pair dE 9.2, worst normal-vision 16.3; dashed:
+# 17.6 and 35.9). The six together do not, so wherever several channels share
+# a plot, draw them with channel_line(), never with the colour alone.
+#
+# The previous set was matplotlib's defaults, in which visual (orange) and
+# spatial (green) sat dE 0.7 apart for a protanope -- the same line.
+CHANNEL_COLORS = {'hog': '#2a78d6', 'color': '#eb6834', 'spatial': '#1baf7a',
+                  'lidar': '#4a3aa7', 'visual': '#e87ba4', 'all': '#008300'}
+CHANNEL_DASHED = {'visual', 'all'}
+
+
+def channel_line(c):
+    """Colour and line style for a channel, as keyword arguments to plot()."""
+    return dict(color=CHANNEL_COLORS.get(c, '#52514e'),
+                ls=(0, (4, 1.6)) if c in CHANNEL_DASHED else '-')
+
+
+# Names a reader can follow without the methods at hand. Figures use these,
+# never the code names: `circ_lm0_r3` and `all` mean nothing on a printed page.
+ARENA_LABEL = {'circ_lm8_r3': 'Disc r = 3 m',
+               'circ_lm0_r3': 'Disc r = 3 m, no landmarks',
+               'circ_lm8_r6': 'Disc r = 6 m',
+               'circ_lm0_r6': 'Disc r = 6 m, no landmarks',
+               'corr_lm8_l10w10': 'Square 10 × 10 m',
+               'corr_lm0_l10w10': 'Square 10 × 10 m, no landmarks',
+               'corr_lm8_l10w2': 'Corridor 10 × 2 m',
+               'corr_lm0_l10w2': 'Corridor 10 × 2 m, no landmarks'}
+CHANNEL_LABEL = {'hog': 'HOG', 'color': 'Colour', 'spatial': 'Spatial',
+                 'lidar': 'Lidar', 'visual': 'Visual', 'all': 'All'}
+CHANNEL_LONG = {'hog': 'HOG', 'color': 'Colour', 'spatial': 'Spatial layout',
+                'lidar': 'Lidar', 'visual': 'Visual (HOG + colour + spatial)',
+                'all': 'All (visual + lidar)'}
+
+
+def arena_label(e, sep=', '):
+    """An arena's plain name; `sep` breaks it before 'no landmarks'."""
+    return ARENA_LABEL.get(e, e).replace(', ', sep)
+
+
+def channel_label(c, long=True, sep=' '):
+    """A channel's plain name; the long form says what a combination holds."""
+    s = (CHANNEL_LONG if long else CHANNEL_LABEL).get(c, c)
+    return s.replace(' (', f'{sep}(') if sep != ' ' else s
 
 # (EXTENT_PCTL, ACT_THRESH). One setting: the operating point, READ FROM THE
 # RULES rather than written down again. Every experiment that shares these
@@ -1129,10 +1176,17 @@ def _style_axes(ax):
 
 
 def _env_label(e, geom):
-    """Row label: arena name, area and role."""
+    """Row label: the arena's plain name and its floor area.
+
+    Not its code name or its role in the analysis: a printed figure has to
+    stand without either.
+    """
     area = geom.get('env_area')
-    return (f'{e}\n' + ('' if area is None else f'{area:.0f} m$^2$ · ')
-            + geom.get('role', env_role(e)))
+    return arena_label(e, '\n') + ('' if area is None else f'\n{area:.0f} m$^2$')
+
+
+FORM_LABEL = {'lognormal': 'log-normal', 'exponential': 'exponential',
+              'gaussian': 'Gaussian'}
 
 
 def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
@@ -1171,7 +1225,7 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
             ax = axes[i][j]
             _style_axes(ax)
             if i == 0:
-                ax.set_title(c, fontsize=10, color=INK)
+                ax.set_title(channel_label(c, sep='\n'), fontsize=9, color=INK)
             if j == 0:
                 ax.set_ylabel(f'{_env_label(e, geom)}\n\n% of fields',
                               fontsize=7.5, color=INK_2)
@@ -1221,7 +1275,7 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
 
             note = [f'n = {n:,}']
             if best is not None:
-                note.append(f'best: {best.form} (r = {best.r_hist:.3f})')
+                note.append(f'best fit: {FORM_LABEL.get(best.form, best.form)}')
             note.append(f'{n - len(shown):,} fields > {cut:.2g} m$^2$ not shown')
             ax.text(0.98, 0.97, '\n'.join(note), transform=ax.transAxes,
                     ha='right', va='top', fontsize=6, color=INK_2,
@@ -1233,17 +1287,151 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
 
     handles = ([Line2D([], [], color=FORM_COLORS[f], lw=2.0) for f in FORMS]
                + [Patch(color=RULE_GRAY), Line2D([], [], color=MUTED, lw=0.8, ls=':')])
-    labels = list(FORMS) + ['fields in each bin', 'Rule 8 floor']
+    labels = ([f'{FORM_LABEL.get(f, f)} fit' for f in FORMS]
+              + ['% of fields in each size bin', 'smallest field allowed'])
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
-    fig.suptitle('S1  field-size distribution per arena and channel\n'
-                 f'linear axes; each panel stops at its own {HIST_PCTL}th '
-                 'percentile (the tail stays in the fit); heavier curve = best '
-                 'fit by AIC, each form fitted within the Rule 8/9 size window',
+    fig.suptitle('Field-size distributions with fitted curves\n'
+                 f'each panel shows the smallest {HIST_PCTL}% of its fields; '
+                 'three distributions are fitted to each, and the heavier '
+                 'curve fits best',
                  fontsize=10, color=INK, y=1 - 0.08 / height)
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.95 / height))
-    _save(fig, fig_dir, 'S1_size_distributions.png')
+    _save(fig, fig_dir, 'S1_sizes_with_fits.png')
+
+
+# The arenas as the paper sets them out: shape and size along a row, and each
+# arena directly above its copy without landmarks.
+PAPER_COLUMNS = ['circ_lm8_r3', 'circ_lm8_r6', 'corr_lm8_l10w10', 'corr_lm8_l10w2']
+# Journal double-column width (174 mm) and text sizes that print legibly at it.
+PAPER_WIDTH = 6.85
+PAPER_RC = {
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial', 'Liberation Sans', 'DejaVu Sans'],
+    'font.size': 7, 'axes.titlesize': 7.5, 'axes.labelsize': 7,
+    'xtick.labelsize': 6.5, 'ytick.labelsize': 6.5, 'legend.fontsize': 6.5,
+    'axes.linewidth': 0.6, 'axes.edgecolor': RULE_GRAY,
+    'xtick.color': INK_2, 'ytick.color': INK_2, 'text.color': INK,
+    'axes.labelcolor': INK, 'xtick.major.size': 2.5, 'ytick.major.size': 2.5,
+    'xtick.major.width': 0.6, 'ytick.major.width': 0.6,
+    'axes.spines.top': False, 'axes.spines.right': False,
+    'figure.facecolor': 'white', 'axes.facecolor': 'white',
+    'savefig.facecolor': 'white', 'pdf.fonttype': 42, 'ps.fonttype': 42,
+}
+
+
+def fig_sizes_by_arena(banks_all, envs, chans, env_geom, fig_dir):
+    """S1 for the main text: every channel's field sizes, one panel per arena.
+
+    The same libraries as S1_sizes_with_fits, without the fits. What the paper
+    shows here is the shape the channels share -- many small fields and few
+    large ones -- and six fitted curves per panel would bury it; the fits go to
+    the appendix figure. Each channel is an outline histogram on bins shared
+    within the panel, so the six compare directly, and each is the percentage
+    of that channel's own fields, so a channel with more fields does not look
+    taller.
+
+    Each panel stops at the 95th percentile of its pooled fields, as the
+    appendix figure does; the rest stay in the percentages. One y axis for
+    every panel. Linear axes throughout, as in the rest of the series.
+    """
+    key = lambda e, c: (e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU)
+    have = [e for e in envs if any(key(e, c) in banks_all and
+                                   len(banks_all[key(e, c)]) for c in chans)]
+    if not have:
+        return
+    cols = []
+    for e in PAPER_COLUMNS + have:
+        base = e.replace('_lm0_', '_lm8_')
+        twin = base.replace('_lm8_', '_lm0_') if '_lm8_' in base else None
+        if base not in cols and (base in have or twin in have):
+            cols.append(base)
+    rows = [[b if b in have else None for b in cols]]
+    lower = [b.replace('_lm8_', '_lm0_') if '_lm8_' in b and
+             b.replace('_lm8_', '_lm0_') in have else None for b in cols]
+    if any(lower):
+        rows.append(lower)
+
+    with plt.rc_context(PAPER_RC):
+        H = 1.6 * len(rows) + 1.25
+        fig, axes = plt.subplots(len(rows), len(cols), squeeze=False,
+                                 figsize=(PAPER_WIDTH, H))
+        # Fixed margins in inches: 0.85 above the panels for the title and the
+        # two-row key, so neither floats away from the panels at any height.
+        fig.subplots_adjust(left=0.09, right=0.995, bottom=0.42 / H,
+                            top=1 - 0.95 / H, wspace=0.38, hspace=0.55)
+        top = 0.0
+        for i, row in enumerate(rows):
+            for j, e in enumerate(row):
+                ax = axes[i][j]
+                if e is None:
+                    ax.set_visible(False)
+                    continue
+                xs = {c: banks_all[key(e, c)].area_env_m2.to_numpy(dtype=float)
+                      for c in chans if key(e, c) in banks_all
+                      and len(banks_all[key(e, c)]) >= MIN_FIELDS}
+                if not xs:
+                    ax.set_visible(False)
+                    continue
+                cut = float(np.percentile(np.concatenate(list(xs.values())),
+                                          HIST_PCTL))
+                edges = np.linspace(0.0, cut, 26)
+                for c in chans:
+                    x = xs.get(c)
+                    if x is None:
+                        continue
+                    h, _ = np.histogram(x[x <= cut], bins=edges)
+                    v = 100.0 * h / len(x)
+                    ax.plot(np.repeat(edges, 2)[1:-1], np.repeat(v, 2), lw=1.0,
+                            label=channel_label(c), **channel_line(c))
+                    top = max(top, float(v.max()))
+                geom = env_geom.get(e, {})
+                floor = R.DEFAULT_CFG['RULE8_AREA_FRAC'] * geom.get('env_area', np.nan)
+                if np.isfinite(floor):
+                    ax.axvline(floor, color=MUTED, lw=0.8, zorder=0,
+                               label='smallest field allowed')
+                ax.set_xlim(0.0, cut)
+                ax.xaxis.set_major_locator(MaxNLocator(4))
+                ax.grid(axis='y', color='#ebeae5', lw=0.5)
+                ax.set_axisbelow(True)
+                if i == 0:
+                    ax.set_title(arena_label(cols[j]), loc='left',
+                                 fontweight='bold')
+                if i == len(rows) - 1 or rows[-1][j] is None:
+                    ax.set_xlabel('field area (m$^2$)')
+                if j == 0:
+                    ax.set_ylabel('% of fields')
+                    if len(rows) > 1:
+                        ax.annotate('With landmarks' if i == 0 else 'No landmarks',
+                                    xy=(0, 0.5), xycoords='axes fraction',
+                                    xytext=(-34, 0), textcoords='offset points',
+                                    rotation=90, ha='center', va='center',
+                                    fontweight='bold', fontsize=7.5)
+                ax.annotate('abcdefgh'[i * len(cols) + j], xy=(0, 1),
+                            xycoords='axes fraction', xytext=(-22, 6),
+                            textcoords='offset points', fontweight='bold',
+                            fontsize=9, ha='left', va='bottom')
+        for row in axes:
+            for ax in row:
+                if ax.get_visible():
+                    ax.set_ylim(0, top * 1.08)
+        first = next(ax for row in axes for ax in row if ax.get_visible())
+        h, l = first.get_legend_handles_labels()
+        fig.legend(h, l, loc='lower center', ncol=4, frameon=False,
+                   bbox_to_anchor=(0.5, 1 - 0.73 / H), handlelength=2.4,
+                   columnspacing=1.4)
+        fig.text(0.5, 1 - 0.3 / H,
+                 f'Field-size distributions by arena · one line per feature '
+                 f'channel · each panel shows the smallest {HIST_PCTL}% of '
+                 f'its fields', ha='center', va='bottom', fontsize=7.5)
+        path = os.path.join(fig_dir, 'S1_sizes_by_arena.png')
+        fig.savefig(path, dpi=300, bbox_inches='tight', pad_inches=0.03)
+        fig.savefig(path.replace('.png', '.pdf'), bbox_inches='tight',
+                    pad_inches=0.03)
+        plt.close(fig)
+    FIGURES_WRITTEN.extend([path, path.replace('.png', '.pdf')])
+    print(f'  {path}', flush=True)
 
 
 def _half_extents(geom):
@@ -1363,14 +1551,15 @@ def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
                     ax.set_title(f'scale {s}{which}\nradius {lo_r:.2g}–{hi_r:.2g} m',
                                  fontsize=8.5, color=INK)
                 if s == 0:
-                    ax.set_ylabel(c, fontsize=10, color=INK)
+                    ax.set_ylabel(channel_label(c, sep='\n'), fontsize=9,
+                                  color=INK)
         _scale_bar(axes[0][0], lim_x, lim_y)
         height = fig.get_figheight()
-        fig.suptitle(f'S2a  {e}: admitted fields split by scale\n'
-                     f'{area:.0f} m$^2$ · {geom.get("role", env_role(e))} · '
-                     f'{geom.get("n_landmarks", 0)} landmarks (black squares) · '
-                     f'scales are geometric in radius at ratio '
-                     f'{C["BAND_RATIO"]:g} from the Rule 8 floor',
+        marks = ' · black squares: landmarks' if geom.get('n_landmarks') else ''
+        fig.suptitle(f'{arena_label(e)}: fields at each scale\n'
+                     f'{area:.0f} m$^2$ floor · each scale spans a '
+                     f'{C["BAND_RATIO"]:g}-fold range of radius, starting from '
+                     f'the smallest field allowed{marks}',
                      fontsize=10, color=INK, y=1 - 0.1 / height)
         fig.tight_layout(rect=(0, 0, 1, 1 - 0.6 / height))
         # 110 dpi: eight of these at 150 dpi came to ~27 MB, past the mail
@@ -1448,7 +1637,7 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
                     linewidths=SCALE_LINEWIDTHS[s], zorder=2 + s))
             _count_label(ax, n)
             if i == 0:
-                ax.set_title(c, fontsize=10, color=INK)
+                ax.set_title(channel_label(c, sep='\n'), fontsize=9, color=INK)
             if j == 0:
                 ax.set_ylabel(_env_label(e, geom), fontsize=7.5, color=INK_2)
                 _scale_bar(ax, lim_x, lim_y)
@@ -1466,10 +1655,10 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
-    fig.suptitle('S2b  admitted fields, coloured by field size\n'
-                 'green small to purple large, on one logarithmic ramp shared '
-                 'by every panel; line width grows with scale and coarse '
-                 'fields are drawn on top; each arena fills its own panel',
+    fig.suptitle('Every field, coloured by its size\n'
+                 'colour: field radius, on one scale for every panel (bar at '
+                 'right); line width grows with scale; each arena is drawn to '
+                 'fill its panel, so read sizes off the scale bars',
                  fontsize=10, color=INK, y=1 - 0.08 / height)
     fig.tight_layout(rect=(0, 0, 0.93, 1 - 0.95 / height))
     # Added after tight_layout: a manually placed colour bar is not a
@@ -1499,12 +1688,15 @@ def _scale_panel(ax, s, col, ylabel, pct=False):
     """
     sweep = s[s.role == 'area sweep'] if 'role' in s.columns else s
     other = s[s.role != 'area sweep'] if 'role' in s.columns else s.iloc[:0]
-    for c in sorted(s.channel.unique()):
-        colour = CHANNEL_COLORS.get(c, '0.4')
+    chans = [c for c in CHANNELS if c in set(s.channel)] + \
+        sorted(set(s.channel) - set(CHANNELS))
+    for c in chans:
+        line = channel_line(c)
+        colour = line['color']
         g = sweep[sweep.channel == c].sort_values('env_area_m2')
         if len(g):
-            ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], 'o-',
-                    ms=5, lw=1.2, color=colour, label=c)
+            ax.plot(g.env_area_m2, 100 * g[col] if pct else g[col], marker='o',
+                    ms=5, lw=1.2, label=channel_label(c), **line)
         h = other[other.channel == c]
         for is_disc, marker in ((True, 'o'), (False, 's')):
             k = h[h.env.str.startswith('circ_') == is_disc]
@@ -1533,20 +1725,24 @@ def fig_size_vs_scale(summary, fig_dir):
     # orders of magnitude above the median, so a shaded range flattens the
     # line it is meant to annotate. The spread is panel 2's job.
     _scale_panel(axes[0], s, 'area_median_m2', 'median field area (m$^2$)')
-    _scale_panel(axes[1], s, 'area_max_min_ratio', 'max / min field area')
-    _scale_panel(axes[2], s, 'n_scales_occupied', 'scales occupied')
-    axes[0].set_title('typical field size', fontsize=8)
-    axes[1].set_title('size spread', fontsize=8)
-    axes[2].set_title('scale diversity', fontsize=8)
-    for ax in axes:
-        ax.legend(fontsize=6, frameon=False, ncol=2)
-    fig.suptitle('S3  the size ladder against arena area — does a larger space '
-                 'buy a WIDER range of scales, or a uniformly coarser one?\n'
-                 'joined circles = the area sweep (shape and landmarks fixed); '
-                 'open circles = no-landmark discs; open squares = the corridor '
-                 'and the squares, not on the curve',
-                 fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    _scale_panel(axes[1], s, 'area_max_min_ratio',
+                 'largest ÷ smallest field area')
+    _scale_panel(axes[2], s, 'n_scales_occupied', 'number of scales')
+    axes[0].set_title('Median field size', fontsize=10)
+    axes[1].set_title('Spread of field sizes', fontsize=10)
+    axes[2].set_title('Scales with fields', fontsize=10)
+    # One key for the figure: the same channels in every panel.
+    h, l = axes[0].get_legend_handles_labels()
+    h += [Line2D([], [], color=INK_2, marker='o', ls='', ms=7, mfc='none', mew=1.4),
+          Line2D([], [], color=INK_2, marker='s', ls='', ms=7, mfc='none', mew=1.4)]
+    l += ['disc without landmarks', 'square or corridor']
+    fig.tight_layout(rect=(0, 0, 1, 0.84))
+    fig.legend(h, l, loc='lower center', ncol=4, frameon=False, fontsize=8.5,
+               bbox_to_anchor=(0.5, 0.845))
+    fig.suptitle('Field size against arena area\n'
+                 'lines join the discs with landmarks (r = 3 and 6 m); open '
+                 'markers are the other arenas, at their own area',
+                 fontsize=10, y=0.945, va='bottom')
     _save(fig, fig_dir, 'S3_size_vs_scale.png')
 
 
@@ -2427,6 +2623,7 @@ def main():
     envs_by_area = list(summary.sort_values(['env_area_m2', 'n_landmarks', 'env'],
                                             ascending=[True, False, True])
                         .drop_duplicates('env').env)
+    fig_sizes_by_arena(banks_all, envs_by_area, chans, env_geom, fig_dir)
     fig_distributions(banks_all, fits, envs_by_area, chans, env_geom, fig_dir)
     fig_scale_maps(banks_all, envs_by_area, chans, env_geom, fig_dir, base_C)
     fig_field_outlines(banks_all, envs_by_area, chans, env_geom, fig_dir)

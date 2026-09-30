@@ -184,16 +184,12 @@ GALLERY_SCALE = 2
 ENV_ORDER = ['circ_lm8_r3', 'circ_lm0_r3', 'circ_lm8_r6', 'circ_lm0_r6',
              'corr_lm8_l10w10', 'corr_lm0_l10w10',
              'corr_lm8_l10w2', 'corr_lm0_l10w2']
-ENV_LABEL = {'circ_lm8_r3': 'Disc r = 3 m',
-             'circ_lm0_r3': 'Disc r = 3 m, no landmarks',
-             'circ_lm8_r6': 'Disc r = 6 m',
-             'circ_lm0_r6': 'Disc r = 6 m, no landmarks',
-             'corr_lm8_l10w10': 'Square 10 × 10 m',
-             'corr_lm0_l10w10': 'Square 10 × 10 m, no landmarks',
-             'corr_lm8_l10w2': 'Corridor 10 × 2 m',
-             'corr_lm0_l10w2': 'Corridor 10 × 2 m, no landmarks'}
-CHANNEL_LABEL = {'hog': 'HOG', 'color': 'Colour', 'spatial': 'Spatial',
-                 'lidar': 'Lidar', 'visual': 'Visual', 'all': 'All'}
+# Plain names for arenas and channels, from the one place every experiment's
+# figures take them.
+ENV_LABEL = SD.ARENA_LABEL
+CHANNEL_LABEL = SD.CHANNEL_LABEL
+CHANNEL_LONG = SD.CHANNEL_LONG
+Q_AXIS_LABEL = "q  (% of a cluster's positions inside its field)"
 CONTROL_LABEL = {'scattered': 'Scattered', 'shuffled': 'Shuffled',
                  'oversized': 'Oversized', 'split': 'Two lobes',
                  'ring': 'Ring'}
@@ -269,7 +265,7 @@ def _q_axis(ax, label=True):
     ax.set_xlim(0, 101)
     ax.set_xticks([0, 20, 40, 60, 80, 100])
     if label:
-        ax.set_xlabel('q  (% of the group inside its field)')
+        ax.set_xlabel(Q_AXIS_LABEL)
 
 
 def _mark_op(ax, text=False):
@@ -1184,7 +1180,7 @@ def fig_mechanism(ex, figs):
     cb.outline.set_linewidth(0)
     cb.ax.tick_params(labelsize=6, length=2)
     cb.set_label('q at which the spot joins the field', fontsize=6.5)
-    ax.text(0.0, -0.01, 'black outline: the true field\n'
+    ax.text(0.0, -0.01, 'black outline: the true field\nsquares: landmarks\n'
             'grey: never joins, even at q = 100', transform=ax.transAxes,
             fontsize=6, color=INK_2, ha='left', va='top', linespacing=1.3)
 
@@ -1228,7 +1224,7 @@ def fig_mechanism(ex, figs):
         ratio = m.sum() / max(imask.sum(), 1)
         verdict = ('too small' if ratio < 0.8 else 'too large' if ratio > 1.25
                    else 'about right')
-        ax.set_title(f'q = {q:g}: {verdict}\nIoU {iou:.2f}, area ×{ratio:.2f}',
+        ax.set_title(f'q = {q:g}: {verdict}\noverlap {iou:.2f}, area ×{ratio:.2f}',
                      fontsize=7, pad=3)
         if k == 0:
             _scale_bar(ax, ex['geom'])
@@ -1238,7 +1234,8 @@ def fig_mechanism(ex, figs):
 
 
 def _ci(v, digits=0):
-    return f'{_q(v[0], digits)}-{_q(v[1], digits)}'
+    lo, hi = _q(v[0], digits), _q(v[1], digits)
+    return lo if lo == hi else f'{lo}–{hi}'
 
 
 def fig_criteria(cur, crit, rec, figs):
@@ -1290,15 +1287,15 @@ def fig_criteria(cur, crit, rec, figs):
     ax.set_yticks(ticks)
     ax.set_yticklabels([_ratio_label(t) for t in ticks])
     ax.set_ylabel('drawn area ÷ true area')
-    _title(ax, 'Calibration',
+    _title(ax, 'Field size',
            f'right size at q = {_q(c["best"])}  (95% CI {_ci(c["ci"])})'
            if np.isfinite(c['best']) else 'never the right size in this range')
 
     # (c) discrimination, labelled at the line ends
     ax, d = axes[2], crit['discrimination']
     ax.axvspan(*d['range'], color=SHADE, lw=0, zorder=0)
-    series = (('tpr', BLUE, 'place fields'), ('fpr', ORANGE, 'non-fields'),
-              ('J', INK, 'difference, J'))
+    series = (('tpr', BLUE, 'true fields'), ('fpr', ORANGE, 'non-fields'),
+              ('J', INK, 'difference'))
     for key, col, _ in series:
         ax.fill_between(q, 100 * band[key][0], 100 * band[key][1], color=col,
                         alpha=0.15, lw=0, zorder=2)
@@ -1306,16 +1303,19 @@ def fig_criteria(cur, crit, rec, figs):
                 zorder=3)
     best_mark(ax, d['best'], 100 * d['value_best'])
     ax.set_ylim(0, 105)
-    ax.set_ylabel('% of groups admitted')
+    ax.set_ylabel('% admitted as fields')
     _end_labels(ax, q[-1], [100 * pt[k][-1] for k, _, _ in series],
                 [l for _, _, l in series], [c_ for _, c_, _ in series], gap=11)
-    _title(ax, 'Discrimination', f'J best at q = {_q(d["best"])}  (95% CI {_ci(d["ci"])})')
+    _title(ax, 'Discrimination',
+           f'difference largest at q = {_q(d["best"])}  (95% CI {_ci(d["ci"])})')
 
     for k, ax in enumerate(axes):
-        _q_axis(ax)
+        _q_axis(ax, label=False)
         _mark_op(ax)
         _grid_y(ax)
         _panel_label(ax, 'abc'[k], dx=-26, dy=14)
+    # One q label for the row: under each of three panels it runs into the next.
+    fig.text(0.5, -0.02, Q_AXIS_LABEL, ha='center', va='top', fontsize=7)
     _figure_key(fig, [
         Line2D([], [], color=INK, lw=1.6, label='all arenas and channels'),
         Patch(facecolor=INK, alpha=0.13, label='95% interval'),
@@ -1323,7 +1323,7 @@ def fig_criteria(cur, crit, rec, figs):
         Line2D([], [], color='none', marker='o', ms=4.8, mfc='white', mec=INK,
                mew=1.1, label='best q'),
         Patch(facecolor=SHADE, label='nearly as good as the best'),
-        Line2D([], [], color=INK, lw=0.8, label=f'q = {Q_OP:g}, the value in use')],
+        Line2D([], [], color=INK, lw=0.8, label=f'q = {Q_OP:g}, used in this study')],
         y=1.04, ncol=6)
     figs.save(fig, 'V2_three_criteria')
 
@@ -1385,16 +1385,20 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     ax.set_yticks(np.arange(-0.5, len(envs)), minor=True)
     ax.grid(which='minor', color='white', lw=1.5)
     ax.tick_params(which='minor', length=0)
-    ax.text(0, -0.04, 'number: that pair\'s own best q    grey: no field '
-            'recovered at any q', transform=ax.transAxes, fontsize=6,
-            color=INK_2, ha='left', va='top')
+    notes = ['number in a cell: the best q for that arena and channel',
+             'grey: no field recovered at any q']
+    if {'visual', 'all'} & set(chans):
+        notes.append('Visual = HOG + colour + spatial · All = visual + lidar')
+    ax.text(0, -0.03, '\n'.join(notes), transform=ax.transAxes, fontsize=6,
+            color=INK_2, ha='left', va='top', linespacing=1.35)
     _title(ax, f'Accuracy at q = {Q_OP:g}, arena by channel')
     ax.title.set_position((0, 1.09))
     cax = fig.add_subplot(top[1])
     cb = fig.colorbar(im, cax=cax, extend='min')
     cb.outline.set_linewidth(0)
     cb.ax.tick_params(labelsize=6, length=2)
-    cb.set_label(f'IoU at q = {Q_OP:g}, % of the pair\'s best', fontsize=6.5)
+    cb.set_label(f'overlap at q = {Q_OP:g}, % of the best any q gives',
+                 fontsize=6.5)
     _panel_label(ax, 'a', dx=-8, dy=16)
 
     # (b) each pair's own best q
@@ -1407,13 +1411,13 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     ax.hist(inf_cells.best_q, bins=edges, color=BLUE, rwidth=0.82, zorder=2)
     _mark_op(ax)
     _q_axis(ax)
-    ax.set_xlabel("that pair's best q")
+    ax.set_xlabel('best q')
     ax.yaxis.get_major_locator().set_params(integer=True)
-    ax.set_ylabel('arena–channel pairs')
+    ax.set_ylabel('arena–channel combinations')
     _grid_y(ax)
-    _title(ax, 'Where each pair peaks',
-           f'median {inf_cells.best_q.median():g}; shaded: pooled range '
-           f'within 5% of best' if len(inf_cells) else None)
+    _title(ax, 'Best q for each arena and channel',
+           f'median {inf_cells.best_q.median():g}; shaded: within 5% of the '
+           f'best, all pooled' if len(inf_cells) else None)
     _panel_label(ax, 'b', dx=-26, dy=14)
 
     # (c), (d) curves per scale and per wall contour
@@ -1437,8 +1441,8 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
         ax.set_ylim(0, 1)
         ax.set_ylabel('overlap with the true field (IoU)')
         inside = int(lev.op_inside.sum())
-        _title(ax, title, f'q = {Q_OP:g} within 5% of the best for {inside} of '
-                          f'{len(lev)}')
+        _title(ax, title, f'q = {Q_OP:g} is within 5% of the best for {inside} '
+                          f'of {len(lev)} {"sizes" if k == 0 else "positions"}')
         leg = ax.legend(loc='best', fontsize=6, handlelength=1.4,
                         labelspacing=0.3, ncol=2, columnspacing=1.0,
                         title=key_title, title_fontsize=6, alignment='left')
@@ -1502,7 +1506,7 @@ def fig_gallery(data, cname, scale, figs, mail):
                                linewidths=0.75, zorder=4)
             _scale_bar(ax, geo[e])
             med = sel.iou.median() if len(sel) else np.nan
-            ax.set_title(f'{ENV_LABEL.get(e, e)}\nmedian IoU {med:.2f}',
+            ax.set_title(f'{ENV_LABEL.get(e, e)}\nmedian overlap {med:.2f}',
                          fontsize=6.5, pad=2)
             _panel_label(ax, next(letter), dx=-4, dy=2)
     handles = [Patch(facecolor=IDEAL_FILL, edgecolor='none',
@@ -1513,7 +1517,7 @@ def fig_gallery(data, cname, scale, figs, mail):
     y_top = max(a.get_position().y1 for a in fig.axes)
     fig.legend(handles=handles, loc='lower center', ncol=3,
                bbox_to_anchor=(0.5, y_top + 0.36 / fig.get_figheight()),
-               title=f'{CHANNEL_LABEL.get(cname, cname)} channel',
+               title=f'Features: {CHANNEL_LONG.get(cname, cname)}',
                title_fontsize=6.8, fontsize=6.5)
     figs.save(fig, f'V4_gallery_{cname}', mail=mail)
 
@@ -1521,11 +1525,11 @@ def fig_gallery(data, cname, scale, figs, mail):
 # The smallest field is not among them: it sits on the Rule 8 floor at every
 # q, so it is flat by construction. Where the extra fields go is shown by scale
 # instead (scale_shift).
-DOWNSTREAM = [('n_fields_pct_of_op', 'Fields in the library', True),
+DOWNSTREAM = [('n_fields_pct_of_op', 'Number of fields', True),
               ('median_radius_m_pct_of_op', 'Median field radius', True),
-              ('n_scales', 'Scales occupied', False),
-              ('rho_elong_wall', 'Elongation vs wall', False),
-              ('rho_radius_wall', 'Field size vs wall', False)]
+              ('n_scales', 'Scales with fields', False),
+              ('rho_elong_wall', 'Elongation vs wall distance', False),
+              ('rho_radius_wall', 'Size vs wall distance', False)]
 
 
 def scale_shift(pscale):
@@ -1551,7 +1555,7 @@ def fig_downstream(down, shift, figs):
         return
     qs = sorted(down.q.unique())
     fig, axes = plt.subplots(2, 3, figsize=(FIG_W, 3.9),
-                             gridspec_kw=dict(wspace=0.45, hspace=0.55))
+                             gridspec_kw=dict(wspace=0.6, hspace=0.55))
     # (c) where the change in field count lands, scale by scale
     ax = axes.flat[2]
     if len(shift):
@@ -1602,6 +1606,13 @@ def fig_downstream(down, shift, figs):
     for k, ax in enumerate(axes.flat):
         if ax.get_visible():
             _panel_label(ax, 'abcdef'[k], dx=-26)
+    _figure_key(fig, [
+        Line2D([], [], color=RULE_GRAY, lw=0.8,
+               label='one arena and feature channel'),
+        Line2D([], [], color=INK, lw=1.6, marker='o', ms=3.8, mfc='white',
+               mew=1.0, label='median over all of them'),
+        Line2D([], [], color=INK, lw=0.8, label=f'q = {Q_OP:g}, used in this study')],
+        y=0.95)
     figs.save(fig, 'V5_downstream')
 
 
@@ -1643,7 +1654,10 @@ def fig_wall_shape(by_contour, rhos, figs):
         ax.plot(x + dx, by_contour[f'{tag}_pct_along_wall'], 'o', color=col,
                 ms=4.8, mfc='white', mew=1.2, zorder=3)
     ax.set_ylim(0, 105)
-    ax.set_ylabel(f'% lying along the wall (≥ {FG.PERP_DEG:g}°)')
+    ax.set_ylabel('% lying along the wall')
+    ax.text(0.03, 0.03, f'along the wall: long axis\n≥ {FG.PERP_DEG:g}° from pointing at it',
+            transform=ax.transAxes, fontsize=6,
+            color=INK_2, ha='left', va='bottom', linespacing=1.3)
     _title(ax, 'Orientation', f'fields with elongation ≥ {ELONGATED:g}')
 
     for ax in axes[:2]:
@@ -1655,8 +1669,8 @@ def fig_wall_shape(by_contour, rhos, figs):
 
     # (c) the wall correlation, per arena-channel pair
     ax = axes[2]
-    cols = [('rho_true', 'true\ndiscs', MUTED), ('rho_drawn', 'drawn\ndiscs', BLUE),
-            ('rho_library', 'model\'s\nlibrary', INK)]
+    cols = [('rho_true', 'true\nfields', MUTED), ('rho_drawn', 'drawn\nfields', BLUE),
+            ('rho_library', 'model\'s\nfields', INK)]
     rng = np.random.default_rng(0)
     ax.axhline(0, color=RULE_GRAY, lw=0.8, zorder=0)
     for k, (c, lab, col) in enumerate(cols):
@@ -1677,7 +1691,7 @@ def fig_wall_shape(by_contour, rhos, figs):
     ax.set_ylim(-1, 1)
     ax.set_ylabel('Spearman ρ, elongation vs wall distance')
     _grid_y(ax)
-    _title(ax, 'Per arena and channel', 'dot: one pair; bar: median')
+    _title(ax, 'Per arena and channel', 'dot: one arena and channel; bar: median')
 
     for k, ax in enumerate(axes):
         _panel_label(ax, 'abc'[k], dx=-26, dy=14)
@@ -1703,12 +1717,11 @@ def fig_controls(rec, ctl, q, figs):
         icon = fig.add_subplot(gs[0, k])
         _control_icon(icon, kind, rng)
         scored = kind in SINGLE_REGION
+        # Whether a control enters the discrimination score is a fact about
+        # V2, not about this figure, so it is left to the caption.
         icon.set_title(CONTROL_LABEL[kind], loc='left', fontsize=6.8,
-                       fontweight='bold', pad=11, color=INK if scored else MUTED)
-        icon.text(0, 1.02, 'scored' if scored else 'shown, not scored',
-                  transform=icon.transAxes, fontsize=6, ha='left', va='bottom',
-                  color=INK_2 if scored else MUTED)
-        _panel_label(icon, 'abcde'[k], dx=-4, dy=18)
+                       fontweight='bold', pad=3, color=INK)
+        _panel_label(icon, 'abcde'[k], dx=-4, dy=10)
         ax = fig.add_subplot(gs[1, k])
         f = ctl[ctl.kind == kind].groupby('q').admitted.mean().reindex(q) * 100
         ax.plot(q, tpr.values, color=BLUE, lw=1.2)
@@ -1719,17 +1732,17 @@ def fig_controls(rec, ctl, q, figs):
         _grid_y(ax)
         ax.set_ylim(0, 105)
         if k == 0:
-            ax.set_ylabel('% admitted')
+            ax.set_ylabel('% admitted as fields')
         else:
             ax.set_yticklabels([])
-    fig.text(0.5, 0.0, 'q  (% of the group inside its field)', ha='center',
+    fig.text(0.5, 0.0, Q_AXIS_LABEL, ha='center',
              va='top', fontsize=7)
     _figure_key(fig, [
-        Line2D([], [], color=BLUE, lw=1.2, label='real place fields admitted'),
-        Line2D([], [], color=ORANGE, lw=1.4, label='this non-field admitted'),
+        Line2D([], [], color=BLUE, lw=1.2, label='true fields'),
+        Line2D([], [], color=ORANGE, lw=1.4, label='this kind of non-field'),
         Line2D([], [], color=INK, lw=0.8, label=f'q = {Q_OP:g}'),
         Line2D([], [], color='none', marker='o', ms=4, mfc='none', mec=INK,
-               mew=0.7, label='size of the real field beside it')],
+               mew=0.7, label='size of the matching true field')],
         y=0.99)
     figs.save(fig, 'V6_controls')
 

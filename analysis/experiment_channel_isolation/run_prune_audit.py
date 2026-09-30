@@ -141,11 +141,29 @@ def count_columns(tiling_frac_min):
             else list(ADMISSION_COLUMNS))
 
 
+# What each rule removes, and what surviving it means, in words a reader can
+# follow without the methods: figures show these, never the rule names alone.
+RULE_REMOVES = {'size': 'too small or too large',
+                'contiguity': 'not one connected piece',
+                'competition': 'a larger field of the same scale overlaps it',
+                'coverage': 'its scale covers too little of the floor'}
+RULE_KEEPS = {'size': 'not too small or too large',
+              'contiguity': '… and in one connected piece',
+              'competition': '… and not overlapped by a larger same-scale field',
+              'coverage': '… and its scale covers enough of the floor'}
+
+
 def bar_style(tiling_frac_min):
-    """(colours, labels) for the funnel bars, candidates first."""
+    """(colours, labels) for the funnel bars, candidates first.
+
+    Each label says what a candidate has to be to reach that bar, cumulatively,
+    so the legend reads as the sequence of tests.
+    """
     names = rule_names(tiling_frac_min)
     cols = ADMISSION_COLORS + ([COVERAGE_COLOR] if len(names) == 4 else [])
-    return [RULE_GRAY] + cols, ['candidates'] + [f'passed {n}' for n in names]
+    labs = ['candidate fields'] + [RULE_KEEPS[n] for n in names]
+    labs[-1] += ' (admitted)'
+    return [RULE_GRAY] + cols, labs
 
 
 def parse_pairs(args):
@@ -351,12 +369,15 @@ def fig_rule_shares(pairs_df, fig_dir):
                    key=lambda e: (SHAPE_ORDER.get(ARENA_SHAPE.get(e), 3),
                                   float(d[d.env == e].env_area_m2.iloc[0]),
                                   '_lm0_' in e, e))
-    segs = [('size', 'cut_size', ADMISSION_COLORS[0]),
-            ('contiguity', 'cut_contig', ADMISSION_COLORS[1]),
-            ('competition', 'cut_compete', ADMISSION_COLORS[2])]
+    segs = [(f'removed: {RULE_REMOVES["size"]}', 'cut_size', ADMISSION_COLORS[0]),
+            (f'removed: {RULE_REMOVES["contiguity"]}', 'cut_contig',
+             ADMISSION_COLORS[1]),
+            (f'removed: {RULE_REMOVES["competition"]}', 'cut_compete',
+             ADMISSION_COLORS[2])]
     if float(d.cut_coverage.sum()) > 0:
-        segs.append(('coverage', 'cut_coverage', COVERAGE_COLOR))
-    segs.append(('admitted', 'n_admitted', ADMITTED_COLOR))
+        segs.append((f'removed: {RULE_REMOVES["coverage"]}', 'cut_coverage',
+                     COVERAGE_COLOR))
+    segs.append(('admitted as fields', 'n_admitted', ADMITTED_COLOR))
 
     fig, ax = plt.subplots(figsize=(9.2, 0.52 * len(order) + 1.9))
     fig.patch.set_facecolor(SURFACE)
@@ -374,20 +395,19 @@ def fig_rule_shares(pairs_df, fig_dir):
                         va='center', fontsize=7.5, color='white')
         left += v
     ax.set_yticks(y)
-    ax.set_yticklabels([f'{e}\n({ARENA_SHAPE.get(e, "?")})' for e in order],
-                       fontsize=7.5)
+    ax.set_yticklabels([SD.arena_label(e, '\n') for e in order], fontsize=8)
     ax.set_xlim(0, 100)
-    ax.set_xlabel('per cent of the candidates the tree offered', fontsize=9,
-                  color=MUTED)
+    ax.set_xlabel('% of candidate fields', fontsize=9, color=MUTED)
     ax.tick_params(labelsize=8, colors=MUTED)
     for sp in ('top', 'right', 'left'):
         ax.spines[sp].set_visible(False)
     ax.spines['bottom'].set_color(RULE_GRAY)
-    ax.legend(ncol=len(segs), fontsize=8.5, frameon=False, loc='lower center',
+    ax.legend(ncol=2, fontsize=8.5, frameon=False, loc='lower center',
               bbox_to_anchor=(0.5, 1.01))
-    ax.set_title('P1  what the admission rules cut, and what survives\n'
-                 'channels pooled; segments are shares of the same total, so '
-                 'each row sums to 100', fontsize=10, color=INK, pad=28)
+    ax.set_title('What each admission rule removes\n'
+                 'share of all candidate fields, the six feature channels '
+                 'pooled; each row sums to 100%', fontsize=10, color=INK,
+                 pad=44)
     fig.tight_layout()
     path = os.path.join(fig_dir, 'P1_rule_shares.png')
     fig.savefig(path, dpi=200, bbox_inches='tight', facecolor=SURFACE)
@@ -422,12 +442,12 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
     channels of one arena fit a page, and that is the comparison being made.
     """
     cats = [str(s) for s in SD.SCALES] + ['> ceiling']
+    cat_labels = [str(s) for s in SD.SCALES] + ['too\nlarge']
     # The run's own coverage setting, carried in the rows rather than passed
     # down a second path that could disagree with them.
     thr = (float(pairs_df.coverage_needed.iloc[0])
            if 'coverage_needed' in pairs_df and len(pairs_df) else 0.0)
     enforced = thr > 0
-    names = rule_names(thr)
     cols = count_columns(thr)
     bar_cols, bar_labs = bar_style(thr)
     w, paths = 0.8 / (len(cols) + 1), []
@@ -461,36 +481,40 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
             # Coverage admits nothing at the default, so it is annotated as
             # the measurement it is rather than drawn as a bar that would sit
             # exactly on top of competition's.
+            # Below the scale numbers, not on the axis line where they sat on
+            # top of the tick labels.
             if not enforced:
                 for xi, cv in zip(x, d.coverage_reached.to_numpy(dtype=float)):
                     if np.isfinite(cv):
-                        ax.text(xi, 0, f'{100 * cv:.0f}%', ha='center',
-                                va='top', fontsize=5.5, color=COVERAGE_COLOR)
+                        ax.annotate(f'{100 * cv:.0f}%', (xi, 0),
+                                    xytext=(0, -13), textcoords='offset points',
+                                    ha='center', va='top', fontsize=6,
+                                    color=COVERAGE_COLOR, annotation_clip=False)
             for side in ('top', 'right'):
                 ax.spines[side].set_visible(False)
             for side in ('left', 'bottom'):
                 ax.spines[side].set_color(RULE_GRAY)
             ax.set_xticks(x)
-            ax.set_xticklabels(cats, fontsize=7)
+            ax.set_xticklabels(cat_labels, fontsize=7)
             ax.tick_params(labelsize=7, colors=MUTED)
-            ax.set_xlabel('scale (0 finest)', fontsize=8, color=INK_2)
-            ax.set_ylabel('candidates', fontsize=8, color=INK_2)
-            ax.set_title(f'{pr.channel} — {pr.n_admitted} admitted',
-                         fontsize=9, color=INK)
+            ax.set_xlabel('scale (0 = smallest fields)', fontsize=8, color=INK_2,
+                          labelpad=12 if not enforced else 4)
+            ax.set_ylabel('candidate fields', fontsize=8, color=INK_2)
+            ax.set_title(f'{SD.channel_label(pr.channel)}: {pr.n_admitted} '
+                         f'admitted', fontsize=9, color=INK)
         for ax_i in range(len(rows), n_r * n_c):
             axes[ax_i // n_c][ax_i % n_c].set_visible(False)
         height = fig.get_figheight()
         fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in bar_cols],
-                   bar_labs, loc='upper center', ncol=len(bar_labs),
+                   bar_labs, loc='upper center', ncol=2,
                    frameon=False, fontsize=8,
                    bbox_to_anchor=(0.5, 1 - 0.48 / height))
-        fig.suptitle(f"P2  {env_name}: which rule takes each scale's candidates\n"
-                     'bars left to right: built at that scale, then what '
-                     f'survives {", ".join(names[:-1])} and {names[-1]}; '
-                     'candidates under the size floor are in the CSV, not '
-                     'drawn'
-                     + ('' if enforced else '. Purple under each scale is the '
-                        'floor it covers -- measured, admitting nothing'),
+        fig.suptitle(f'{SD.arena_label(env_name)}: candidate fields at each '
+                     f'scale, and how many pass each admission rule\n'
+                     'number above each group: fields admitted; candidates '
+                     'smaller than scale 0 are not drawn'
+                     + ('' if enforced else '; purple below each scale: % of '
+                        'the floor its admitted fields cover'),
                      fontsize=10, color=INK, y=1 - 0.06 / height)
         fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
         path = os.path.join(fig_dir, f'P2_prune_funnels_{env_name}.png')

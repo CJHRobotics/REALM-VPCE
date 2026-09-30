@@ -798,8 +798,10 @@ def fig_excess_by_size(deciles, envs, chans):
                 for c in chans:
                     g = de[de.channel == c].sort_values('decile')
                     if len(g):
-                        ax.plot(g.decile, g.excess, '-', lw=0.9, alpha=0.8,
-                                color=CHANNEL_COLORS.get(c, '0.4'), label=c)
+                        # Colour and dash together: the six channel colours
+                        # are only distinct in pairs with the dash as well.
+                        ax.plot(g.decile, g.excess, lw=0.9, alpha=0.8,
+                                label=SD.channel_label(c), **SD.channel_line(c))
                 m = de.groupby('decile').excess.mean()
                 ax.plot(m.index, m.values, 'o-', color='k', lw=1.6, ms=3,
                         label='channel mean')

@@ -352,7 +352,7 @@ Figures — `figures/scale_distribution/`
 
 | figure | shows |
 |--------|-------|
-| S1 | size histogram per arena × channel on linear axes, each panel stopped at its own 95th percentile (the count beyond is printed, and the tail stays in the fit), all three truncated fits drawn with the best one heavier |
+| S1 | `S1_sizes_by_arena` (main text): one panel per arena, all six channels overlaid as outline histograms, no fits — the shared shape, many small fields and few large; journal width, PNG and PDF. `S1_sizes_with_fits` (appendix): a panel per arena × channel on linear axes, each stopped at its own 95th percentile (the count beyond is printed, and the tail stays in the fit), all three truncated fits drawn with the best one heavier |
 | S2a | one figure per arena, `S2a_scales_<env>.png`: channels on the rows, scales 0–5 on the columns, each column headed with its radius range in metres |
 | S2b | every field as a near-transparent fill under a strong outline, both coloured by the field's own radius on one logarithmic ramp shared by every panel — green for small, through teal and blue, to deep purple for large — with a colourbar in metres; line width still grows with scale and coarse fields are drawn on top; arena on the row, channel on the column, each arena filling its own panel with a scale bar |
 | S3 | median field size, max/min spread and scales occupied, against area; only the area sweep is joined |
