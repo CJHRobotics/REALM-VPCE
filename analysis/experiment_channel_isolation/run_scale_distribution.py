@@ -1028,6 +1028,21 @@ def scale_trends(summary):
 
 # ------------------------------------------------------------ bank building
 
+def bank_path(out_dir, env_name, cname, p, t, iou, tiling_frac_min):
+    """Where one field library lives in the cache.
+
+    The coverage setting is always in the name -- see coverage_tag.
+    """
+    r = 'off' if iou is None else f'{iou:g}'
+    return (f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}'
+            f'{coverage_tag(tiling_frac_min)}_bank.csv')
+
+
+def _tick(msg):
+    """A timestamped progress line, so a stall can be read off the log."""
+    print(f'  [{time.strftime("%H:%M:%S")}] {msg}', flush=True)
+
+
 def build_banks(env_name, cname, blocks, xy, env, settings, ious, base_C,
                 device, out_dir, use_cache, verbose=True):
     """Field libraries for one channel at every (setting, Rule 2) combination.
@@ -1050,10 +1065,8 @@ def build_banks(env_name, cname, blocks, xy, env, settings, ious, base_C,
     different question.
     """
     def _key(p, t, iou):
-        r = 'off' if iou is None else f'{iou:g}'
-        # The coverage setting is always in the name -- see coverage_tag.
-        cov = coverage_tag(base_C.get('TILING_FRAC_MIN', DEFAULT_TILING))
-        return f'{out_dir}/{env_name}/{cname}_p{p}_t{t:g}_r{r}{cov}_bank.csv'
+        return bank_path(out_dir, env_name, cname, p, t, iou,
+                         base_C.get('TILING_FRAC_MIN', DEFAULT_TILING))
 
     want = {(p, t, iou): _key(p, t, iou)
             for p, t in settings for iou in ious}
@@ -2372,6 +2385,156 @@ class ScaleDistributionReport(ExperimentReport):
 
 # ----------------------------------------------------------------------- main
 
+def finish(args, summary, fits, inv, trends, scales, eliav, redund, fit_none,
+           fit_failed, banks_all, env_geom, envs, chans, missing, base_C,
+           out_dir, fig_dir):
+    """Figures and the report, from the tables and the libraries.
+
+    Shared by a full run and by --report-only, so the two cannot draw
+    different figures or send different reports.
+    """
+    _f = at_operating_point(fits)
+    winners = _f[(_f.variable == 'area') & (_f.d_aic == 0)].form.value_counts()
+
+    print('\nfigures:', flush=True)
+    # Area order, and within one area the lm8 arena before its lm0 twin, so the
+    # figures read small -> mega down the page with each pair side by side.
+    envs_by_area = list(summary.sort_values(['env_area_m2', 'n_landmarks', 'env'],
+                                            ascending=[True, False, True])
+                        .drop_duplicates('env').env)
+    _tick('drawing S1, sizes by arena')
+    fig_sizes_by_arena(banks_all, envs_by_area, chans, env_geom, fig_dir)
+    _tick('drawing S1, sizes with fits')
+    fig_distributions(banks_all, fits, envs_by_area, chans, env_geom, fig_dir)
+    _tick('drawing S2a, one figure per arena')
+    fig_scale_maps(banks_all, envs_by_area, chans, env_geom, fig_dir, base_C)
+    _tick('drawing S2b, every field')
+    fig_field_outlines(banks_all, envs_by_area, chans, env_geom, fig_dir)
+    _tick('drawing S3')
+    fig_size_vs_scale(summary, fig_dir)
+    prune_orphan_figures(fig_dir)
+    _tick('figures done')
+
+    rep = ScaleDistributionReport(env_name=','.join(envs), out_dir=out_dir,
+                                  fig_dir=fig_dir, results=summary,
+                                  log_path=os.environ.get('REALM_LOG_PATH'))
+    rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
+    rep.scales, rep.eliav, rep.env_order = scales, eliav, envs_by_area
+    rep.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
+    rep.fit_none, rep.fit_failed = fit_none, fit_failed
+    rep.redundancy = redund
+    if missing:
+        print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
+    print('\n' + rep.compose(), flush=True)
+    if not args.no_email:
+        rep.send()
+    print(f'\nsummary    -> {out_dir}/summary.csv'
+          f'\nfits       -> {out_dir}/fits.csv'
+          f'\nredundancy -> {out_dir}/redundancy.csv'
+          f'\nfigures    -> {fig_dir}')
+    return 0
+
+
+def report_only(args, envs, chans, base_C, out_dir, fig_dir):
+    """Redraw the figures and re-send the report from a finished run's cache.
+
+    Everything the figures and the report use is already on disk: the tables
+    this script writes (summary, fits, scale_summary, redundancy,
+    eliav_lengths, threshold_invariance, unfitted) and the field libraries.
+    Arena outlines and landmarks come from the world XML. So a change of
+    wording or layout needs no dataset, no refit and no GPU -- the full path
+    loads ~7 GB of features per arena and reruns a 200-draw bootstrap for
+    every library, none of which a new title depends on.
+
+    What is redrawn is whatever the last run wrote. summary.csv is rewritten
+    by every run with that run's arenas, so after a single-arena job it holds
+    one arena; the arenas found are printed, and any asked for and absent are
+    named.
+    """
+    need = [f'{out_dir}/summary.csv', f'{out_dir}/fits.csv']
+    gone = [p for p in need if not os.path.exists(p)]
+    if gone:
+        print('--report-only needs a finished run; not found:\n  '
+              + '\n  '.join(gone))
+        return 1
+
+    def table(name):
+        p = f'{out_dir}/{name}'
+        return pd.read_csv(p) if os.path.exists(p) else pd.DataFrame()
+
+    def mine(df):
+        if not len(df):
+            return df
+        m = df.env.isin(envs) if 'env' in df else pd.Series(True, index=df.index)
+        if 'channel' in df:
+            m &= df.channel.isin(chans)
+        return df[m].reset_index(drop=True)
+
+    summary, fits = mine(pd.read_csv(need[0])), mine(pd.read_csv(need[1]))
+    if not len(summary):
+        print(f'--report-only: {need[0]} holds none of the arenas and channels '
+              f'asked for')
+        return 1
+    scales, eliav = mine(table('scale_summary.csv')), mine(table('eliav_lengths.csv'))
+    redund = mine(table('redundancy.csv'))
+    inv = mine(table('threshold_invariance.csv'))
+    inv = inv if len(inv) else None
+    unfit = mine(table('unfitted.csv'))
+    fit_none = (unfit[unfit.reason != 'raised'].drop(columns='reason')
+                .to_dict('records') if len(unfit) else [])
+    fit_failed = (unfit[unfit.reason == 'raised'].drop(columns='reason')
+                  .to_dict('records') if len(unfit) else [])
+
+    found = [e for e in envs if e in set(summary.env)]
+    absent = [e for e in envs if e not in set(summary.env)]
+    print(f'report only: {len(found)} arena(s) in {need[0]}: {", ".join(found)}',
+          flush=True)
+    if absent:
+        print(f'  !! asked for but not in the last run\'s tables: '
+              f'{", ".join(absent)}', flush=True)
+
+    env_geom = {}
+    for e in found:
+        root = ET.parse(f'{REPO}/simulation/worlds/environments/vpce/{e}.xml').getroot()
+        env = R.build_env(None, root)
+        env['role'] = env_role(e)
+        env['n_landmarks'] = len(root.findall('landmark'))
+        env['aspect'] = (1.0 if env.get('is_circular') else
+                         (env['x_max'] - env['x_min']) /
+                         (env['y_max'] - env['y_min']))
+        env_geom[e] = dict(env, landmarks=[
+            (float(l.get('x')), float(l.get('y')))
+            for l in root.findall('landmark')])
+
+    # Every library the tables describe, plus any empty ones beside them: an
+    # empty library has no summary row but still gets its "too few" panel.
+    keys = sorted({(int(r.extent_pctl), float(r.act_thresh),
+                    None if pd.isna(r.split_half_iou_min)
+                    else float(r.split_half_iou_min))
+                   for r in summary.itertuples()},
+                  key=lambda k: (k[0], k[1], -1.0 if k[2] is None else k[2]))
+    banks_all, lost = {}, []
+    for e in found:
+        for c in chans:
+            for (p, t, iou) in keys:
+                path = bank_path(out_dir, e, c, p, t, iou,
+                                 base_C['TILING_FRAC_MIN'])
+                if os.path.exists(path):
+                    banks_all[(e, c, p, t, iou)] = pd.read_csv(path)
+                else:
+                    lost.append(os.path.relpath(path, out_dir))
+    print(f'  {len(banks_all)} field libraries read from {out_dir}', flush=True)
+    if lost:
+        print(f'  !! {len(lost)} libraries not in the cache, drawn as empty: '
+              + ', '.join(lost[:6]) + (' ...' if len(lost) > 6 else ''),
+              flush=True)
+
+    trends = scale_trends(at_operating_point(summary))
+    return finish(args, summary, fits, inv, trends, scales, eliav, redund,
+                  fit_none, fit_failed, banks_all, env_geom, found, chans, [],
+                  base_C, out_dir, fig_dir)
+
+
 def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -2419,6 +2582,11 @@ def parse_args():
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--use-cache', action='store_true',
                    help='reuse field libraries already built by this script')
+    p.add_argument('--report-only', action='store_true',
+                   help='redraw the figures and re-send the report from the '
+                        'tables and libraries a finished run left in the '
+                        'cache. Reads no dataset and refits nothing: for a '
+                        'change of title, label or layout')
     p.add_argument('--no-gpu', action='store_true')
     p.add_argument('--no-email', action='store_true')
     return p.parse_args()
@@ -2450,6 +2618,8 @@ def main():
     base_C = R.resolve_cfg(dict(LAMBDA=args.lam, RANDOM_SEED=args.seed,
                                 USE_GPU=not args.no_gpu,
                                 TILING_FRAC_MIN=float(args.tiling_frac_min)))
+    if args.report_only:
+        return report_only(args, envs, chans, base_C, out_dir, fig_dir)
     device = R.pick_device(use_gpu=not args.no_gpu)
 
     print('=' * 72)
@@ -2491,7 +2661,9 @@ def main():
             missing.append(e)
             continue
         print(f'\n===== {e} =====', flush=True)
+        _tick(f'[{e}] loading the dataset')
         blocks, xy = ch.load_channel_blocks(data_path)
+        _tick(f'[{e}] dataset loaded')
         if args.subsample and args.subsample < len(xy):
             sel = np.sort(rng.choice(len(xy), args.subsample, replace=False))
             blocks, xy = {k: v[sel] for k, v in blocks.items()}, xy[sel]
@@ -2524,6 +2696,7 @@ def main():
         for c in chans:
             banks = build_banks(e, c, blocks, xy, env, settings, ious,
                                 base_C, device, out_dir, args.use_cache)
+            _tick(f'[{e}/{c}] statistics and fits')
             # The ACT_THRESH identity is about the mask, so check it at one
             # Rule 2 setting rather than once per threshold.
             for row in threshold_invariance(
@@ -2614,40 +2787,9 @@ def main():
               f'{len(fit_failed)} raised -- see {out_dir}/unfitted.csv',
               flush=True)
 
-    _f = at_operating_point(fits)
-    winners = _f[(_f.variable == 'area') & (_f.d_aic == 0)].form.value_counts()
-
-    print('\nfigures:', flush=True)
-    # Area order, and within one area the lm8 arena before its lm0 twin, so the
-    # figures read small -> mega down the page with each pair side by side.
-    envs_by_area = list(summary.sort_values(['env_area_m2', 'n_landmarks', 'env'],
-                                            ascending=[True, False, True])
-                        .drop_duplicates('env').env)
-    fig_sizes_by_arena(banks_all, envs_by_area, chans, env_geom, fig_dir)
-    fig_distributions(banks_all, fits, envs_by_area, chans, env_geom, fig_dir)
-    fig_scale_maps(banks_all, envs_by_area, chans, env_geom, fig_dir, base_C)
-    fig_field_outlines(banks_all, envs_by_area, chans, env_geom, fig_dir)
-    fig_size_vs_scale(summary, fig_dir)
-    prune_orphan_figures(fig_dir)
-
-    rep = ScaleDistributionReport(env_name=','.join(envs), out_dir=out_dir,
-                                  fig_dir=fig_dir, results=summary,
-                                  log_path=os.environ.get('REALM_LOG_PATH'))
-    rep.fits, rep.invariance, rep.winners, rep.trends = fits, inv, winners, trends
-    rep.scales, rep.eliav, rep.env_order = scales, eliav, envs_by_area
-    rep.tiling_frac_min = float(base_C['TILING_FRAC_MIN'])
-    rep.fit_none, rep.fit_failed = fit_none, fit_failed
-    rep.redundancy = redund
-    if missing:
-        print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
-    print('\n' + rep.compose(), flush=True)
-    if not args.no_email:
-        rep.send()
-    print(f'\nsummary    -> {out_dir}/summary.csv'
-          f'\nfits       -> {out_dir}/fits.csv'
-          f'\nredundancy -> {out_dir}/redundancy.csv'
-          f'\nfigures    -> {fig_dir}')
-    return 0
+    return finish(args, summary, fits, inv, trends, scales, eliav, redund,
+                  fit_none, fit_failed, banks_all, env_geom, envs, chans,
+                  missing, base_C, out_dir, fig_dir)
 
 
 if __name__ == '__main__':

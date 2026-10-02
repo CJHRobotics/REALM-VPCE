@@ -323,6 +323,16 @@ libraries, for the combined figures and report:
 sbatch slurm/scale_distribution.sh --use-cache
 ```
 
+To redraw the figures and re-send the report after a change of title, label
+or layout, use `--report-only`. It reads the tables and libraries the last
+run left in the cache and the world XML — no dataset, no refit — and takes
+seconds where `--use-cache` reloads ~7 GB of features per arena and reruns
+every bootstrap fit:
+
+```bash
+sbatch slurm/replot.sh scale
+```
+
 The combining pass is not optional: the area trend, S2b, S3 and the
 landmark-pair comparison need their arenas in one run. Let the fan-out finish
 first — every run writes the same summary files and figures, so a single-arena
