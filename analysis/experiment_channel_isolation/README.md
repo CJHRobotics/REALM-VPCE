@@ -936,3 +936,44 @@ at 174 mm double-column width, and all of them in
 | V5 | the real libraries at q = 50, 65, 80, each library a thin line |
 | V6 | each non-field against the real fields, with a sketch of what it is |
 | V7 | true against drawn elongation by wall distance, the share of elongated fields lying along the wall, and the wall correlation for true discs, drawn discs and the model's own libraries |
+
+---
+
+# Multi-field examples: the clusters contiguity rejects
+
+`run_multifield_examples.py` — figures, not an experiment. The model admits a
+cluster only if its field is one connected patch of floor. Clusters that fail
+often respond in several separate places: multi-field place cells, which the
+single-field model produces and then discards. This draws them.
+
+For one arena and channel it rebuilds the field library as Experiment 2 does,
+keeps every candidate that passed the size rule and failed contiguity, and
+counts each one's **subfields**: connected patches of its field at least as
+large as the smallest admissible field. Smaller patches are speckle and do not
+count. A reject with fewer than two subfields is one patch with fragments, not
+a multi-field cell; the report gives both counts so the figures cannot be read
+as "every reject looks like this".
+
+```bash
+sbatch slurm/multifield_examples.sh
+```
+
+Options: `--env`, `--channel` (default `corr_lm8_l10w2`, `hog` — the landmark
+arena that lost most to contiguity in the prune audit), `--n` (clusters to
+draw, default 12), `--min-subfields` (default 2), `--no-email`.
+
+| output | contents |
+|---|---|
+| `figures/multifield/<env>_<channel>/M00_overview` | the selected clusters on one sheet |
+| `…/M01_cluster_<node>` … | one figure per cluster: its response at every position as a fraction of its own peak, the field's edge outlined at half the peak |
+| `data_cache/multifield/<env>_<channel>_rejected.csv` | every contiguity reject: node, scale, members, field area, patches, subfields and their areas |
+
+Clusters are chosen as the most evenly split, a scale at a time, so the
+figures are not all scale 0.
+
+Two things to carry into any claim made from these. They are clusters the
+model **rejects**: they show the representation yields multi-field responses,
+not that the model reports multi-field cells. And a cluster is one centroid in
+feature space, so two places share a cluster whenever their views are alike —
+in a symmetric arena, and most of all without landmarks, some subfields are
+the arena's symmetry.
