@@ -650,9 +650,14 @@ def fig_rho_summary(corr, name):
     vmax = (max(0.05, float(np.ceil(np.abs(allrho).max() * 20) / 20))
             if len(allrho) else 0.05)
 
-    fig, axes = plt.subplots(1, len(PAIRS), squeeze=False,
-                             figsize=(3.7 * len(PAIRS),
-                                      0.34 * len(envs) + 2.6))
+    # The figure is sized from the grid, so a cell is a true square whatever
+    # the number of arenas and channels: CELL inches a side, plus fixed room
+    # for the arena names on the left and the color bar on the right.
+    CELL = 0.48
+    fig, axes = plt.subplots(
+        1, len(PAIRS), squeeze=False,
+        figsize=(2.0 + len(PAIRS) * len(cols) * CELL + 0.3 * (len(PAIRS) - 1) + 0.95,
+                 len(envs) * CELL + 1.55))
     im = None
     for ax, (_, _, label) in zip(axes[0], PAIRS):
         M = np.full((len(envs), len(cols)), np.nan)
@@ -668,7 +673,7 @@ def fig_rho_summary(corr, name):
                     M[i, j] = float(row.rho.iloc[0])
                     Q[i, j] = float(row.q.iloc[0])
         im = ax.imshow(M, cmap='RdBu_r', vmin=-vmax, vmax=vmax,
-                       aspect='auto', interpolation='nearest')
+                       aspect='equal', interpolation='nearest')
         for i in range(len(envs)):
             for j in range(len(cols)):
                 if not np.isfinite(M[i, j]):
@@ -679,9 +684,6 @@ def fig_rho_summary(corr, name):
                 shade = INK if abs(M[i, j]) < 0.62 * vmax else '#ffffff'
                 ax.text(j, i, f'{M[i, j]:+.2f}{star}', ha='center',
                         va='center', fontsize=6.2, color=shade)
-        # The pooled column is a different grouping, so it gets a rule rather
-        # than sitting in the grid as though it were another channel.
-        ax.axvline(len(chans) - 0.5, color=SURFACE, lw=3.0)
         ax.set_xticks(range(len(cols)))
         ax.set_xticklabels([SD.channel_label(c_, long=False) if c_ != POOLED
                             else 'All pooled' for c_ in cols],
@@ -699,13 +701,17 @@ def fig_rho_summary(corr, name):
         ax.set_yticklabels([])
     fig.suptitle('Elongation correlations by arena and channel', fontsize=11,
                  color=INK)
-    fig.tight_layout(rect=(0, 0, 0.93, 0.98))
+    fig.tight_layout(rect=(0, 0, 1 - 0.95 / fig.get_figwidth(), 0.98))
     # The colour bar says what the old three-line subtitle said: what the
     # numbers are, which way the colours run, and what the star marks. Added
-    # after tight_layout, which does not handle a hand-placed axes.
+    # after tight_layout, which does not handle a hand-placed axes, and after
+    # a draw, because square cells shrink a panel inside its slot and only
+    # then is its real position known.
     if im is not None:
+        fig.canvas.draw()
         box = axes[0][-1].get_position()
-        cax = fig.add_axes([0.945, box.y0, 0.012, box.height])
+        cax = fig.add_axes([box.x1 + 0.2 / fig.get_figwidth(), box.y0,
+                            0.11 / fig.get_figwidth(), box.height])
         cb = fig.colorbar(im, cax=cax)
         cb.set_label(f'Spearman ρ   (* q < {ALPHA:g})', fontsize=7.5, color=INK_2)
         cb.ax.tick_params(labelsize=6.5, colors=MUTED, length=2)
