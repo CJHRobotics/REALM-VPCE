@@ -820,7 +820,7 @@ def fig_excess_by_size(deciles, envs, chans):
                 ax.set_ylabel(f'{nn} null\nexcess wall distance', fontsize=8)
             if i == len(NULLS) - 1:
                 ax.set_xlabel('size decile within library\n'
-                              'grey = small, red = large', fontsize=8)
+                              'gray = small, red = large', fontsize=8)
     if legend_ax is not None:
         legend_ax.legend(fontsize=5.5, frameon=False, ncol=2, loc='upper left')
     fig.suptitle('W1  how much further from the wall than chance, by field size\n'
@@ -874,7 +874,7 @@ def fig_distance_by_class(fields, summary, profiles, envs):
         ax.set_ylim(0, 1)
         ax.set_title(e, fontsize=9)
         ax.set_xlabel('wall distance / furthest possible\n0 = wall, '
-                      '1 = centre or midline', fontsize=8)
+                      '1 = center or midline', fontsize=8)
         ax.tick_params(labelsize=7)
     axes[0][0].set_ylabel('fraction of fields at least this near the wall',
                           fontsize=8)
@@ -996,7 +996,7 @@ class WallProximityReport(ExperimentReport):
     def body(self):
         s, a = self.results, self.arena
         if s is None or not len(s):
-            return 'No field libraries were analysed.'
+            return 'No field libraries were analyzed.'
         S = self.section
         t = s[s.tested]
         out = []
@@ -1099,7 +1099,7 @@ class WallProximityReport(ExperimentReport):
                 [f'  {r.env} {r.channel}: {int(r.n_clear_large)} large fields '
                  f'clear of the wall, landmark test only'
                  for r in wall_skip.itertuples()] +
-                ['', 'Experiment 2 found the colour channel collapses at '
+                ['', 'Experiment 2 found the color channel collapses at '
                  'r = 10; that library is expected here.'])))
 
         cols = ['env', 'channel', 'n_fields', 'n_large', 'n_clear_large',
@@ -1121,7 +1121,7 @@ def parse_args():
                    help='default: the four Experiment 2 arenas')
     p.add_argument('--channels', default=','.join(CHANNELS))
     p.add_argument('--n-null', type=int, default=N_NULL,
-                   help='null realisations of each library, per null')
+                   help='null realizations of each library, per null')
     p.add_argument('--seed', type=int, default=0,
                    help='seeds the null draws only; the libraries keep '
                         'Experiment 2\'s seed')
@@ -1151,7 +1151,7 @@ def main():
     print(f'  libraries: {"rebuilt" if args.rebuild else "from cache where present"}'
           f' ({BANK_DIR})')
     print(f'  classes  : small = bottom 50% by area, large = top 10%')
-    print(f'  nulls    : {", ".join(NULLS)}, {args.n_null} realisations each, '
+    print(f'  nulls    : {", ".join(NULLS)}, {args.n_null} realizations each, '
           f'seed {args.seed}')
     print('=' * 72, flush=True)
 

@@ -320,7 +320,7 @@ def diagnose(pair, scales):
         return (f'{env_name} {cname}: size took the library -- every candidate '
                 f'fell outside the window ({100*pair["frac_below_floor"]:.0f}% '
                 f'under the floor, {100*pair["frac_above_ceiling"]:.0f}% over '
-                f'the ceiling). The channel localises to a size the rules do '
+                f'the ceiling). The channel localizes to a size the rules do '
                 f'not admit')
     if pair['pass_contiguity'] == 0:
         return (f'{env_name} {cname}: contiguity took the library -- '
@@ -609,16 +609,16 @@ class PruneAuditReport(ExperimentReport):
             'Each row follows one scale through the three admission rules, in '
             'order, and then reports the coverage it reached.', '',
             'candidates    fields the tree built at that scale. A zero here is '
-            'not a rule at work: the channel never localised to that size, and '
+            'not a rule at work: the channel never localized to that size, and '
             'nothing downstream could have changed it.',
             'size          the floor and the ceiling. A field outside them has '
             'no scale of its own, so size only ever shows at the two ends of '
             'the axis -- and a library whose candidates all land there is one '
-            'localising to a size the rules do not admit.',
+            'localizing to a size the rules do not admit.',
             'contiguity    a field must be one connected patch. Fields that '
             'fragment are the signature of a channel that cannot separate two '
             'distant places: it responds in both, and the field breaks apart.',
-            'competition   same-scale neighbours suppress each other. Counts '
+            'competition   same-scale neighbors suppress each other. Counts '
             'falling here is normal, and is how the ladder thins with scale.',
             'admitted      what came through all three. A scale with '
             'candidates but nothing admitted was emptied by one of the rules '

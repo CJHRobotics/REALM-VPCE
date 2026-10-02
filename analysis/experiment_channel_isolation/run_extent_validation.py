@@ -1181,7 +1181,7 @@ def fig_mechanism(ex, figs):
     cb.ax.tick_params(labelsize=6, length=2)
     cb.set_label('q at which the spot joins the field', fontsize=6.5)
     ax.text(0.0, -0.01, 'black outline: the true field\nsquares: landmarks\n'
-            'grey: never joins, even at q = 100', transform=ax.transAxes,
+            'gray: never joins, even at q = 100', transform=ax.transAxes,
             fontsize=6, color=INK_2, ha='left', va='top', linespacing=1.3)
 
     # (b) what the boundary takes in as q grows
@@ -1386,9 +1386,9 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     ax.grid(which='minor', color='white', lw=1.5)
     ax.tick_params(which='minor', length=0)
     notes = ['number in a cell: the best q for that arena and channel',
-             'grey: no field recovered at any q']
+             'gray: no field recovered at any q']
     if {'visual', 'all'} & set(chans):
-        notes.append('Visual = HOG + colour + spatial · All = visual + lidar')
+        notes.append('Visual = HOG + color + spatial · All = visual + lidar')
     ax.text(0, -0.03, '\n'.join(notes), transform=ax.transAxes, fontsize=6,
             color=INK_2, ha='left', va='top', linespacing=1.35)
     _title(ax, f'Accuracy at q = {Q_OP:g}, arena by channel')
@@ -2004,7 +2004,7 @@ class ExtentValidationReport(ExperimentReport):
                 f'Every true field here is a disc, so any elongation the drawn '
                 f'field has beyond its true field\'s is added by the drawing '
                 f'itself: the Gaussian read out in feature space, where views '
-                f'near a wall change less moving along it than moving towards '
+                f'near a wall change less moving along it than moving toward '
                 f'it. The true field is not always round -- a disc the wall '
                 f'cuts is already elongated along the wall -- so drawn is '
                 f'compared with true, never with 1. At q = {Q_OP:g}, by wall '
@@ -2064,32 +2064,32 @@ class ExtentValidationReport(ExperimentReport):
              f'{CHANNEL_LABEL.get(ex["channel"], ex["channel"])} channel, scale '
              f'{EXAMPLE_SCALE} -- the trial whose overlap at q = {Q_OP:g} is '
              f'closest to the median for that scale, so it is typical rather '
-             f'than flattering. (a) Every spot on the floor coloured by the q at '
+             f'than flattering. (a) Every spot on the floor colored by the q at '
              f'which it would join the field; the field at any q is everything '
-             f'darker than q. Anything coloured outside the black outline is '
+             f'darker than q. Anything colored outside the black outline is '
              f'look-alike floor. (b) As q grows, the boundary takes in '
              f'more of the true field (blue) and more look-alike floor '
-             f'(orange). The drawn field (black) matches the true size (grey '
+             f'(orange). The drawn field (black) matches the true size (gray '
              f'line) where the circle sits. (c-e) The field itself at three '
              f'settings.'),
             ('V2  The three criteria -- the main result',
              'Every panel: q along the bottom, the black vertical line at '
-             f'q = {Q_OP:g}, grey shading the range that does nearly as well as '
+             f'q = {Q_OP:g}, gray shading the range that does nearly as well as '
              'the best. Bold line: all arenas and channels pooled, with its 95% '
-             'interval; thin grey lines: each arena alone. (a) Overlap between '
+             'interval; thin gray lines: each arena alone. (a) Overlap between '
              'drawn and true field. (b) Drawn area over true area -- x1 is exact, '
              'below is too small. (c) True fields admitted (blue), non-fields '
              'admitted (orange) and their difference (black).'),
             ('V3  Does it hold everywhere?',
              f'(a) Each cell: the overlap at q = {Q_OP:g} as a percentage of the '
              'best overlap any q achieves for that arena and channel; the number '
-             'is that pair\'s own best q. Grey cells recover no field at any q. '
+             'is that pair\'s own best q. Gray cells recover no field at any q. '
              '(b) How many pairs peak at each q. (c) Overlap against q for '
              'each field size, with each curve\'s best marked. (d) The same by '
              'distance from the wall.'),
             (f'V4  What q = {Q_OP:g} draws',
              f'Every arena, {CHANNEL_LABEL.get(self.gallery_channel, self.gallery_channel)} '
-             f'channel, scale {GALLERY_SCALE}. Grey: the true fields. Blue: the '
+             f'channel, scale {GALLERY_SCALE}. Gray: the true fields. Blue: the '
              f'fields drawn at q = {Q_OP:g}. One figure per channel is in the '
              'figure directory; this one is mailed.'),
             ('V5  What changes downstream',
@@ -2101,7 +2101,7 @@ class ExtentValidationReport(ExperimentReport):
              'experiments report.'),
             ('V7  Does drawing a field stretch it along the wall?',
              f'All true fields are discs, drawn at q = {Q_OP:g}. (a) Elongation '
-             'of the true field (grey, as the wall cuts it) and of the drawn '
+             'of the true field (gray, as the wall cuts it) and of the drawn '
              'field (blue), by distance from the wall: median and middle half. '
              f'(b) Of the fields with elongation {ELONGATED:g} or more, the '
              'share whose long axis lies along the wall; random orientation '

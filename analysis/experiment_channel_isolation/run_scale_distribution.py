@@ -237,10 +237,10 @@ ARENA_LABEL = {'circ_lm8_r3': 'Disc r = 3 m',
                'corr_lm0_l10w10': 'Square 10 × 10 m, no landmarks',
                'corr_lm8_l10w2': 'Corridor 10 × 2 m',
                'corr_lm0_l10w2': 'Corridor 10 × 2 m, no landmarks'}
-CHANNEL_LABEL = {'hog': 'HOG', 'color': 'Colour', 'spatial': 'Spatial',
+CHANNEL_LABEL = {'hog': 'HOG', 'color': 'Color', 'spatial': 'Spatial',
                  'lidar': 'Lidar', 'visual': 'Visual', 'all': 'All'}
-CHANNEL_LONG = {'hog': 'HOG', 'color': 'Colour', 'spatial': 'Spatial layout',
-                'lidar': 'Lidar', 'visual': 'Visual (HOG + colour + spatial)',
+CHANNEL_LONG = {'hog': 'HOG', 'color': 'Color', 'spatial': 'Spatial layout',
+                'lidar': 'Lidar', 'visual': 'Visual (HOG + color + spatial)',
                 'all': 'All (visual + lidar)'}
 
 
@@ -1655,8 +1655,8 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
-    fig.suptitle('Every field, coloured by its size\n'
-                 'colour: field radius, on one scale for every panel (bar at '
+    fig.suptitle('Every field, colored by its size\n'
+                 'color: field radius, on one scale for every panel (bar at '
                  'right); line width grows with scale; each arena is drawn to '
                  'fill its panel, so read sizes off the scale bars',
                  fontsize=10, color=INK, y=1 - 0.08 / height)
@@ -1875,7 +1875,7 @@ class ScaleDistributionReport(ExperimentReport):
         # --- best fit, and how it sits against the two papers -------------
         forms = ['Every library is fitted with all three published forms, each '
                  'told that fields cannot fall below the Rule 8 floor or above '
-                 'the Rule 9 ceiling. Without that an exponential is penalised '
+                 'the Rule 9 ceiling. Without that an exponential is penalized '
                  'for the empty gap below the floor, and log-normal wins '
                  'whatever the true shape.', '']
         best = fb[fb.d_aic == 0]

@@ -590,7 +590,7 @@ def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
             ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':', zorder=0)
         ax.set_xlim(0, 1)
         ax.set_title(SD.arena_label(e), fontsize=9, color=INK)
-        ax.set_xlabel('distance from wall (0 = at the wall, 1 = centre)',
+        ax.set_xlabel('distance from wall (0 = at the wall, 1 = center)',
                       fontsize=7.5, color=MUTED)
     for i, ax in enumerate(axes):
         if i % ncol == 0:
@@ -881,19 +881,19 @@ class FieldGeometryReport(ExperimentReport):
             'axis and the INWARD NORMAL at the nearest wall point, 0 to 90 '
             'degrees. 0 = the field points straight at the wall '
             '(perpendicular to it); 90 = it lies along the wall. Recorded per '
-            'field and summarised per scale; not correlated against anything '
+            'field and summarized per scale; not correlated against anything '
             'since 25 September 2026.',
             f'perpendicular     the boolean, angle < {PERP_DEG:g} degrees.',
-            'wall distance     normalised: 0 is as near a wall as the '
-            'collection lattice lets a field\'s centre sit, 1 is the disc\'s '
-            'centre or the rectangle\'s midline. Within one arena this gives '
-            'the same Spearman as metres -- ranks do not care -- so it exists '
+            'wall distance     normalized: 0 is as near a wall as the '
+            'collection lattice lets a field\'s center sit, 1 is the disc\'s '
+            'center or the rectangle\'s midline. Within one arena this gives '
+            'the same Spearman as meters -- ranks do not care -- so it exists '
             'for the pooled rows, where 1 m means different things in an '
             'r = 6 disc and a 2 m corridor.', '',
             'q is Benjamini-Hochberg within each pair and subset. Not a null '
             'model, just the correction for asking the same question of every '
             'arena, channel and scale.', '',
-            'A field at the exact centre of a disc has no nearest wall point '
+            'A field at the exact center of a disc has no nearest wall point '
             'and one in a rectangle\'s corner has two. Those are flagged '
             '(wall_frame_ambiguous) and dropped from the angle correlations '
             'only: '
