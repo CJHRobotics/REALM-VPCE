@@ -404,10 +404,10 @@ def fig_rule_shares(pairs_df, fig_dir):
     ax.spines['bottom'].set_color(RULE_GRAY)
     ax.legend(ncol=2, fontsize=8.5, frameon=False, loc='lower center',
               bbox_to_anchor=(0.5, 1.01))
-    ax.set_title('What each admission rule removes\n'
-                 'share of all candidate fields, the six feature channels '
-                 'pooled; each row sums to 100%', fontsize=10, color=INK,
-                 pad=44)
+    # One line. What the bars are a share of, and that channels are pooled,
+    # belongs in the caption.
+    ax.set_title('What each admission rule removes', fontsize=11, color=INK,
+                 pad=40)
     fig.tight_layout()
     path = os.path.join(fig_dir, 'P1_rule_shares.png')
     fig.savefig(path, dpi=200, bbox_inches='tight', facecolor=SURFACE)
@@ -505,18 +505,21 @@ def fig_funnels(scales_df, pairs_df, fig_dir):
         for ax_i in range(len(rows), n_r * n_c):
             axes[ax_i // n_c][ax_i % n_c].set_visible(False)
         height = fig.get_figheight()
-        fig.legend([plt.Rectangle((0, 0), 1, 1, color=c) for c in bar_cols],
-                   bar_labs, loc='upper center', ncol=2,
+        # The purple percentages get a legend entry rather than a sentence in
+        # the title; everything else about how to read the bars is caption.
+        handles = [plt.Rectangle((0, 0), 1, 1, color=c) for c in bar_cols]
+        labels = list(bar_labs)
+        if not enforced:
+            handles.append(plt.Line2D([], [], ls='', marker='$\\%$', ms=7,
+                                      color=COVERAGE_COLOR))
+            labels.append('floor covered by the admitted fields')
+        fig.legend(handles, labels, loc='upper center', ncol=3,
                    frameon=False, fontsize=8,
-                   bbox_to_anchor=(0.5, 1 - 0.48 / height))
-        fig.suptitle(f'{SD.arena_label(env_name)}: candidate fields at each '
-                     f'scale, and how many pass each admission rule\n'
-                     'number above each group: fields admitted; candidates '
-                     'smaller than scale 0 are not drawn'
-                     + ('' if enforced else '; purple below each scale: % of '
-                        'the floor its admitted fields cover'),
-                     fontsize=10, color=INK, y=1 - 0.06 / height)
-        fig.tight_layout(rect=(0, 0, 1, 1 - 0.8 / height))
+                   bbox_to_anchor=(0.5, 1 - 0.32 / height))
+        fig.suptitle(f'{SD.arena_label(env_name)}: candidates passing each '
+                     f'admission rule, by scale',
+                     fontsize=11, color=INK, y=1 - 0.04 / height)
+        fig.tight_layout(rect=(0, 0, 1, 1 - 0.62 / height))
         path = os.path.join(fig_dir, f'P2_prune_funnels_{env_name}.png')
         fig.savefig(path, dpi=150, bbox_inches='tight')
         plt.close(fig)

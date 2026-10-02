@@ -125,6 +125,7 @@ CHANNEL_COLORS = SD.CHANNEL_COLORS
 SCALES = SD.SCALES
 SCALE_COLORS = SD.SCALE_COLORS
 INK, MUTED, RULE_GRAY, SURFACE = SD.INK, SD.MUTED, SD.RULE_GRAY, SD.SURFACE
+INK_2 = SD.INK_2
 # The two subsets are identities, not magnitudes, so they get two hues rather
 # than two shades: black for every admitted field, orange for the ones whose
 # ellipse does not reach past the wall. Where the two curves coincide -- the
@@ -444,8 +445,15 @@ def _envs_in_order(fields):
     """
     area = fields.groupby('env').env_area_m2.first()
     return sorted(fields.env.unique(),
-                  key=lambda e: (SHAPE_ORDER.get(arena_shape(e), 3),
+                  key=lambda e: (_arena_rank(e), SHAPE_ORDER.get(arena_shape(e), 3),
                                  float(area.get(e, 0.0)), e))
+
+
+def _arena_rank(e):
+    """An arena's place in the order every figure in the series uses: discs,
+    square, corridor, each directly followed by its copy without landmarks."""
+    order = list(SD.ARENA_LABEL)
+    return order.index(e) if e in order else len(order)
 
 
 def _panels(envs, sharey=False):
@@ -504,16 +512,17 @@ def fig_elongation_by_scale(fields, name):
                 patch.set_alpha(0.55)
                 patch.set_edgecolor(c)
         ax.axhline(1.0, color=RULE_GRAY, lw=0.8, ls=':')
-        ax.set_title(e, fontsize=9, color=INK)
+        ax.set_title(SD.arena_label(e), fontsize=9, color=INK)
         ax.set_xticks(SCALES)
         ax.set_xlim(-0.6, SCALES[-1] + 0.6)
         ax.set_xlabel('scale (0 finest, 5 coarsest)', fontsize=7.5, color=MUTED)
     for i, ax in enumerate(axes):
         if i % ncol == 0:
-            ax.set_ylabel('elongation (a/b)', fontsize=8, color=INK)
-    fig.suptitle('G1  elongation by scale, channels pooled\n'
-                 'dotted = 1.0, a circular field', fontsize=10, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
+            ax.set_ylabel('elongation (long ÷ short axis)', fontsize=8, color=INK)
+    # Titles are one short line and carry no figure code: how to read the
+    # marks belongs in the caption.
+    fig.suptitle('Elongation by scale', fontsize=11, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     _save(fig, name)
 
 
@@ -560,7 +569,7 @@ def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
         bx, (q25, q50, q75) = _binned_quantiles(x, y, edges)
         if len(bx):
             ax.fill_between(bx, q25, q75, color='0.74', alpha=0.6, lw=0,
-                            zorder=1, label='IQR, all fields')
+                            zorder=1, label='interquartile range, all fields')
             ax.plot(bx, q50, '-', color=INK, lw=2.0, zorder=4,
                     label='median, all fields')
             leg = leg or ax
@@ -580,16 +589,16 @@ def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
         if hline is not None:
             ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':', zorder=0)
         ax.set_xlim(0, 1)
-        ax.set_title(e, fontsize=9, color=INK)
-        ax.set_xlabel('wall distance: 0 = as near as a field can sit,\n'
-                      '1 = centre or midline', fontsize=7.5, color=MUTED)
+        ax.set_title(SD.arena_label(e), fontsize=9, color=INK)
+        ax.set_xlabel('distance from wall (0 = at the wall, 1 = centre)',
+                      fontsize=7.5, color=MUTED)
     for i, ax in enumerate(axes):
         if i % ncol == 0:
             ax.set_ylabel(ylabel, fontsize=8, color=INK)
     if leg is not None:
         leg.legend(fontsize=5, frameon=False, ncol=2, loc='best')
-    fig.suptitle(title, fontsize=10, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    fig.suptitle(title, fontsize=11, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     _save(fig, name)
 
 
@@ -616,12 +625,13 @@ def fig_rho_summary(corr, name):
     if not len(c):
         return
     envs = sorted(c.env.unique(),
-                  key=lambda e: (SHAPE_ORDER.get(arena_shape(e), 3), e))
+                  key=lambda e: (_arena_rank(e),
+                                 SHAPE_ORDER.get(arena_shape(e), 3), e))
     chans = [ch_ for ch_ in CHANNELS if (c.channel == ch_).any()]
     # `all` is the name of a CHANNEL -- every feature pooled -- so the
     # channels-pooled column cannot be called that too, or a panel ends
     # "... visual all | all" and the two mean different things.
-    POOLED = '(pooled)'
+    POOLED = 'pooled'
     cols = chans + [POOLED]
 
     # ONE colour range across every panel, symmetric about zero, so a red in
@@ -643,6 +653,7 @@ def fig_rho_summary(corr, name):
     fig, axes = plt.subplots(1, len(PAIRS), squeeze=False,
                              figsize=(3.7 * len(PAIRS),
                                       0.34 * len(envs) + 2.6))
+    im = None
     for ax, (_, _, label) in zip(axes[0], PAIRS):
         M = np.full((len(envs), len(cols)), np.nan)
         Q = np.full((len(envs), len(cols)), np.nan)
@@ -656,8 +667,8 @@ def fig_rho_summary(corr, name):
                 if len(row):
                     M[i, j] = float(row.rho.iloc[0])
                     Q[i, j] = float(row.q.iloc[0])
-        ax.imshow(M, cmap='RdBu_r', vmin=-vmax, vmax=vmax,
-                  aspect='auto', interpolation='nearest')
+        im = ax.imshow(M, cmap='RdBu_r', vmin=-vmax, vmax=vmax,
+                       aspect='auto', interpolation='nearest')
         for i in range(len(envs)):
             for j in range(len(cols)):
                 if not np.isfinite(M[i, j]):
@@ -672,26 +683,33 @@ def fig_rho_summary(corr, name):
         # than sitting in the grid as though it were another channel.
         ax.axvline(len(chans) - 0.5, color=SURFACE, lw=3.0)
         ax.set_xticks(range(len(cols)))
-        ax.set_xticklabels(cols, fontsize=6.5, rotation=45, ha='right',
-                           color=MUTED)
+        ax.set_xticklabels([SD.channel_label(c_, long=False) if c_ != POOLED
+                            else 'All pooled' for c_ in cols],
+                           fontsize=6.5, rotation=45, ha='right', color=MUTED)
         ax.set_yticks(range(len(envs)))
-        ax.set_yticklabels(envs, fontsize=6.5)
-        for i, e in enumerate(envs):
-            ax.get_yticklabels()[i].set_color(
-                SHAPE_COLORS.get(arena_shape(e), INK))
-        ax.set_title(label, fontsize=9, color=INK)
+        # Plain arena names. They say the shape themselves, so the labels no
+        # longer need colouring by shape, nor a sentence to explain it.
+        ax.set_yticklabels([SD.arena_label(e) for e in envs], fontsize=6.5,
+                           color=INK_2)
+        ax.set_title(label[0].upper() + label[1:], fontsize=9, color=INK)
         ax.tick_params(length=0)
         for sp in ax.spines.values():
             sp.set_visible(False)
     for ax in axes[0][1:]:
         ax.set_yticklabels([])
-    fig.suptitle('G4  every correlation, per arena and channel\n'
-                 f'the number in each cell is the Spearman rho, * = q < '
-                 f'{ALPHA:g}. One colour scale across both panels, spanning '
-                 f'+-{vmax:g}; blue negative, red positive. Last column pools '
-                 f'an arena\'s channels; arena labels coloured by shape.',
-                 fontsize=10, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    fig.suptitle('Elongation correlations by arena and channel', fontsize=11,
+                 color=INK)
+    fig.tight_layout(rect=(0, 0, 0.93, 0.98))
+    # The colour bar says what the old three-line subtitle said: what the
+    # numbers are, which way the colours run, and what the star marks. Added
+    # after tight_layout, which does not handle a hand-placed axes.
+    if im is not None:
+        box = axes[0][-1].get_position()
+        cax = fig.add_axes([0.945, box.y0, 0.012, box.height])
+        cb = fig.colorbar(im, cax=cax)
+        cb.set_label(f'Spearman ρ   (* q < {ALPHA:g})', fontsize=7.5, color=INK_2)
+        cb.ax.tick_params(labelsize=6.5, colors=MUTED, length=2)
+        cb.outline.set_visible(False)
     _save(fig, name)
 
 
@@ -916,9 +934,63 @@ def parse_args():
     p.add_argument('--rebuild', action='store_true',
                    help='rebuild field libraries even where Experiment 2\'s '
                         'cache already holds them')
+    p.add_argument('--report-only', action='store_true',
+                   help='redraw the figures and re-send the report from the '
+                        'fields.csv, descriptives.csv and correlations.csv a '
+                        'finished run left; reads no dataset and no library')
     p.add_argument('--no-gpu', action='store_true')
     p.add_argument('--no-email', action='store_true')
     return p.parse_args()
+
+
+def finish(fields, desc, corr, envs, missing, args):
+    """Figures and the report, from the three tables. Shared by a full run and
+    by --report-only, so the two cannot draw different figures."""
+    print('\nfigures:', flush=True)
+    fig_elongation_by_scale(fields, 'G1_elongation_by_scale.png')
+    _vs_distance(fields, 'elongation', 'G2_elongation_vs_wall.png',
+                 'Elongation against wall distance',
+                 'elongation (long ÷ short axis)', hline=1.0)
+    fig_rho_summary(corr, 'G4_correlation_summary.png')
+    prune_orphan_figures()
+
+    rep = FieldGeometryReport(env_name=','.join(envs), out_dir=OUT_DIR,
+                              fig_dir=FIG_DIR, results=fields,
+                              log_path=os.environ.get('REALM_LOG_PATH'))
+    rep.fields, rep.corr, rep.desc = fields, corr, desc
+    if missing:
+        print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
+    print('\n' + rep.compose(), flush=True)
+    if not args.no_email:
+        rep.send()
+    print(f'\nfields       -> {OUT_DIR}/fields.csv'
+          f'\ncorrelations -> {OUT_DIR}/correlations.csv'
+          f'\ndescriptives -> {OUT_DIR}/descriptives.csv'
+          f'\nfigures      -> {FIG_DIR}')
+    return 0
+
+
+def report_only(args):
+    """Redraw and re-send from a finished run's tables.
+
+    Everything the figures and the report use is in three CSVs, so a change of
+    wording or of a figure needs no dataset, no library and no GPU.
+    """
+    paths = {n: f'{OUT_DIR}/{n}.csv'
+             for n in ('fields', 'descriptives', 'correlations')}
+    gone = [p for p in paths.values() if not os.path.exists(p)]
+    if gone:
+        print('--report-only needs a finished run; not found:\n  '
+              + '\n  '.join(gone))
+        return 1
+    fields = pd.read_csv(paths['fields'])
+    desc = pd.read_csv(paths['descriptives'])
+    corr = pd.read_csv(paths['correlations'])
+    envs = [e for e in ENVS if e in set(fields.env)] + \
+        sorted(set(fields.env) - set(ENVS))
+    print(f'report only: {len(fields)} fields from {paths["fields"]}, '
+          f'{len(envs)} arena(s)', flush=True)
+    return finish(fields, desc, corr, envs, [], args)
 
 
 def main():
@@ -928,6 +1000,8 @@ def main():
     base_C = dict(BASE_C, USE_GPU=not args.no_gpu)
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(FIG_DIR, exist_ok=True)
+    if args.report_only:
+        return report_only(args)
 
     print('=' * 72)
     print('Field geometry | elongation and orientation against scale and walls')
@@ -1005,31 +1079,7 @@ def main():
                   pairs=WALL_PAIRS),
     ], ignore_index=True)
     corr.to_csv(f'{OUT_DIR}/correlations.csv', index=False)
-
-    print('\nfigures:', flush=True)
-    fig_elongation_by_scale(fields, 'G1_elongation_by_scale.png')
-    _vs_distance(fields, 'elongation', 'G2_elongation_vs_wall.png',
-                 'G2  elongation against wall distance\ngrey = IQR of the '
-                 'library, black = its median, coloured = the median within '
-                 'each scale; dotted = 1.0, a circular field',
-                 'elongation (a/b)', hline=1.0)
-    fig_rho_summary(corr, 'G4_correlation_summary.png')
-    prune_orphan_figures()
-
-    rep = FieldGeometryReport(env_name=','.join(envs), out_dir=OUT_DIR,
-                              fig_dir=FIG_DIR, results=fields,
-                              log_path=os.environ.get('REALM_LOG_PATH'))
-    rep.fields, rep.corr, rep.desc = fields, corr, desc
-    if missing:
-        print(f'\n!! datasets not found, excluded: {", ".join(missing)}')
-    print('\n' + rep.compose(), flush=True)
-    if not args.no_email:
-        rep.send()
-    print(f'\nfields       -> {OUT_DIR}/fields.csv'
-          f'\ncorrelations -> {OUT_DIR}/correlations.csv'
-          f'\ndescriptives -> {OUT_DIR}/descriptives.csv'
-          f'\nfigures      -> {FIG_DIR}')
-    return 0
+    return finish(fields, desc, corr, envs, missing, args)
 
 
 if __name__ == '__main__':

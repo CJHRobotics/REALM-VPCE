@@ -650,6 +650,14 @@ pooled correlations need them together. Fan out one arena per job only if the
 libraries have to be built, then re-run once over all eight. With the cache in
 place there is no GPU work and the job takes minutes.
 
+To redraw the figures and re-send the report without recomputing anything —
+after a change to a title or a label — use `--report-only`, which reads the
+three CSVs a finished run leaves and nothing else:
+
+```
+sbatch slurm/replot.sh geometry
+```
+
 ## Outputs
 
 `data_cache/field_geometry/`
