@@ -11,6 +11,7 @@
 #   funnel       fig:funnel (Fig. 4)        prune_P1_rule_shares
 #   scale-maps   fig:scale-maps (Fig. 5)    scale_S2a_<env>, all eight arenas
 #   size-dist    fig:size-dist (Fig. 6)     scale_S1_sizes_by_arena
+#   size-fits    fig:supp-size-fits (Fig. 12) scale_S1_sizes_with_fits
 #   outlines     fig:supp-outlines (Fig. 13) scale_S2b_field_outlines
 #   elong-scale  fig:elong-scale (Fig. 7)   geom_G1_elongation_by_scale
 #   elong-wall   fig:elong-wall (Fig. 8)    geom_G2_elongation_vs_wall

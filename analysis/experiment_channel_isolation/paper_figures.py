@@ -290,6 +290,32 @@ def outlines_draw(banks, figs):
         figs.adopt(f'{tmp}/S2b_field_outlines.png', 'S2b_field_outlines')
 
 
+def size_fits_cache(cache):
+    """Figure 12: the same libraries as Figure 6, with the fits the scale run
+    left in fits.csv."""
+    path = f'{cache}/scale_distribution/fits.csv'
+    if not os.path.exists(path):
+        raise RuntimeError(f'no fits in {path}; run slurm/scale_distribution.sh')
+    print(f'  {path}  (written {_written(path)})', flush=True)
+    return dict(banks=size_dist_cache(cache), fits=pd.read_csv(path))
+
+
+def size_fits_fake(rng):
+    """The fake libraries with no fits: histograms only, for the layout."""
+    return dict(banks=size_dist_fake(rng), fits=pd.DataFrame(
+        columns=['env', 'channel', 'variable', 'form', 'params', 'trunc_lo',
+                 'trunc_hi', 'd_aic', 'extent_pctl', 'act_thresh',
+                 'split_half_iou_min']))
+
+
+def size_fits_draw(data, figs):
+    geom = {e: _env_geom(e) for e in SIZE_ENVS}
+    with tempfile.TemporaryDirectory() as tmp:
+        SD.fig_distributions(data['banks'], data['fits'], SIZE_ENVS,
+                             SD.CHANNELS, geom, tmp)
+        figs.adopt(f'{tmp}/S1_sizes_with_fits.png', 'S1_sizes_with_fits')
+
+
 # ------------------------------------------- elongation (Figs. 7 and 8)
 
 def _written(path):
@@ -501,6 +527,9 @@ FIGURES = {
     'outlines': ('fig:supp-outlines (Fig. 13)',
                  {'S2b_field_outlines': 'scale_S2b_field_outlines'},
                  size_dist_cache, size_dist_fake, outlines_draw),
+    'size-fits': ('fig:supp-size-fits (Fig. 12)',
+                  {'S1_sizes_with_fits': 'scale_S1_sizes_with_fits'},
+                  size_fits_cache, size_fits_fake, size_fits_draw),
     'elong-scale': ('fig:elong-scale (Fig. 7)',
                     {'G1_elongation_by_scale': 'geom_G1_elongation_by_scale'},
                     fields_cache, fields_fake, elong_scale_draw),
