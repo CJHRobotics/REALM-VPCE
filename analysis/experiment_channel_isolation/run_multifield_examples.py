@@ -551,7 +551,9 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--env', default='corr_lm8_l10w2')
-    p.add_argument('--channel', default='hog')
+    p.add_argument('--channel', default='hog',
+                   help="one feature space, a comma-separated list, or 'every' "
+                        "for all six in turn")
     p.add_argument('--n', type=int, default=12,
                    help='how many clusters to draw, one figure each')
     p.add_argument('--min-subfields', type=int, default=2)
@@ -564,20 +566,20 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
-    args = parse_args()
-    tag = f'{args.env}_{args.channel}'
+def run_one(env, channel, args, email):
+    """One library: its contiguity rejects, their subfield cache, the per-
+    cluster maps, and the report. Returns (rejects, multifield, multiscale)."""
+    tag = f'{env}_{channel}'
     fig_dir = f'{args.fig_dir}/{tag}'
-    os.makedirs(args.cache_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
     print('=' * 72)
-    print(f'Multi-field examples | {args.env} / {args.channel}, '
+    print(f'Multi-field examples | {env} / {channel}, '
           f'EXTENT_PCTL {PCTL}, ACT_THRESH {THRESH:g}')
     print('=' * 72, flush=True)
 
     t0 = time.time()
-    ctx, rep, C, geom, n_admitted = build(args.env, args.channel, args)
-    table = rejected_table(ctx, rep, C, args.env, args.channel)
+    ctx, rep, C, geom, n_admitted = build(env, channel, args)
+    table = rejected_table(ctx, rep, C, env, channel)
     csv = f'{args.cache_dir}/{tag}_rejected.csv'
     table.to_csv(csv, index=False)
     n_sized = int(np.asarray(rep['cand_pass_size'], bool).sum())
@@ -602,8 +604,8 @@ def main():
         with plt.rc_context(SD.PAPER_RC):
             fig_overview(ctx, C, geom, chosen,
                          f'Clusters rejected for contiguity: '
-                         f'{SD.arena_label(args.env)}, '
-                         f'{SD.channel_label(args.channel, long=False)}',
+                         f'{SD.arena_label(env)}, '
+                         f'{SD.channel_label(channel, long=False)}',
                          f'{fig_dir}/M00_overview', written)
             for i, row in enumerate(chosen.itertuples(), 1):
                 fig_cluster(ctx, C, geom, row,
@@ -612,15 +614,69 @@ def main():
     else:
         print(f'\nno cluster with {args.min_subfields}+ subfields to draw')
 
-    r = MultifieldReport(env_name=args.env, out_dir=args.cache_dir,
+    r = MultifieldReport(env_name=env, out_dir=args.cache_dir,
                          fig_dir=fig_dir,
                          log_path=os.environ.get('REALM_LOG_PATH'))
-    r.rejects, r.chosen, r.env, r.channel = table, chosen, args.env, args.channel
+    r.rejects, r.chosen, r.env, r.channel = table, chosen, env, channel
     r.n_sized, r.n_admitted, r.figure_paths, r.csv = n_sized, n_admitted, written, csv
     print('\n' + r.compose(), flush=True)
-    if not args.no_email:
+    if email:
         r.send()
-    return 0
+    return len(table), len(multi), n_ms
+
+
+def main():
+    """Each feature space asked for, in turn. One that fails is reported and
+    the rest still run; the exit status says whether any failed.
+
+    With one feature space the run mails its full report, maps and all. With
+    several it mails one summary of the counts instead -- six reports of
+    maps for one arena is a mailbox, not a result -- and every report is
+    still in the log."""
+    args = parse_args()
+    chans = (list(SD.CHANNELS) if args.channel == 'every' else
+             [c.strip() for c in args.channel.split(',') if c.strip()])
+    os.makedirs(args.cache_dir, exist_ok=True)
+    one = len(chans) == 1
+    rows, failed = [], []
+    for c in chans:
+        try:
+            rows.append((c,) + run_one(args.env, c, args,
+                                       email=one and not args.no_email))
+        except Exception as e:                                  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            print(f'!! {args.env} / {c} FAILED: {e}', flush=True)
+            failed.append(c)
+        finally:
+            # The next feature space builds its own distance matrix; give the
+            # GPU back the last one's.
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
+    if not one:
+        name = lambda c: SD.channel_label(c, long=False)
+        lines = [f'  {name(c):10s} {r:6d} contiguity rejects, {m:5d} '
+                 f'multifield, {ms:5d} multiscale' for c, r, m, ms in rows]
+        lines += [f'  {name(c):10s} FAILED -- see the log' for c in failed]
+        summary = (f'{args.env}: multifield clusters by feature space, at the '
+                   f'operating point (q = {PCTL}).\n\n' + '\n'.join(lines) +
+                   f'\n\nSubfield caches: {args.cache_dir}/{args.env}_<feature '
+                   f'space>_subfields.npz -- paper_figures.py pools them all.\n')
+        print('\n' + summary, flush=True)
+        if not args.no_email:
+            from realm_tools.experiment_lib.reporting import send_email
+            send_email(f'[REALM-VPCE] multifield, {args.env}: '
+                       f'{sum(m for _, _, m, _ in rows)} multifield clusters '
+                       f'over {len(rows)} feature spaces'
+                       + (f', {len(failed)} FAILED' if failed else ''), summary)
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':

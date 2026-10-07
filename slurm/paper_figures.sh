@@ -20,8 +20,11 @@
 # `multifield` reads subfield masks that only a full multifield run writes
 # (GPU, the dataset). Build them once per arena, then this job can redraw:
 #
-#   sbatch slurm/multifield_examples.sh --env corr_lm8_l10w2 --channel hog
-#   sbatch slurm/multifield_examples.sh --env corr_lm0_l10w10 --channel hog
+#   sbatch slurm/multifield_examples.sh --env corr_lm8_l10w2 --channel every
+#   sbatch slurm/multifield_examples.sh --env corr_lm0_l10w10 --channel every
+#
+# Each panel pools the multifield clusters of every feature space cached for
+# that environment, so `every` gives it the most to choose from.
 #
 # `python paper_figures.py --list` prints the current set; figures are added
 # there, and this script needs no change when one is.

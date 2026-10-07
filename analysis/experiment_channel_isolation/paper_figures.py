@@ -389,11 +389,12 @@ def rho_draw(corr, figs):
 
 # ------------------------------------------------------- multifield (Fig. 10)
 #
-# One panel per arena, top to bottom. Each arena's clusters are the ones
-# run_multifield_examples.py found for this channel, cached by its last run.
+# One panel per environment, top to bottom. Each panel pools the multifield
+# clusters run_multifield_examples.py found in EVERY feature space it has
+# cached for that environment: the figure shows that the model produces
+# multifield responses, not which feature space does, so none is named.
 
 MULTIFIELD_ENVS = ['corr_lm8_l10w2', 'corr_lm0_l10w10']
-MULTIFIELD_CHANNEL = 'hog'
 MULTIFIELD_N = 6          # as many as there are hues that stay apart
 
 
@@ -402,20 +403,31 @@ def _multifield_panel(env, clusters, xe, ye, geom):
     n_ms = sum(len(set(c['scales'])) > 1 for c in clusters)
     print(f'  {env}: {len(clusters)} multifield clusters, {n_ms} multiscale; '
           f'drawing {len(picked)}: ' + '; '.join(
-              f'{c["node_id"]} scales {"/".join(map(str, c["scales"]))}'
-              for c in picked), flush=True)
+              f'{c.get("feature_space", "")} {c["node_id"]} scales '
+              f'{"/".join(map(str, c["scales"]))}' for c in picked), flush=True)
     return dict(env=env, geom=geom, x_edges=xe, y_edges=ye, clusters=picked)
 
 
 def multifield_cache(cache):
+    import glob
     panels = []
     for env in MULTIFIELD_ENVS:
-        path = f'{cache}/multifield/{env}_{MULTIFIELD_CHANNEL}_subfields.npz'
-        if not os.path.exists(path):
-            raise RuntimeError(f'no subfield cache at {path}; run '
-                               f'slurm/multifield_examples.sh --env {env} '
-                               f'--channel {MULTIFIELD_CHANNEL}')
-        clusters, xe, ye, geom = MF.load_subfield_cache(path)
+        paths = sorted(glob.glob(f'{cache}/multifield/{env}_*_subfields.npz'))
+        if not paths:
+            raise RuntimeError(f'no subfield cache for {env} in {cache}/multifield; '
+                               f'run slurm/multifield_examples.sh --env {env} '
+                               f'--channel every')
+        clusters, have = [], []
+        for path in paths:
+            cl, xe, ye, geom = MF.load_subfield_cache(path)
+            fs = path.rsplit('/', 1)[-1][len(env) + 1:-len('_subfields.npz')]
+            have.append(f'{fs} {len(cl)}')
+            clusters += [dict(c, feature_space=fs) for c in cl]
+        print(f'  {env}: multifield clusters by feature space: '
+              + ', '.join(have), flush=True)
+        if not clusters:
+            raise RuntimeError(f'{env}: no feature space cached so far has a '
+                               f'multifield cluster to draw')
         panels.append(_multifield_panel(env, clusters, xe, ye, geom))
     return panels
 
