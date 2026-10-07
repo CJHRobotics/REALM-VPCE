@@ -472,7 +472,11 @@ class MultifieldReport(ExperimentReport):
     experiment = 'multifield-examples'
 
     def title(self):
+        # An empty table has no columns at all, so a library with no
+        # contiguity rejects is said so rather than counted.
         t = self.rejects
+        if not len(t):
+            return 'no contiguity rejects, so no multi-field responses'
         return (f'{int((t.n_subfields >= 2).sum())} of {len(t)} contiguity '
                 f'rejects have 2+ subfields')
 
@@ -480,7 +484,7 @@ class MultifieldReport(ExperimentReport):
         t, out = self.rejects, []
         arena, chan = SD.arena_label(self.env), SD.channel_label(self.channel)
         n = len(t)
-        multi = int((t.n_subfields >= 2).sum())
+        multi = int((t.n_subfields >= 2).sum()) if n else 0
         out.append(self.section('What this is', (
             f'{arena}, {chan} channel, at the operating point (q = {PCTL}).\n\n'
             f'The model admits a cluster only if its field is one connected\n'
