@@ -227,26 +227,30 @@ def channel_line(c):
                 ls=(0, (4, 1.6)) if c in CHANNEL_DASHED else '-')
 
 
-# Names a reader can follow without the methods at hand. Figures use these,
-# never the code names: `circ_lm0_r3` and `all` mean nothing on a printed page.
-ARENA_LABEL = {'circ_lm8_r3': 'Disc r = 3 m',
-               'circ_lm0_r3': 'Disc r = 3 m, no landmarks',
-               'circ_lm8_r6': 'Disc r = 6 m',
-               'circ_lm0_r6': 'Disc r = 6 m, no landmarks',
-               'corr_lm8_l10w10': 'Square 10 × 10 m',
-               'corr_lm0_l10w10': 'Square 10 × 10 m, no landmarks',
-               'corr_lm8_l10w2': 'Corridor 10 × 2 m',
-               'corr_lm0_l10w2': 'Corridor 10 × 2 m, no landmarks'}
-CHANNEL_LABEL = {'hog': 'HOG', 'color': 'Color', 'spatial': 'Spatial',
-                 'lidar': 'Lidar', 'visual': 'Visual', 'all': 'All'}
-CHANNEL_LONG = {'hog': 'HOG', 'color': 'Color', 'spatial': 'Spatial layout',
-                'lidar': 'Lidar', 'visual': 'Visual (HOG + color + spatial)',
-                'all': 'All (visual + lidar)'}
+# Names as the paper defines them, so a figure and the text never disagree.
+# An environment is named by its file name, as in the paper's Table 1, and a
+# feature space by its identifier, as in Table 2; the long form of a combined
+# one says what it holds, in the table's words. The table order of the keys
+# is the series' panel order (discs, square, corridor, each followed by its
+# copy without landmarks), which other scripts read.
+ARENA_LABEL = {e: e for e in ('circ_lm8_r3', 'circ_lm0_r3', 'circ_lm8_r6',
+                              'circ_lm0_r6', 'corr_lm8_l10w10',
+                              'corr_lm0_l10w10', 'corr_lm8_l10w2',
+                              'corr_lm0_l10w2')}
+# The code's `spatial` is the paper's `downscaled` (the image downsampled to
+# a coarse layout); only the label changes, so caches and columns keep the
+# code name.
+CHANNEL_LABEL = dict({c: c for c in ('hog', 'color', 'lidar', 'visual', 'all')},
+                     spatial='downscaled')
+CHANNEL_LONG = dict(CHANNEL_LABEL, visual='visual (hog + color + downscaled)',
+                    all='all (visual + lidar)')
+LANDMARK_ROWS = ('With landmarks', 'Without landmarks')
 
 
 def arena_label(e, sep=', '):
-    """An arena's plain name; `sep` breaks it before 'no landmarks'."""
-    return ARENA_LABEL.get(e, e).replace(', ', sep)
+    """An environment's name, as the paper's Table 1 gives it. `sep` is kept
+    for callers that once broke a long name over lines."""
+    return ARENA_LABEL.get(e, e)
 
 
 def channel_label(c, long=True, sep=' '):
@@ -1189,13 +1193,9 @@ def _style_axes(ax):
 
 
 def _env_label(e, geom):
-    """Row label: the arena's plain name and its floor area.
-
-    Not its code name or its role in the analysis: a printed figure has to
-    stand without either.
-    """
-    area = geom.get('env_area')
-    return arena_label(e, '\n') + ('' if area is None else f'\n{area:.0f} m$^2$')
+    """Row label: the environment's name as the paper's Table 1 gives it,
+    which also lists its area and landmarks."""
+    return arena_label(e)
 
 
 FORM_LABEL = {'lognormal': 'log-normal', 'exponential': 'exponential',
@@ -1301,7 +1301,7 @@ def fig_distributions(banks_all, fits, envs, chans, env_geom, fig_dir):
     handles = ([Line2D([], [], color=FORM_COLORS[f], lw=2.0) for f in FORMS]
                + [Patch(color=RULE_GRAY), Line2D([], [], color=MUTED, lw=0.8, ls=':')])
     labels = ([f'{FORM_LABEL.get(f, f)} fit' for f in FORMS]
-              + ['% of fields in each size bin', 'smallest field allowed'])
+              + ['% of fields in each size bin', 'lower size bound'])
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
@@ -1403,20 +1403,20 @@ def fig_sizes_by_arena(banks_all, envs, chans, env_geom, fig_dir):
                 floor = R.DEFAULT_CFG['RULE8_AREA_FRAC'] * geom.get('env_area', np.nan)
                 if np.isfinite(floor):
                     ax.axvline(floor, color=MUTED, lw=0.8, zorder=0,
-                               label='smallest field allowed')
+                               label='lower size bound')
                 ax.set_xlim(0.0, cut)
                 ax.xaxis.set_major_locator(MaxNLocator(4))
                 ax.grid(axis='y', color='#ebeae5', lw=0.5)
                 ax.set_axisbelow(True)
-                if i == 0:
-                    ax.set_title(arena_label(cols[j]), loc='left',
-                                 fontweight='bold')
+                # Every panel titled with its environment's name, as the
+                # paper's Table 1 gives it.
+                ax.set_title(arena_label(e), loc='left', fontweight='bold')
                 if i == len(rows) - 1 or rows[-1][j] is None:
                     ax.set_xlabel('field area (m$^2$)')
                 if j == 0:
                     ax.set_ylabel('% of fields')
                     if len(rows) > 1:
-                        ax.annotate('With landmarks' if i == 0 else 'No landmarks',
+                        ax.annotate(LANDMARK_ROWS[i],
                                     xy=(0, 0.5), xycoords='axes fraction',
                                     xytext=(-34, 0), textcoords='offset points',
                                     rotation=90, ha='center', va='center',
@@ -1434,10 +1434,10 @@ def fig_sizes_by_arena(banks_all, envs, chans, env_geom, fig_dir):
         fig.legend(h, l, loc='lower center', ncol=4, frameon=False,
                    bbox_to_anchor=(0.5, 1 - 0.73 / H), handlelength=2.4,
                    columnspacing=1.4)
-        fig.text(0.5, 1 - 0.3 / H,
-                 f'Field-size distributions by arena · one line per feature '
-                 f'channel · each panel shows the smallest {HIST_PCTL}% of '
-                 f'its fields', ha='center', va='bottom', fontsize=7.5)
+        # One short title, as in the rest of the series; what a line is and
+        # where each panel stops belong in the caption.
+        fig.text(0.5, 1 - 0.3 / H, 'Field-size distributions by feature space',
+                 ha='center', va='bottom', fontsize=8.5)
         path = os.path.join(fig_dir, 'S1_sizes_by_arena.png')
         fig.savefig(path, dpi=300, bbox_inches='tight', pad_inches=0.03)
         fig.savefig(path.replace('.png', '.pdf'), bbox_inches='tight',
@@ -1493,13 +1493,13 @@ def _draw_arena(ax, geom, lim_x, lim_y):
         ax.plot(lx, ly, 's', ms=2.4, color=INK, zorder=11)
 
 
-def _scale_bar(ax, lim_x, lim_y):
+def _scale_bar(ax, lim_x, lim_y, fontsize=6):
     """A round-length bar about a fifth of the panel wide, in the bottom margin."""
     length = max(v for v in (0.1, 0.2, 0.5, 1, 2, 5, 10) if v <= 0.4 * lim_x)
     x0, y0 = -0.96 * lim_x, -lim_y - 0.55 * MAP_MARGIN * lim_x
     ax.plot([x0, x0 + length], [y0, y0], color=INK, lw=1.6,
             solid_capstyle='butt', zorder=12)
-    ax.text(x0 + length + 0.05 * lim_x, y0, f'{length:g} m', fontsize=6,
+    ax.text(x0 + length + 0.05 * lim_x, y0, f'{length:g} m', fontsize=fontsize,
             color=INK_2, va='center')
 
 
@@ -1510,9 +1510,9 @@ def _field_ellipses(bank):
             for r in bank.itertuples()]
 
 
-def _count_label(ax, n):
+def _count_label(ax, n, fontsize=6):
     ax.text(0.98, 0.015, f'n = {n:,}', transform=ax.transAxes, ha='right',
-            va='bottom', fontsize=6, color=INK_2)
+            va='bottom', fontsize=fontsize, color=INK_2)
 
 
 def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
@@ -1555,51 +1555,49 @@ def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
                         facecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.22)],
                         edgecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.95)],
                         linewidths=0.6, zorder=2))
-                _count_label(ax, n)
+                # The sheet is drawn ~2x the page width and shrinks to fit, so
+                # every size here prints at about half: 13 pt prints near 6.5.
+                _count_label(ax, n, fontsize=13)
                 if i == 0:
                     lo_r = r_min * C['BAND_RATIO'] ** s
                     hi_r = min(r_min * C['BAND_RATIO'] ** (s + 1), r_max)
                     which = ' (finest)' if s == 0 else (
                         ' (coarsest)' if s == SCALES[-1] else '')
                     ax.set_title(f'scale {s}{which}\nradius {lo_r:.2g}–{hi_r:.2g} m',
-                                 fontsize=8.5, color=INK)
+                                 fontsize=13, color=INK)
                 if s == 0:
-                    ax.set_ylabel(channel_label(c, sep='\n'), fontsize=9,
+                    ax.set_ylabel(channel_label(c, sep='\n'), fontsize=13,
                                   color=INK)
-        _scale_bar(axes[0][0], lim_x, lim_y)
+        # One line, naming the arena as the paper's table does. The floor
+        # area, the scale ratio and what the squares are are the caption's;
+        # so is size, which the column headings give in metres.
         height = fig.get_figheight()
-        marks = ' · black squares: landmarks' if geom.get('n_landmarks') else ''
-        fig.suptitle(f'{arena_label(e)}: fields at each scale\n'
-                     f'{area:.0f} m$^2$ floor · each scale spans a '
-                     f'{C["BAND_RATIO"]:g}-fold range of radius, starting from '
-                     f'the smallest field allowed{marks}',
-                     fontsize=10, color=INK, y=1 - 0.1 / height)
-        fig.tight_layout(rect=(0, 0, 1, 1 - 0.6 / height))
+        fig.suptitle(f'Place fields by feature space and scale for {e}',
+                     fontsize=17, color=INK, y=1 - 0.1 / height)
+        fig.tight_layout(rect=(0, 0, 1, 1 - 0.5 / height))
         # 110 dpi: eight of these at 150 dpi came to ~27 MB, past the mail
         # attachment budget before anything else was attached.
         _save(fig, fig_dir, f'S2a_scales_{e}.png', dpi=110)
 
 
 def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
-    """S2b: every admitted field drawn on the arena, coloured by its own size.
+    """S2b: every admitted field drawn on the arena, coloured by its scale.
 
     Arena on the row, channel on the column. Each arena fills its own panel so
     the finest fields of the small arenas stay visible; the bar on each row
     gives that row's size. Row heights follow each arena's shape, so the
     corridor is a short wide row rather than a strip in a square of blank.
 
-    Each field is a near-transparent fill under a strong outline, both taking
-    the same colour: the field's radius on a light-to-dark ramp, read off the
-    colourbar in metres. A solid fill hides whatever lies beneath it, and with
-    thousands of overlapping fields per library only the top layer would show.
+    Each field is a near-transparent fill under a strong outline, both in its
+    scale's colour -- the six colours S2a uses, so a scale looks the same in
+    both figures -- and the key at the top is a box of each. A solid fill
+    hides whatever lies beneath it, and with thousands of overlapping fields
+    per library only the top layer would show.
 
-    The ramp is logarithmic, which is what keeps the scales legible within it.
-    Scales are geometric in radius at ratio 1.6, so each occupies an equal
-    slice of the colour axis, while a field at the top of its scale still
-    reads darker than one at the bottom -- which six flat class colours could
-    not show. One ramp serves every panel, so a colour means the same size in
-    every arena and the r = 6 disc's fields really are drawn darker than the
-    r = 3 disc's.
+    This replaced a per-field colour from a logarithmic radius ramp with a
+    colour bar. That showed size within a scale, but a scale had no colour of
+    its own -- its place on the ramp moved with the arena -- so the key could
+    not name the scales. Size is still read off each row's scale bar.
 
     Line width grows with scale as a second cue, and fine fields are drawn
     first so the rare coarse ones sit on top of the carpet rather than under
@@ -1609,20 +1607,11 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
     envs = [e for e in envs if any(key(e, c) in banks_all for c in chans)]
     if not envs:
         return
-    pooled = np.concatenate(
-        [banks_all[key(e, c)].radius_env_m.to_numpy(dtype=float)
-         for e in envs for c in chans
-         if key(e, c) in banks_all and len(banks_all[key(e, c)])]
-        or [np.array([0.1, 1.0])])
-    lo = max(float(np.min(pooled)), 1e-3)
-    hi = max(float(np.max(pooled)), lo * 1.01)
-    norm = mcolors.LogNorm(vmin=lo, vmax=hi, clip=True)
-
     frames = [_map_frame(env_geom.get(e, {})) for e in envs]
     # Row heights follow each arena's shape, but never fall below what a row's
     # own label needs: a 10 x 2 m corridor row is a third the height of a disc
     # row, and at that height its rotated label runs into its neighbour's.
-    ratios = [max(f[2], 0.55) for f in frames]
+    ratios = [max(f[2], 0.75) for f in frames]
     fig, axes = plt.subplots(len(envs), len(chans), squeeze=False,
                              figsize=(2.5 * len(chans),
                                       sum(2.5 * r + 0.35 for r in ratios) + 1.2),
@@ -1634,59 +1623,56 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
         for j, c in enumerate(chans):
             ax = axes[i][j]
             _draw_arena(ax, geom, lim_x, lim_y)
+            # The panel keeps the row's full height and the arena sits in the
+            # middle of it, rather than the panel shrinking to the arena: the
+            # row's label is centred on the panel, and a corridor-thin panel
+            # is shorter than the label.
+            ax.set_adjustable('datalim')
             b = banks_all.get(key(e, c))
             n = 0 if b is None else len(b)
             for s in SCALES:
                 g = b[b.scale_band == s] if n else None
                 if g is None or not len(g):
                     continue
-                # One colour per field, from its own radius: a wash for the
-                # fill, the same colour at full strength for the outline.
-                rgba = SIZE_CMAP(norm(g.radius_env_m.to_numpy(dtype=float)))
-                face, edge = rgba.copy(), rgba.copy()
-                face[:, 3], edge[:, 3] = 0.05, 0.95
+                # The scale's colour: a wash for the fill, the same colour at
+                # full strength for the outline.
                 ax.add_collection(PatchCollection(
-                    _field_ellipses(g), facecolors=face, edgecolors=edge,
+                    _field_ellipses(g),
+                    facecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.05)],
+                    edgecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.95)],
                     linewidths=SCALE_LINEWIDTHS[s], zorder=2 + s))
-            _count_label(ax, n)
+            # Drawn ~2.2x the page width and shrunk to fit, so every size
+            # here prints at under half: 14 pt prints near 6.5.
+            _count_label(ax, n, fontsize=14)
             if i == 0:
-                ax.set_title(channel_label(c, sep='\n'), fontsize=9, color=INK)
+                ax.set_title(channel_label(c, sep='\n'), fontsize=15, color=INK)
             if j == 0:
-                ax.set_ylabel(_env_label(e, geom), fontsize=7.5, color=INK_2)
-                _scale_bar(ax, lim_x, lim_y)
+                # The arena's name as the paper's table defines it; landmarks
+                # and area are in that table. On its side, to save width --
+                # which is why no row is shorter than this name (the 0.75
+                # floor on `ratios` above).
+                ax.set_ylabel(e, fontsize=15, color=INK)
+                _scale_bar(ax, lim_x, lim_y, fontsize=12)
 
-    # Colour is the size ramp now, so the legend shows the other cue: line
-    # width by scale. Drawing these keys in a ramp colour would claim a size
-    # each scale does not have, since a scale spans a range of sizes and its
-    # position on the ramp moves with the arena.
+    # The key: a box per scale in that scale's colour, filled a little more
+    # strongly than the fields so the swatch reads at legend size, outlined at
+    # that scale's line width.
     labels = [f'scale {s}' + (' (finest)' if s == 0 else
                               ' (coarsest)' if s == SCALES[-1] else '')
               for s in SCALES] + ['landmark']
-    handles = ([Line2D([], [], color=INK_2, lw=max(0.8, 1.8 * SCALE_LINEWIDTHS[s]))
+    handles = ([Patch(facecolor=mcolors.to_rgba(SCALE_COLORS[s], 0.35),
+                      edgecolor=SCALE_COLORS[s],
+                      lw=max(0.8, 1.8 * SCALE_LINEWIDTHS[s]))
                 for s in SCALES]
-               + [Line2D([], [], color=INK, marker='s', ms=4, ls='')])
+               + [Line2D([], [], color=INK, marker='s', ms=6, ls='')])
+    # Text set for a sheet drawn ~2.2x the page width: 17 pt prints near 7.5.
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
-               frameon=False, fontsize=8, bbox_to_anchor=(0.5, 1 - 0.62 / height))
-    fig.suptitle('Every field, colored by its size\n'
-                 'color: field radius, on one scale for every panel (bar at '
-                 'right); line width grows with scale; each arena is drawn to '
-                 'fill its panel, so read sizes off the scale bars',
-                 fontsize=10, color=INK, y=1 - 0.08 / height)
-    fig.tight_layout(rect=(0, 0, 0.93, 1 - 0.95 / height))
-    # Added after tight_layout: a manually placed colour bar is not a
-    # tight_layout-compatible axes and warns if it exists during the call.
-    # A short bar centred on the figure. Stretched over the full height it
-    # reads as a ninth column of data rather than a key.
-    cax = fig.add_axes([0.945, 0.40, 0.011, 0.20])
-    cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SIZE_CMAP), cax=cax)
-    cb.set_label('field radius (m)', fontsize=9, color=INK_2)
-    ticks = [t for t in (0.1, 0.2, 0.5, 1, 2, 5, 10) if lo <= t <= hi]
-    if ticks:
-        cb.set_ticks(ticks)
-        cb.set_ticklabels([f'{t:g}' for t in ticks])
-    cb.ax.tick_params(labelsize=7, colors=MUTED)
-    cb.outline.set_visible(False)
+               frameon=False, fontsize=17, handlelength=1.6, handleheight=1.1,
+               bbox_to_anchor=(0.5, 1 - 0.55 / height))
+    fig.suptitle('Fields by feature space', fontsize=19, color=INK,
+                 y=1 - 0.08 / height)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 1.0 / height))
     # 130 dpi: at 150 this one figure was 11 MB of antialiased outlines.
     _save(fig, fig_dir, 'S2b_field_outlines.png', dpi=130)
 

@@ -41,6 +41,7 @@ Usage
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -52,7 +53,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.patches import Circle
+from matplotlib.legend_handler import HandlerTuple
+from matplotlib.patches import Circle, Patch
 from scipy import ndimage
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -239,6 +241,174 @@ def _save(fig, path, written):
     print(f'  {path}.png', flush=True)
 
 
+# --------------------------------------------- the paper figure: subfields
+
+# One hue per cluster, and at most six. On a map any two clusters can sit
+# side by side, so every pair has to be told apart, not just neighbors in a
+# list. Of the validated palette's eight hues, only two six-hue sets pass that
+# all-pairs check; this is the one with the better worst pair (normal vision
+# dE 15.6, colour-blind 6.9). Colour-blind 6.9 is in the band that needs a
+# second cue, and pick_superimposed provides it: no two clusters drawn
+# together overlap, so each sits apart. Each cluster's subfields share its
+# hue, which is what says they belong to one cell.
+CLUSTER_COLORS = ['#2a78d6', '#e34948', '#1baf7a', '#4a3aa7', '#eda100',
+                  '#008300']
+
+
+def subfield_scales(areas_m2, r_min, ratio):
+    """Each subfield's scale, by the model's own banding of radius.
+
+    A cluster whose subfields fall in different scales is multiscale as well
+    as multifield: one cell, fields of different sizes.
+    """
+    r_eq = np.sqrt(np.asarray(areas_m2, dtype=float) / np.pi)
+    return R.assign_bands(r_eq, r_min, ratio)
+
+
+def pick_superimposed(clusters, n, max_overlap=0.05):
+    """Which clusters to draw together on one floor.
+
+    Multiscale clusters first, then the most evenly split. A cluster is taken
+    only if its subfields barely touch the floor already drawn -- at most
+    `max_overlap` of its own area -- so every subfield stays legible and no
+    two hues have to be told apart where they cross.
+    """
+    order = sorted(range(len(clusters)),
+                   key=lambda i: (-int(len(set(clusters[i]['scales'])) > 1),
+                                  -clusters[i]['balance']))
+    n = min(n, len(CLUSTER_COLORS))
+    taken, drawn = [], None
+    for i in order:
+        if len(taken) == n:
+            break
+        mine = np.any(clusters[i]['masks'], axis=0)
+        if drawn is not None and (mine & drawn).sum() > max_overlap * mine.sum():
+            continue
+        taken.append(i)
+        drawn = mine if drawn is None else drawn | mine
+    return [clusters[i] for i in taken]
+
+
+def multifield_clusters(ctx, rep, C, table):
+    """Every reject with two or more subfields, with each subfield's mask.
+
+    What the paper figure is drawn from. A subfield is a connected patch of
+    the field at least as large as the smallest admissible field, as in
+    rejected_table; smaller patches are speckle and are not kept.
+    """
+    G, floor = ctx['G'], float(rep['area_min'])
+    out = []
+    for row in table[table.n_subfields >= 2].itertuples():
+        _, mask = field_of(ctx, int(row.cand_index), C)
+        lab, sizes, ids = patches(mask, G['bin_area'])
+        keep = sizes >= floor
+        out.append(dict(node_id=int(row.node_id), scale=int(row.scale),
+                        balance=float(row.balance),
+                        areas=sizes[keep],
+                        scales=subfield_scales(sizes[keep], rep['r_min'],
+                                               C['BAND_RATIO']),
+                        masks=np.stack([lab == i for i in ids[keep]])))
+    return out
+
+
+def save_subfield_cache(path, clusters, G, geom):
+    """Subfield masks, bit-packed, with the grid and arena they sit on."""
+    gx, gy = len(G['x_edges']) - 1, len(G['y_edges']) - 1
+    n_sub = np.array([len(c['masks']) for c in clusters], dtype=int)
+    packed = (np.stack([np.packbits(m.ravel()) for c in clusters
+                        for m in c['masks']])
+              if len(clusters) else np.zeros((0, 0), np.uint8))
+    np.savez_compressed(
+        path, gx=gx, gy=gy, x_edges=G['x_edges'], y_edges=G['y_edges'],
+        node_id=np.array([c['node_id'] for c in clusters], dtype=int),
+        scale=np.array([c['scale'] for c in clusters], dtype=int),
+        balance=np.array([c['balance'] for c in clusters], dtype=float),
+        n_sub=n_sub, packed=packed,
+        sub_area=np.concatenate([c['areas'] for c in clusters]
+                                or [np.zeros(0)]),
+        sub_scale=np.concatenate([c['scales'] for c in clusters]
+                                 or [np.zeros(0, int)]),
+        geom=json.dumps(geom, default=float))
+
+
+def load_subfield_cache(path):
+    """(clusters, x_edges, y_edges, geom), as save_subfield_cache wrote them."""
+    f = np.load(path)
+    gx, gy = int(f['gx']), int(f['gy'])
+    ends = np.cumsum(f['n_sub'])
+    clusters = []
+    for i, (lo, hi) in enumerate(zip(np.r_[0, ends[:-1]], ends)):
+        clusters.append(dict(
+            node_id=int(f['node_id'][i]), scale=int(f['scale'][i]),
+            balance=float(f['balance'][i]), areas=f['sub_area'][lo:hi],
+            scales=f['sub_scale'][lo:hi],
+            masks=np.stack([np.unpackbits(p)[:gx * gy].reshape(gx, gy)
+                            .astype(bool) for p in f['packed'][lo:hi]])))
+    return clusters, f['x_edges'], f['y_edges'], json.loads(str(f['geom']))
+
+
+def _subfields(ax, xc, yc, c, color):
+    """One cluster: each subfield filled lightly and outlined in its hue."""
+    for m in c['masks']:
+        z = m.T.astype(float)
+        ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=0.32,
+                    zorder=3)
+        ax.contour(xc, yc, z, levels=[0.5], colors=[color], linewidths=0.9,
+                   zorder=4)
+
+
+def fig_multifield_map(panels, figs, name='M00_multifield_map'):
+    """The paper's multifield figure: every chosen cluster's subfields on one
+    floor per arena, a hue per cluster, no response map.
+
+    `panels` is a list of dicts, one per arena, drawn top to bottom:
+        geom      the arena (outline, landmarks)
+        x_edges, y_edges   the floor grid
+        clusters  as pick_superimposed returns them: each with `masks`, one
+                  boolean grid per subfield, and `scales`, one per subfield
+
+    A wide arena takes the full width; a square one is drawn at the width of
+    a single column, centered, so its fields are not blown up past the
+    corridor's. There is no scale bar: the arenas' dimensions are the
+    caption's, with the titles, labels and keys.
+    """
+    heights = [DOUBLE_W / _aspect(p['geom']) if _aspect(p['geom']) >= 2.5
+               else SINGLE_W for p in panels]
+    fig = plt.figure(figsize=(DOUBLE_W, sum(heights) + 0.35 * len(panels)))
+    # The top margin is fixed rather than left to matplotlib, so the legend
+    # can sit just above the first panel's title instead of floating free.
+    top = 1 - 0.45 / fig.get_figheight()
+    gs = fig.add_gridspec(len(panels), 1, height_ratios=heights, hspace=0.18,
+                          top=top)
+    for k, p in enumerate(panels):
+        wide = _aspect(p['geom']) >= 2.5
+        ax = fig.add_subplot(gs[k] if wide else
+                             gs[k].subgridspec(1, 3, width_ratios=
+                                               [1, SINGLE_W, 1])[1])
+        _arena(ax, p['geom'])
+        xc = 0.5 * (p['x_edges'][:-1] + p['x_edges'][1:])
+        yc = 0.5 * (p['y_edges'][:-1] + p['y_edges'][1:])
+        for c, color in zip(p['clusters'], CLUSTER_COLORS):
+            _subfields(ax, xc, yc, c, color)
+        ax.set_title(SD.arena_label(p['env']), fontsize=8, color=INK, pad=4)
+        ax.annotate('abcdefgh'[k], xy=(0, 1), xycoords='axes fraction',
+                    xytext=(-4, 2), textcoords='offset points', fontsize=9,
+                    fontweight='bold', ha='right', va='bottom')
+    # One legend entry, not one per hue: the hues are identities, not
+    # categories, so the key says what a hue is -- one place field -- once,
+    # with the swatches it applies to.
+    n = max(len(p['clusters']) for p in panels)
+    if n:
+        swatches = tuple(Patch(facecolor=mcolors.to_rgba(c, 0.32), edgecolor=c,
+                               lw=0.9) for c in CLUSTER_COLORS[:n])
+        fig.legend([swatches], ['each color: one multifield place cell'],
+                   handler_map={tuple: HandlerTuple(ndivide=None, pad=0.3)},
+                   loc='lower center', bbox_to_anchor=(0.5, top + 0.22 / fig.get_figheight()),
+                   frameon=False,
+                   fontsize=7, handlelength=1.4 * n, handleheight=1.0)
+    figs.save(fig, name)
+
+
 def _label(row):
     n = int(row.n_subfields)
     return f'{n} subfield' + ('' if n == 1 else 's')
@@ -410,6 +580,16 @@ def main():
     print(f'\n{len(table)} of {n_sized} sized candidates failed contiguity; '
           f'{int((table.n_subfields >= 2).sum()) if len(table) else 0} have 2+ '
           f'subfields  ({time.time() - t0:.0f}s)', flush=True)
+
+    # Every multifield cluster's subfields, for the paper figure, which
+    # paper_figures.py draws from this file without rebuilding anything.
+    multi = multifield_clusters(ctx, rep, C, table) if len(table) else []
+    save_subfield_cache(f'{args.cache_dir}/{tag}_subfields.npz', multi,
+                        ctx['G'], geom)
+    n_ms = sum(len(set(c['scales'])) > 1 for c in multi)
+    print(f'{len(multi)} multifield clusters, {n_ms} of them multiscale '
+          f'(subfields in more than one scale) -> '
+          f'{args.cache_dir}/{tag}_subfields.npz', flush=True)
 
     written = []
     chosen = select(table, args.n, args.min_subfields) if len(table) else table

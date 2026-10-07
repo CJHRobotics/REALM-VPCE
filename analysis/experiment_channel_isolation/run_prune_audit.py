@@ -127,6 +127,13 @@ ADMISSION_COLORS = ['#2a78d6', '#eb6834', '#1baf7a']
 ADMISSION_COLUMNS = ['n_candidates', 'n_pass_size', 'n_pass_contiguity',
                      'n_pass_competition']
 COVERAGE_COLOR = '#4a3aa7'
+# P1's segments, by name. Slots 1, 7, 3 and 2 of the same palette in bar
+# order -- blue, violet, aqua, orange -- pass as adjacent pairs: worst
+# colour-blind pair dE 9.2, worst normal-vision pair 16.3. Violet replaced the
+# near-black the admitted segment used to wear. Yellow (slot 4) is drawn only
+# if the coverage filter is switched on, which at the default it is not.
+BLUE, VIOLET, AQUA, ORANGE, YELLOW = ('#2a78d6', '#4a3aa7', '#1baf7a',
+                                      '#eb6834', '#eda100')
 
 
 def rule_names(tiling_frac_min):
@@ -369,29 +376,43 @@ def fig_rule_shares(pairs_df, fig_dir):
                    key=lambda e: (SHAPE_ORDER.get(ARENA_SHAPE.get(e), 3),
                                   float(d[d.env == e].env_area_m2.iloc[0]),
                                   '_lm0_' in e, e))
-    segs = [(f'removed: {RULE_REMOVES["size"]}', 'cut_size', ADMISSION_COLORS[0]),
-            (f'removed: {RULE_REMOVES["contiguity"]}', 'cut_contig',
-             ADMISSION_COLORS[1]),
-            (f'removed: {RULE_REMOVES["competition"]}', 'cut_compete',
-             ADMISSION_COLORS[2])]
+    # Rejections first, then what is kept, so the kept share reads off the
+    # right-hand end. Multifield responses -- the candidates contiguity
+    # turns away -- are shown as kept, and last, because the paper's case is
+    # that they are place fields too. Each segment is named by its category,
+    # in the text's terms; what the bars are a share of is the caption's.
+    # Multifield fields are a subset of the admitted ones, not a third kind of
+    # outcome: the green and orange segments together are everything admitted,
+    # and the number printed in the green one is that total. Orange marks the
+    # multifield part of it and prints its own share only where it is wide
+    # enough to hold one. Each entry: (label, width column, colour, the column
+    # whose value is printed).
+    d['admitted_all'] = d.n_admitted + d.cut_contig
+    segs = [('rejected: size criterion', 'cut_size', BLUE, 'cut_size'),
+            ('rejected: same-scale competition', 'cut_compete', VIOLET,
+             'cut_compete')]
     if float(d.cut_coverage.sum()) > 0:
-        segs.append((f'removed: {RULE_REMOVES["coverage"]}', 'cut_coverage',
-                     COVERAGE_COLOR))
-    segs.append(('admitted as fields', 'n_admitted', ADMITTED_COLOR))
+        segs.append(('rejected: coverage', 'cut_coverage', YELLOW,
+                     'cut_coverage'))
+    segs += [('selected', 'n_admitted', AQUA, 'admitted_all'),
+             ('selected: multifield', 'cut_contig', ORANGE, 'cut_contig')]
 
     fig, ax = plt.subplots(figsize=(9.2, 0.52 * len(order) + 1.9))
     fig.patch.set_facecolor(SURFACE)
     ax.set_facecolor(SURFACE)
     y = np.arange(len(order))[::-1]
     left = np.zeros(len(order))
-    for label, col, colour in segs:
-        v = np.array([100.0 * d[d.env == e][col].sum() /
-                      d[d.env == e].n_candidates.sum() for e in order])
+    def share(col):
+        return np.array([100.0 * d[d.env == e][col].sum() /
+                         d[d.env == e].n_candidates.sum() for e in order])
+
+    for label, col, colour, printed in segs:
+        v, shown = share(col), share(printed)
         ax.barh(y, v, left=left, height=0.68, color=colour, label=label,
                 edgecolor=SURFACE, linewidth=0.8)
-        for yi, (l, wdt) in enumerate(zip(left, v)):
+        for yi, (l, wdt, n) in enumerate(zip(left, v, shown)):
             if wdt >= 3.0:
-                ax.text(l + wdt / 2, y[yi], f'{wdt:.0f}', ha='center',
+                ax.text(l + wdt / 2, y[yi], f'{n:.0f}', ha='center',
                         va='center', fontsize=7.5, color='white')
         left += v
     ax.set_yticks(y)
@@ -406,8 +427,8 @@ def fig_rule_shares(pairs_df, fig_dir):
               bbox_to_anchor=(0.5, 1.01))
     # One line. What the bars are a share of, and that channels are pooled,
     # belongs in the caption.
-    ax.set_title('What each admission rule removes', fontsize=11, color=INK,
-                 pad=40)
+    ax.set_title('Candidate fields by selection outcome', fontsize=11,
+                 color=INK, pad=40)
     fig.tight_layout()
     path = os.path.join(fig_dir, 'P1_rule_shares.png')
     fig.savefig(path, dpi=200, bbox_inches='tight', facecolor=SURFACE)

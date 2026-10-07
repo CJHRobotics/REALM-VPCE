@@ -421,7 +421,7 @@ FIGURES_WRITTEN = []
 
 def _save(fig, name):
     p = os.path.join(FIG_DIR, name)
-    fig.savefig(p, dpi=150, bbox_inches='tight', facecolor=SURFACE)
+    fig.savefig(p, dpi=300, bbox_inches='tight', facecolor=SURFACE)
     plt.close(fig)
     FIGURES_WRITTEN.append(p)
     print(f'  {p}', flush=True)
@@ -437,15 +437,19 @@ def prune_orphan_figures():
 
 
 def _envs_in_order(fields):
-    """Discs smallest first, then squares, then corridors, then by name.
+    """Arenas with landmarks first, then their copies without, each half in
+    the series' order: discs smallest first, then square, then corridor.
 
-    Sorted on the ARENA's area, not on the total area of its fields: the
-    second is a proxy that happens to correlate and would reorder panels as
-    libraries change size.
+    With eight arenas on two rows of four, that puts every arena with
+    landmarks on the top row and its no-landmark twin directly below it, so
+    the effect of the landmarks is read down a column. Sorted on the ARENA's
+    area, not on the total area of its fields: the second is a proxy that
+    happens to correlate and would reorder panels as libraries change size.
     """
     area = fields.groupby('env').env_area_m2.first()
     return sorted(fields.env.unique(),
-                  key=lambda e: (_arena_rank(e), SHAPE_ORDER.get(arena_shape(e), 3),
+                  key=lambda e: ('_lm0_' in e, _arena_rank(e),
+                                 SHAPE_ORDER.get(arena_shape(e), 3),
                                  float(area.get(e, 0.0)), e))
 
 
@@ -456,27 +460,87 @@ def _arena_rank(e):
     return order.index(e) if e in order else len(order)
 
 
-def _panels(envs, sharey=False):
-    """A panel per arena, each free to scale its own y axis.
+def _table(envs, legend_rows=0):
+    """The panels as a table, laid out as the size-distribution figure is:
+    one column per arena shape, the arenas with landmarks on the top row and
+    their copies without directly below, each panel titled with its
+    environment's name and the two row labels down the left. Drawn at the journal's page width
+    in SD.PAPER_RC sizes, so text prints at the size it is set; the caller
+    opens that rc context.
 
-    Not shared. The arenas differ by 5x in radius and 16x in area, so one axis
-    across all eight compresses the small arenas into a strip to leave headroom
-    for the large ones, and the shape of the thing being plotted stops being
-    visible in most of the panels. Every panel carries its own ticks, so no
-    scale is hidden by this -- it just has to be read per panel.
+    Each panel keeps its own y axis. The arenas differ by 5x in radius and 16x
+    in area, so one axis across all eight compresses the small arenas into a
+    strip, and the shape of what is plotted stops being visible.
+
+    Returns (fig, cells, H, above): cells is a list of (row, col, env, ax), H
+    the figure height and `above` the margin over the panels, both in inches,
+    for placing the title and key.
     """
-    ncol = int(np.ceil(len(envs) / 2)) if len(envs) > 4 else len(envs)
-    nrow = int(np.ceil(len(envs) / ncol))
-    fig, axes = plt.subplots(nrow, ncol, squeeze=False, sharey=sharey,
-                             figsize=(3.2 * ncol, 2.9 * nrow))
-    flat = [ax for r in axes for ax in r]
-    for ax in flat[len(envs):]:
-        ax.axis('off')
-    for ax in flat:
-        ax.tick_params(labelsize=7, colors=MUTED)
-        for sp in ax.spines.values():
-            sp.set_color(RULE_GRAY)
-    return fig, flat[:len(envs)], ncol
+    cols = []
+    for e in envs:
+        base = e.replace('_lm0_', '_lm8_')
+        if base not in cols:
+            cols.append(base)
+    cols.sort(key=lambda b: (SD.PAPER_COLUMNS.index(b)
+                             if b in SD.PAPER_COLUMNS else len(cols), b))
+    have = set(envs)
+    rows = [[b if b in have else None for b in cols]]
+    if any(b.replace('_lm8_', '_lm0_') in have for b in cols):
+        rows.append([b.replace('_lm8_', '_lm0_')
+                     if b.replace('_lm8_', '_lm0_') in have else None
+                     for b in cols])
+    # Fixed margins in inches: room above for the title and, when there is
+    # one, a key of `legend_rows` rows, so neither floats at any height.
+    above = 0.58 + 0.2 * legend_rows
+    H = 1.6 * len(rows) + 0.4 + above
+    fig, axes = plt.subplots(len(rows), len(cols), squeeze=False,
+                             figsize=(SD.PAPER_WIDTH, H))
+    fig.subplots_adjust(left=0.105, right=0.995, bottom=0.42 / H,
+                        top=1 - above / H, wspace=0.38, hspace=0.42)
+    cells = []
+    for i, row in enumerate(rows):
+        for j, e in enumerate(row):
+            ax = axes[i][j]
+            if e is None:
+                ax.set_visible(False)
+                continue
+            ax.grid(axis='y', color='#ebeae5', lw=0.5)
+            ax.set_axisbelow(True)
+            # Every panel is titled with its environment's name, as the
+            # paper's Table 1 gives it, so no panel has to be read off a
+            # column heading.
+            ax.set_title(SD.arena_label(e), loc='left', fontweight='bold')
+            # Ticks as written, without trailing zeros: '2.5', not '2.50'.
+            ax.yaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:g}'))
+            ax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:g}'))
+            # The row label sits against the figure's left edge, not at an
+            # offset from the axis: tick labels here vary in width, and an
+            # offset that clears '40' runs into the y label beside '2.25'.
+            if j == 0 and len(rows) > 1:
+                box = ax.get_position()
+                fig.text(0.008, 0.5 * (box.y0 + box.y1), SD.LANDMARK_ROWS[i],
+                         rotation=90, ha='left', va='center',
+                         fontweight='bold', fontsize=7.5)
+            ax.annotate('abcdefgh'[i * len(cols) + j], xy=(0, 1),
+                        xycoords='axes fraction', xytext=(-22, 6),
+                        textcoords='offset points', fontweight='bold',
+                        fontsize=9, ha='left', va='bottom')
+            cells.append((i, j, e, ax))
+    return fig, cells, H, above
+
+
+def _label_table(fig, cells, H, title, xlabel, ylabel):
+    """Axis labels on the outside of the table only, and the one-line title."""
+    last = max(i for i, *_ in cells)
+    below = {j for i, j, *_ in cells if i == last}
+    for i, j, _, ax in cells:
+        if i == last or j not in below:
+            ax.set_xlabel(xlabel)
+        if j == 0:
+            ax.set_ylabel(ylabel)
+    fig.text(0.5, 1 - 0.3 / H, title, ha='center', va='bottom', fontsize=8.5)
 
 
 def _scale_label(s):
@@ -493,37 +557,35 @@ def fig_elongation_by_scale(fields, name):
     Experiment 2's figures.
     """
     envs = _envs_in_order(fields)
-    fig, axes, ncol = _panels(envs)
-    for ax, e in zip(axes, envs):
-        fe = fields[fields.env == e]
-        data, pos, cols = [], [], []
-        for s in SCALES:
-            v = fe[fe.scale == s].elongation.to_numpy(dtype=float)
-            v = v[np.isfinite(v)]
-            if len(v) >= 5:
-                data.append(v)
-                pos.append(s)
-                cols.append(SCALE_COLORS[s])
-        if data:
-            bp = ax.boxplot(data, positions=pos, widths=0.66, showfliers=False,
-                            patch_artist=True, medianprops=dict(color=INK, lw=1.2))
-            for patch, c in zip(bp['boxes'], cols):
-                patch.set_facecolor(c)
-                patch.set_alpha(0.55)
-                patch.set_edgecolor(c)
-        ax.axhline(1.0, color=RULE_GRAY, lw=0.8, ls=':')
-        ax.set_title(SD.arena_label(e), fontsize=9, color=INK)
-        ax.set_xticks(SCALES)
-        ax.set_xlim(-0.6, SCALES[-1] + 0.6)
-        ax.set_xlabel('scale (0 finest, 5 coarsest)', fontsize=7.5, color=MUTED)
-    for i, ax in enumerate(axes):
-        if i % ncol == 0:
-            ax.set_ylabel('elongation (long ÷ short axis)', fontsize=8, color=INK)
-    # Titles are one short line and carry no figure code: how to read the
-    # marks belongs in the caption.
-    fig.suptitle('Elongation by scale', fontsize=11, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    _save(fig, name)
+    with plt.rc_context(SD.PAPER_RC):
+        fig, cells, H, _ = _table(envs)
+        for _, _, e, ax in cells:
+            fe = fields[fields.env == e]
+            data, pos, cols = [], [], []
+            for s in SCALES:
+                v = fe[fe.scale == s].elongation.to_numpy(dtype=float)
+                v = v[np.isfinite(v)]
+                if len(v) >= 5:
+                    data.append(v)
+                    pos.append(s)
+                    cols.append(SCALE_COLORS[s])
+            if data:
+                bp = ax.boxplot(data, positions=pos, widths=0.66,
+                                showfliers=False, patch_artist=True,
+                                medianprops=dict(color=INK, lw=1.0),
+                                whiskerprops=dict(lw=0.7),
+                                capprops=dict(lw=0.7))
+                for patch, c in zip(bp['boxes'], cols):
+                    patch.set_facecolor(c)
+                    patch.set_alpha(0.55)
+                    patch.set_edgecolor(c)
+            ax.set_xticks(SCALES)
+            ax.set_xlim(-0.6, SCALES[-1] + 0.6)
+        # Titles are one short line and carry no figure code: how to read
+        # the marks belongs in the caption.
+        _label_table(fig, cells, H, 'Elongation by scale',
+                     'scale (0 finest, 5 coarsest)', 'elongation')
+        _save(fig, name)
 
 
 def _binned_quantiles(x, y, edges, min_n=8, qs=(25, 50, 75)):
@@ -559,47 +621,46 @@ def _vs_distance(fields, ycol, name, title, ylabel, hline=None):
     the eye read the densest region as the trend.
     """
     envs = _envs_in_order(fields)
-    fig, axes, ncol = _panels(envs)
     edges = np.linspace(0.0, 1.0, 11)
-    leg = None
-    for ax, e in zip(axes, envs):
-        fe = fields[fields.env == e]
-        x = fe.wall_dist_norm.to_numpy(dtype=float)
-        y = fe[ycol].to_numpy(dtype=float)
-        bx, (q25, q50, q75) = _binned_quantiles(x, y, edges)
-        if len(bx):
-            ax.fill_between(bx, q25, q75, color='0.74', alpha=0.6, lw=0,
-                            zorder=1, label='interquartile range, all fields')
-            ax.plot(bx, q50, '-', color=INK, lw=2.0, zorder=4,
-                    label='median, all fields')
-            leg = leg or ax
-        for sc in SCALES:
-            sel = (fe.scale.to_numpy() == sc)
-            if sel.sum() < MIN_N:
-                continue
-            # A per-scale median wants more than the band does before it is
-            # worth a line: it is one sixth of the library spread over the
-            # same bins, and at ten fields a bin the angle measure in
-            # particular -- which ranges over 90 degrees -- draws noise.
-            sx, (sm,) = _binned_quantiles(x[sel], y[sel], edges, min_n=15,
-                                          qs=(50,))
-            if len(sx) >= 4:
-                ax.plot(sx, sm, '-', lw=1.1, alpha=0.9, zorder=3,
-                        color=SCALE_COLORS[sc], label=_scale_label(sc))
-        if hline is not None:
-            ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':', zorder=0)
-        ax.set_xlim(0, 1)
-        ax.set_title(SD.arena_label(e), fontsize=9, color=INK)
-        ax.set_xlabel('distance from wall (0 = at the wall, 1 = center)',
-                      fontsize=7.5, color=MUTED)
-    for i, ax in enumerate(axes):
-        if i % ncol == 0:
-            ax.set_ylabel(ylabel, fontsize=8, color=INK)
-    if leg is not None:
-        leg.legend(fontsize=5, frameon=False, ncol=2, loc='best')
-    fig.suptitle(title, fontsize=11, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    _save(fig, name)
+    with plt.rc_context(SD.PAPER_RC):
+        fig, cells, H, above = _table(envs, legend_rows=2)
+        leg = None
+        for _, _, e, ax in cells:
+            fe = fields[fields.env == e]
+            x = fe.wall_dist_norm.to_numpy(dtype=float)
+            y = fe[ycol].to_numpy(dtype=float)
+            bx, (q25, q50, q75) = _binned_quantiles(x, y, edges)
+            if len(bx):
+                ax.fill_between(bx, q25, q75, color='0.74', alpha=0.6, lw=0,
+                                zorder=1, label='interquartile range, all fields')
+                ax.plot(bx, q50, '-', color=INK, lw=1.6, zorder=4,
+                        label='median, all fields')
+                leg = leg or ax
+            for sc in SCALES:
+                sel = (fe.scale.to_numpy() == sc)
+                if sel.sum() < MIN_N:
+                    continue
+                # A per-scale median wants more than the band does before it
+                # is worth a line: it is one sixth of the library spread over
+                # the same bins, and at ten fields a bin the angle measure in
+                # particular -- which ranges over 90 degrees -- draws noise.
+                sx, (sm,) = _binned_quantiles(x[sel], y[sel], edges, min_n=15,
+                                              qs=(50,))
+                if len(sx) >= 4:
+                    ax.plot(sx, sm, '-', lw=0.9, alpha=0.9, zorder=3,
+                            color=SCALE_COLORS[sc], label=_scale_label(sc))
+            if hline is not None:
+                ax.axhline(hline, color=RULE_GRAY, lw=0.8, ls=':', zorder=0)
+            ax.set_xlim(0, 1)
+        _label_table(fig, cells, H, title, 'wall distance', ylabel)
+        # One key for every panel, between the title and the column
+        # headings, as in the size figure.
+        if leg is not None:
+            h, l = leg.get_legend_handles_labels()
+            fig.legend(h, l, loc='lower center', ncol=3, frameon=False,
+                       bbox_to_anchor=(0.5, 1 - (above - 0.24) / H),
+                       handlelength=2.4, columnspacing=1.4)
+        _save(fig, name)
 
 
 def fig_rho_summary(corr, name):
@@ -686,7 +747,7 @@ def fig_rho_summary(corr, name):
                         va='center', fontsize=6.2, color=shade)
         ax.set_xticks(range(len(cols)))
         ax.set_xticklabels([SD.channel_label(c_, long=False) if c_ != POOLED
-                            else 'All pooled' for c_ in cols],
+                            else 'pooled' for c_ in cols],
                            fontsize=6.5, rotation=45, ha='right', color=MUTED)
         ax.set_yticks(range(len(envs)))
         # Plain arena names. They say the shape themselves, so the labels no
@@ -699,7 +760,7 @@ def fig_rho_summary(corr, name):
             sp.set_visible(False)
     for ax in axes[0][1:]:
         ax.set_yticklabels([])
-    fig.suptitle('Elongation correlations by arena and channel', fontsize=11,
+    fig.suptitle('Elongation correlations by environment and feature space', fontsize=11,
                  color=INK)
     fig.tight_layout(rect=(0, 0, 1 - 0.95 / fig.get_figwidth(), 0.98))
     # The colour bar says what the old three-line subtitle said: what the
@@ -956,7 +1017,7 @@ def finish(fields, desc, corr, envs, missing, args):
     fig_elongation_by_scale(fields, 'G1_elongation_by_scale.png')
     _vs_distance(fields, 'elongation', 'G2_elongation_vs_wall.png',
                  'Elongation against wall distance',
-                 'elongation (long ÷ short axis)', hline=1.0)
+                 'elongation', hline=1.0)
     fig_rho_summary(corr, 'G4_correlation_summary.png')
     prune_orphan_figures()
 

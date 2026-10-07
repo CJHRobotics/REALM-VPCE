@@ -189,7 +189,7 @@ ENV_ORDER = ['circ_lm8_r3', 'circ_lm0_r3', 'circ_lm8_r6', 'circ_lm0_r6',
 ENV_LABEL = SD.ARENA_LABEL
 CHANNEL_LABEL = SD.CHANNEL_LABEL
 CHANNEL_LONG = SD.CHANNEL_LONG
-Q_AXIS_LABEL = "q  (% of a cluster's positions inside its field)"
+Q_AXIS_LABEL = "q  (% of a cluster's members inside its field)"
 CONTROL_LABEL = {'scattered': 'Scattered', 'shuffled': 'Shuffled',
                  'oversized': 'Oversized', 'split': 'Two lobes',
                  'ring': 'Ring'}
@@ -268,11 +268,11 @@ def _q_axis(ax, label=True):
         ax.set_xlabel(Q_AXIS_LABEL)
 
 
-def _mark_op(ax, text=False):
+def _mark_op(ax, text=False, ls='-'):
     """The value in use, as a vertical line. Labelled above the plot, like a
     tick, when asked -- inside it, a label collides with whatever the data
     happen to do near q = 65."""
-    ax.axvline(Q_OP, color=INK, lw=0.8, zorder=1.6)
+    ax.axvline(Q_OP, color=INK, lw=0.8, ls=ls, zorder=1.6)
     if text:
         ax.annotate(f'q = {Q_OP:g}', xy=(Q_OP, 1.0),
                     xycoords=('data', 'axes fraction'), xytext=(0, 1.5),
@@ -1136,6 +1136,11 @@ def fig_mechanism(ex, figs):
     percentile of the group's own spread that its distance to the group's
     typical view corresponds to. Map that and the whole family of fields is
     on one panel -- the field at any q is the region below q.
+
+    The figure argues one thing: q sets how large the projected field is in
+    the environment. So (b) is the field's area against q and nothing else,
+    and every explanation -- outline, gray, what the colors mean -- is the
+    caption's job, not text on the figure.
     """
     bin_d2, dc2, imask, in_env = ex['bin_d2'], ex['dc2'], ex['imask'], ex['in_env']
     xe, ye = ex['x_edges'], ex['y_edges']
@@ -1150,11 +1155,7 @@ def fig_mechanism(ex, figs):
 
     qs = np.arange(0, 101)
     bounds = d2min + (np.percentile(dc2, qs) - dc2[0])
-    true_in = np.array([((bin_d2 <= b) & finite & imask).sum() for b in bounds]) * ba
-    let_in = np.array([((bin_d2 <= b) & finite & ~imask).sum() for b in bounds]) * ba
-    whole = true_in + let_in
-    true_area = imask.sum() * ba
-    q_cal = crossing(qs.astype(float), whole - true_area)
+    area = np.array([((bin_d2 <= b) & finite).sum() for b in bounds]) * ba
 
     fig = plt.figure(figsize=(FIG_W, 4.55))
     gs = fig.add_gridspec(2, 1, height_ratios=[1.12, 1.0], hspace=0.42)
@@ -1179,34 +1180,27 @@ def fig_mechanism(ex, figs):
     cb.set_ticks([0, 20, 40, 60, 80, 100])
     cb.outline.set_linewidth(0)
     cb.ax.tick_params(labelsize=6, length=2)
-    cb.set_label('q at which the spot joins the field', fontsize=6.5)
-    ax.text(0.0, -0.01, 'black outline: the true field\nsquares: landmarks\n'
-            'gray: never joins, even at q = 100', transform=ax.transAxes,
-            fontsize=6, color=INK_2, ha='left', va='top', linespacing=1.3)
+    cb.set_label('q at which the position joins the field', fontsize=6.5)
 
-    # (b) what the boundary takes in as q grows
+    # (b) the field's area as q grows. Cut at the largest q drawn in (c-e):
+    # past it the field runs toward the whole floor and would flatten the
+    # range the panels below show.
+    # The black horizontal line is the hand-crafted cluster's own area, so the
+    # q at which the field matches it can be read off without a label.
     ax = fig.add_subplot(top[3])
-    ax.fill_between(qs, 0, true_in, color=BLUE, alpha=0.18, lw=0)
-    ax.plot(qs, true_in, color=BLUE, lw=1.3, label='true field inside')
-    ax.plot(qs, let_in, color=ORANGE, lw=1.3, label='look-alike floor let in')
-    ax.plot(qs, whole, color=INK, lw=1.5, label='whole field drawn')
-    ax.axhline(true_area, color=MUTED, lw=0.8, zorder=1)
-    ax.annotate('size of the true field', xy=(2, true_area), xytext=(0, 2),
-                textcoords='offset points', fontsize=6, color=INK_2, va='bottom')
-    if np.isfinite(q_cal):
-        ax.plot([q_cal], [true_area], 'o', ms=4.5, mfc='white', mec=INK, mew=1.0,
-                zorder=5)
-    _mark_op(ax, text=True)
-    _q_axis(ax)
-    top_y = max(2.2 * true_area, float(np.nanmax(whole[qs <= 95])) * 1.05)
-    ax.set_ylim(0, top_y)
-    ax.set_ylabel('floor area (m$^2$)')
-    ax.legend(loc='upper left', handlelength=1.6)
+    footprint = float(imask.sum() * ba)
+    ax.axhline(footprint, color=INK, lw=0.8, zorder=1.6)
+    ax.plot(qs, area, color=BLUE, lw=1.5, zorder=3)
+    # Dashed, so it is not read as one arm of a crosshair with the solid one.
+    _mark_op(ax, text=True, ls=(0, (4, 2)))
+    _q_axis(ax, label=False)
+    ax.set_xlabel('q')
+    ax.set_ylim(0, max(footprint, float(area[qs <= max(EXAMPLE_Q)].max())) * 1.05)
+    ax.set_ylabel('field area (m$^2$)')
     _grid_y(ax)
     _panel_label(ax, 'b')
 
     # (c-e) the field itself at three settings
-    rows = ex['rows'].set_index('q')
     for k, q in enumerate(EXAMPLE_Q):
         ax = fig.add_subplot(bot[k])
         _arena_axes(ax, ex['geom'])
@@ -1219,18 +1213,11 @@ def fig_mechanism(ex, figs):
                    linewidths=0.8, zorder=4)
         ax.contour(xc, yc, imask.T.astype(float), [0.5], colors=INK,
                    linewidths=0.9, zorder=5)
-        inter = float((m & imask).sum())
-        iou = inter / float((m | imask).sum())
-        ratio = m.sum() / max(imask.sum(), 1)
-        verdict = ('too small' if ratio < 0.8 else 'too large' if ratio > 1.25
-                   else 'about right')
-        ax.set_title(f'q = {q:g}: {verdict}\noverlap {iou:.2f}, area ×{ratio:.2f}',
-                     fontsize=7, pad=3)
+        ax.set_title(f'q = {q:g}', fontsize=7, pad=3)
         if k == 0:
             _scale_bar(ax, ex['geom'])
         _panel_label(ax, 'cde'[k], dx=-6)
     figs.save(fig, 'V1_what_q_does')
-    return dict(q_cal=q_cal, true_area=true_area)
 
 
 def _ci(v, digits=0):
@@ -1385,13 +1372,14 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     ax.set_yticks(np.arange(-0.5, len(envs)), minor=True)
     ax.grid(which='minor', color='white', lw=1.5)
     ax.tick_params(which='minor', length=0)
-    notes = ['number in a cell: the best q for that arena and channel',
-             'gray: no field recovered at any q']
+    notes = ['number in a cell: the best q for that environment and '
+             'feature space',
+             'gray: poor overlap at every q']
     if {'visual', 'all'} & set(chans):
-        notes.append('Visual = HOG + color + spatial · All = visual + lidar')
+        notes.append('visual = hog + color + downscaled · all = visual + lidar')
     ax.text(0, -0.03, '\n'.join(notes), transform=ax.transAxes, fontsize=6,
             color=INK_2, ha='left', va='top', linespacing=1.35)
-    _title(ax, f'Accuracy at q = {Q_OP:g}, arena by channel')
+    _title(ax, f'Overlap at q = {Q_OP:g}, environment by feature space')
     ax.title.set_position((0, 1.09))
     cax = fig.add_subplot(top[1])
     cb = fig.colorbar(im, cax=cax, extend='min')
@@ -1413,9 +1401,9 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     _q_axis(ax)
     ax.set_xlabel('best q')
     ax.yaxis.get_major_locator().set_params(integer=True)
-    ax.set_ylabel('arena–channel combinations')
+    ax.set_ylabel('environment–feature-space pairs')
     _grid_y(ax)
-    _title(ax, 'Best q for each arena and channel',
+    _title(ax, 'Best q for each environment and feature space',
            f'median {inf_cells.best_q.median():g}; shaded: within 5% of the '
            f'best, all pooled' if len(inf_cells) else None)
     _panel_label(ax, 'b', dx=-26, dy=14)
@@ -1423,7 +1411,7 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
     # (c), (d) curves per scale and per wall contour
     for k, (lev, curves, colors, lab, title, key_title) in enumerate((
             (lev_scale, curves_scale, SCALE_COLORS,
-             lambda v: f'scale {int(v)}', 'By field size',
+             lambda v: f'scale {int(v)}', 'By scale',
              'scale 0 finest → 5 coarsest'),
             (lev_cont, curves_cont, CONTOUR_COLORS,
              lambda v: f'{CONTOUR_FRACS[int(v)]:.2f}',
@@ -1439,10 +1427,10 @@ def fig_robustness(cells, lev_scale, curves_scale, lev_cont, curves_cont, q,
         _mark_op(ax)
         _grid_y(ax)
         ax.set_ylim(0, 1)
-        ax.set_ylabel('overlap with the true field (IoU)')
+        ax.set_ylabel('overlap with the footprint')
         inside = int(lev.op_inside.sum())
         _title(ax, title, f'q = {Q_OP:g} is within 5% of the best for {inside} '
-                          f'of {len(lev)} {"sizes" if k == 0 else "positions"}')
+                          f'of {len(lev)} {"scales" if k == 0 else "wall distances"}')
         leg = ax.legend(loc='best', fontsize=6, handlelength=1.4,
                         labelspacing=0.3, ncol=2, columnspacing=1.0,
                         title=key_title, title_fontsize=6, alignment='left')
@@ -1510,14 +1498,14 @@ def fig_gallery(data, cname, scale, figs, mail):
                          fontsize=6.5, pad=2)
             _panel_label(ax, next(letter), dx=-4, dy=2)
     handles = [Patch(facecolor=IDEAL_FILL, edgecolor='none',
-                     label=f'true field, scale {scale}'),
+                     label=f'footprint, scale {scale}'),
                Line2D([], [], color=BLUE, lw=1.0,
-                      label=f'field drawn at q = {Q_OP:g}')]
+                      label=f'projected field, q = {Q_OP:g}')]
     # Above the first row's two-line titles, which sit ~0.3 in over its axes.
     y_top = max(a.get_position().y1 for a in fig.axes)
     fig.legend(handles=handles, loc='lower center', ncol=3,
                bbox_to_anchor=(0.5, y_top + 0.36 / fig.get_figheight()),
-               title=f'Features: {CHANNEL_LONG.get(cname, cname)}',
+               title=f'Feature space: {CHANNEL_LONG.get(cname, cname)}',
                title_fontsize=6.8, fontsize=6.5)
     figs.save(fig, f'V4_gallery_{cname}', mail=mail)
 
