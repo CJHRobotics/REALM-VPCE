@@ -11,7 +11,6 @@
 #   funnel       fig:funnel (Fig. 4)        prune_P1_rule_shares
 #   scale-maps   fig:scale-maps (Fig. 5)    scale_S2a_<env>, all eight arenas
 #   size-dist    fig:size-dist (Fig. 6)     scale_S1_sizes_by_arena
-#   size-fits    fig:supp-size-fits (Fig. 12) scale_S1_sizes_with_fits
 #   outlines     fig:supp-outlines (Fig. 13) scale_S2b_field_outlines
 #   elong-scale  fig:elong-scale (Fig. 7)   geom_G1_elongation_by_scale
 #   elong-wall   fig:elong-wall (Fig. 8)    geom_G2_elongation_vs_wall
@@ -45,8 +44,9 @@
 #
 #   analysis/experiment_channel_isolation/figures/paper/<paper name>.png|.pdf
 #
-# With EMAIL_TO set, the PNGs and the log are mailed, so the figures can go
-# straight into vpce-paper/figures/. A figure whose cache is missing, or was
+# With EMAIL_TO set, the PNGs and the log are mailed -- in as many messages
+# as the attachment budget needs, the paper's figures first -- so they can
+# go straight into vpce-paper/figures/. A figure whose cache is missing, or was
 # built at a different q than rules.py holds now, is reported and skipped; the
 # others are still drawn, and the job exits non-zero.
 #
@@ -125,18 +125,9 @@ echo
 echo "Finished : $(date -Is)  (exit ${STATUS})"
 
 if [[ $EMAIL -eq 1 && -n "${EMAIL_TO:-}" ]]; then
-    python - "${JOB_ID}" "${STATUS}" "${OUT}" "${LOG}" <<'PY' \
+    # As many messages as the attachment budget needs: in one, the files
+    # that did not fit were dropped, and Figure 13 was one of them.
+    python "$SCRIPT" --out "$OUT" --mail "${JOB_ID}" "${STATUS}" "${LOG}" \
         || echo "(mailer failed - job status unchanged)"
-import glob, sys
-from realm_tools.experiment_lib.reporting import send_email
-job, status, out, log = sys.argv[1:5]
-pngs = sorted(glob.glob(f'{out}/*.png'))
-names = '\n'.join(f'  {p.rsplit("/", 1)[-1]}' for p in pngs) or '  (none)'
-verdict = 'all drawn' if status == '0' else 'SOME FAILED - see the log'
-send_email(f'[REALM-VPCE] paper figures, {verdict} (job {job})',
-           f'{len(pngs)} figure(s), named as in vpce-paper/figures/:\n\n'
-           f'{names}\n\nPDFs are beside them in {out}.\n',
-           attachments=pngs + [log])
-PY
 fi
 exit "${STATUS}"

@@ -290,32 +290,6 @@ def outlines_draw(banks, figs):
         figs.adopt(f'{tmp}/S2b_field_outlines.png', 'S2b_field_outlines')
 
 
-def size_fits_cache(cache):
-    """Figure 12: the same libraries as Figure 6, with the fits the scale run
-    left in fits.csv."""
-    path = f'{cache}/scale_distribution/fits.csv'
-    if not os.path.exists(path):
-        raise RuntimeError(f'no fits in {path}; run slurm/scale_distribution.sh')
-    print(f'  {path}  (written {_written(path)})', flush=True)
-    return dict(banks=size_dist_cache(cache), fits=pd.read_csv(path))
-
-
-def size_fits_fake(rng):
-    """The fake libraries with no fits: histograms only, for the layout."""
-    return dict(banks=size_dist_fake(rng), fits=pd.DataFrame(
-        columns=['env', 'channel', 'variable', 'form', 'params', 'trunc_lo',
-                 'trunc_hi', 'd_aic', 'extent_pctl', 'act_thresh',
-                 'split_half_iou_min']))
-
-
-def size_fits_draw(data, figs):
-    geom = {e: _env_geom(e) for e in SIZE_ENVS}
-    with tempfile.TemporaryDirectory() as tmp:
-        SD.fig_distributions(data['banks'], data['fits'], SIZE_ENVS,
-                             SD.CHANNELS, geom, tmp)
-        figs.adopt(f'{tmp}/S1_sizes_with_fits.png', 'S1_sizes_with_fits')
-
-
 # ------------------------------------------- elongation (Figs. 7 and 8)
 
 def _written(path):
@@ -527,9 +501,6 @@ FIGURES = {
     'outlines': ('fig:supp-outlines (Fig. 13)',
                  {'S2b_field_outlines': 'scale_S2b_field_outlines'},
                  size_dist_cache, size_dist_fake, outlines_draw),
-    'size-fits': ('fig:supp-size-fits (Fig. 12)',
-                  {'S1_sizes_with_fits': 'scale_S1_sizes_with_fits'},
-                  size_fits_cache, size_fits_fake, size_fits_draw),
     'elong-scale': ('fig:elong-scale (Fig. 7)',
                     {'G1_elongation_by_scale': 'geom_G1_elongation_by_scale'},
                     fields_cache, fields_fake, elong_scale_draw),
@@ -579,6 +550,61 @@ def _smooth_noise(shape, rng, width=6):
     return n / np.abs(n).max()
 
 
+# ---------------------------------------------------------------------- mail
+
+def mail_figures(out, job, status, log, send=None):
+    """Mail every PNG in `out`, in as many messages as the attachment budget
+    needs, each saying which part it is and what it carries.
+
+    One message used to carry them all, and the mailer drops whatever no
+    longer fits its budget: the eight S2a sheets come before S2b by name and
+    used it up, so the paper's Figure 13 was silently left behind. Now the
+    paper's own figures go first, every file lands in some message, and a
+    file too large for any message is named in the first one.
+    """
+    import glob
+    from realm_tools.experiment_lib import reporting
+    send = send or reporting.send_email
+    budget = reporting.DEFAULT_MAX_ATTACHMENT_BYTES
+    pngs = sorted(glob.glob(f'{out}/*.png'))
+    # The paper's figures first; the S2a sheets for arenas the paper does not
+    # print come last.
+    extra = lambda p: ('scale_S2a_' in p and not p.endswith('scale_S2a_circ_lm8_r6.png'))
+    pngs.sort(key=lambda p: (extra(p), p))
+    too_big = [p for p in pngs if os.path.getsize(p) > budget]
+    # The first message also carries the log, so it starts with less room.
+    batches, cur = [], []
+    room = budget - (os.path.getsize(log) if os.path.exists(log) else 0)
+    for p in (p for p in pngs if p not in too_big):
+        size = os.path.getsize(p)
+        if size > room and cur:
+            batches.append(cur)
+            cur, room = [], budget
+        cur.append(p)
+        room -= size
+    if cur:
+        batches.append(cur)
+    batches = batches or [[]]
+    name = lambda p: p.rsplit('/', 1)[-1]
+    verdict = 'all drawn' if str(status) == '0' else 'SOME FAILED - see the log'
+    everything = '\n'.join(f'  {name(p)}' for p in pngs) or '  (none)'
+    for k, batch in enumerate(batches, 1):
+        part = f', part {k} of {len(batches)}' if len(batches) > 1 else ''
+        body = (f'{len(pngs)} figure(s) drawn, named as in vpce-paper/figures/'
+                f'{part}.\n\nAttached here:\n'
+                + ('\n'.join(f'  {name(p)}' for p in batch) or '  (none)'))
+        if len(batches) > 1:
+            body += f'\n\nAll of them:\n{everything}'
+        if k == 1 and too_big:
+            body += ('\n\nToo large to mail, on disk only:\n'
+                     + '\n'.join(f'  {name(p)} ({os.path.getsize(p) / 1e6:.0f} MB)'
+                                  for p in too_big))
+        body += f'\n\nPDFs are beside them in {out}.\n'
+        send(f'[REALM-VPCE] paper figures, {verdict} (job {job}){part}', body,
+             attachments=batch + ([log] if k == 1 and os.path.exists(log) else []))
+    return len(batches)
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -595,7 +621,16 @@ def main():
                    help='data_cache folder to read (default: the repo\'s)')
     p.add_argument('--seed', type=int, default=0, help='for --fake')
     p.add_argument('--list', action='store_true')
+    p.add_argument('--mail', nargs=3, metavar=('JOB', 'STATUS', 'LOG'),
+                   help='mail what is in --out instead of drawing (the job '
+                        'calls this once the figures are written)')
     args = p.parse_args()
+
+    if args.mail:
+        out = args.out or f'{HERE}/figures/paper'
+        n = mail_figures(out, *args.mail)
+        print(f'mailed in {n} message(s)')
+        return 0
 
     if args.list:
         for k, (label, names, *_) in FIGURES.items():
