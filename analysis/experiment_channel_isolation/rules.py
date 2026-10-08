@@ -210,7 +210,23 @@ DEFAULT_CFG = dict(
     # feature-only rule.
     LAMBDA           = 0.0,
 
-    # --- Rule 1 -----------------------------------------------------------
+    # --- What a field is -------------------------------------------------
+    # 'subfield' (the paper's model): a cluster's mask is split into its
+    # 8-connected regions, every region at least as large as the Rule 8 floor
+    # is a SUBFIELD, and each subfield is a candidate field of its own -- its
+    # own area, centre, ellipse and scale, tested on size and competing on
+    # its own. Fragments below the floor are not fields. A cluster with two
+    # or more selected subfields is a multifield unit. Rule 1 (contiguity)
+    # does not apply: a field divided among separate regions is kept as its
+    # regions, as cells with several fields are.
+    # 'cluster' (before 8 October 2026): one field per cluster over its whole
+    # mask, fragments included, and Rule 1 rejects a cluster whose largest
+    # region holds under CC_FRAC_MIN of it. Kept so the old libraries can be
+    # rebuilt; bank file names say which one built them (see
+    # run_scale_distribution.rules_tag).
+    FIELD_UNIT       = 'subfield',
+
+    # --- Rule 1 (FIELD_UNIT='cluster' only) -------------------------------
     CC_FRAC_MIN      = 0.80,       # largest connected component / mask area
 
     # --- Rule 2 (dropped) -------------------------------------------------
@@ -813,6 +829,24 @@ def largest_component_fraction(mask):
     return float(sizes.max() / total), int(n)
 
 
+def split_subfields(mask, min_bins):
+    """A mask's subfields: its 8-connected regions of at least `min_bins`
+    bins, largest first, each as its own mask.
+
+    A mask with no region that large still yields one candidate -- its
+    largest region, or the empty mask -- so a cluster that projects only
+    fragments is a candidate rejected on size, as it was before, rather than
+    no candidate at all.
+    """
+    lab, n = ndimage.label(mask, structure=np.ones((3, 3), dtype=int))
+    if n == 0:
+        return [mask]
+    sizes = np.bincount(lab.ravel())[1:]
+    order = np.argsort(sizes)[::-1]
+    keep = [i for i in order if sizes[i] >= min_bins] or [order[0]]
+    return [lab == (i + 1) for i in keep]
+
+
 def mask_iou(m1, m2):
     """Rule 2 — agreement between the two independent split-half masks."""
     inter = int(np.logical_and(m1, m2).sum())
@@ -838,12 +872,16 @@ def _index_mask(idx, n):
     return m
 
 
-def rule11_competition(order, cx, cy, r_mean, band, sep):
+def rule11_competition(order, cx, cy, r_mean, band, sep, unit=None):
     """Rule 11 — within a scale band, a field suppresses nearby peers.
 
     Fields in different bands never compete, so a coarse field and the finer
     field nested inside it both survive: the scale ladder is preserved while
     same-scale redundancy is removed.
+
+    `unit` gives each field's cluster. Competition stands for lateral
+    competition between cells, so a unit's own subfields never suppress one
+    another; only another unit's field can.
     """
     kept = []
     kept_by_band = {}
@@ -852,8 +890,10 @@ def rule11_competition(order, cx, cy, r_mean, band, sep):
         peers = kept_by_band.get(bk)
         if peers:
             p = np.asarray(peers)
+            if unit is not None:
+                p = p[unit[p] != unit[k]]
             d = np.hypot(cx[p] - cx[k], cy[p] - cy[k])
-            if np.any(d < sep * (r_mean[p] + r_mean[k])):
+            if len(p) and np.any(d < sep * (r_mean[p] + r_mean[k])):
                 continue
         kept.append(k)
         kept_by_band.setdefault(bk, []).append(k)
@@ -1074,6 +1114,33 @@ def admit_fields(ctx, cfg=None, verbose=True):
         mb, _ = mask_from_grid(resp_b[k], G, occupied, C)
         sh_iou[k] = mask_iou(ma, mb)
 
+    # --- candidate fields: one per subfield ------------------------------
+    # From here on a candidate is a candidate FIELD. With FIELD_UNIT
+    # 'subfield' that is one region of a cluster's mask, and `clu` maps it
+    # back to its cluster; with 'cluster' it is the cluster itself.
+    n_clusters = n_cand
+    clu = np.arange(n_cand)
+    sub_id = np.zeros(n_cand, dtype=int)
+    if C['FIELD_UNIT'] == 'subfield':
+        min_bins = area_min / G['bin_area']
+        ex_masks, ex_clu, ex_sub = [], [], []
+        for k in range(n_clusters):
+            for j, m in enumerate(split_subfields(masks[k], min_bins)):
+                ex_masks.append(m)
+                ex_clu.append(k)
+                ex_sub.append(j)
+        clu = np.asarray(ex_clu, dtype=int)
+        sub_id = np.asarray(ex_sub, dtype=int)
+        masks = ex_masks
+        shape = [field_shape(m, G) for m in masks]
+        cc_frac, n_comp, sh_iou = cc_frac[clu], n_comp[clu], sh_iou[clu]
+        n_cand = len(masks)
+    elif C['FIELD_UNIT'] != 'cluster':
+        raise ValueError(f"FIELD_UNIT must be 'subfield' or 'cluster', "
+                         f"not {C['FIELD_UNIT']!r}")
+    # Subfields per cluster that are candidates (at least the floor).
+    n_sub = np.bincount(clu, minlength=n_clusters)[clu]
+
     area = np.array([s['area'] for s in shape])
     a_ax = np.array([s['a'] for s in shape])
     b_ax = np.array([s['b'] for s in shape])
@@ -1089,7 +1156,12 @@ def admit_fields(ctx, cfg=None, verbose=True):
     pass_size = (area >= area_min) & (area <= area_max)                # Rules 8, 9
     funnel.append(('rule_8_9_size', int(pass_size.sum())))
 
-    pass_cc = pass_size & (cc_frac >= C['CC_FRAC_MIN'])                # Rule 1
+    if C['FIELD_UNIT'] == 'subfield':
+        # Rule 1 does not apply to subfields; the stage is kept, passing
+        # everything, so every reader of the funnel sees the same stages.
+        pass_cc = pass_size.copy()
+    else:
+        pass_cc = pass_size & (cc_frac >= C['CC_FRAC_MIN'])            # Rule 1
     funnel.append(('rule_1_contiguity', int(pass_cc.sum())))
 
     if C['SPLIT_HALF_IOU_MIN'] is not None:                            # Rule 2
@@ -1131,7 +1203,8 @@ def admit_fields(ctx, cfg=None, verbose=True):
 
     # Rule 11 — larger and more reliable fields claim their territory first.
     order = surviving[np.lexsort((-sh_iou[surviving], -r_eq[surviving]))]
-    kept11 = rule11_competition(order, cx, cy, r_mean, band, C['SAME_SCALE_SEPARATION'])
+    kept11 = rule11_competition(order, cx, cy, r_mean, band,
+                                C['SAME_SCALE_SEPARATION'], unit=clu)
     funnel.append(('rule_11_competition', len(kept11)))
 
     kept, coverage, band_range = rule12_tiling(kept11, band, masks, G, C)  # Rule 12
@@ -1152,10 +1225,12 @@ def admit_fields(ctx, cfg=None, verbose=True):
     d_wall = wall_distance(cx[kept], cy[kept], env) if kept else np.array([])
     rows = []
     for i, k in enumerate(kept):
-        nid = int(cand[k])
+        nid = int(cand[clu[k]])
         rows.append(dict(
-            node_id=nid, depth=int(depth[nid]), n_members=int(count[nid]),
-            sigma_feature=float(cand_sigma[k]),
+            node_id=nid, subfield_id=int(sub_id[k]),
+            n_subfields=int(n_sub[k]),
+            depth=int(depth[nid]), n_members=int(count[nid]),
+            sigma_feature=float(cand_sigma[clu[k]]),
             area_env_m2=float(area[k]), radius_env_m=float(r_eq[k]),
             semi_major_m=float(a_ax[k]), semi_minor_m=float(b_ax[k]),
             elongation=float(elong[k]), orientation_rad=float(theta[k]),
@@ -1168,13 +1243,20 @@ def admit_fields(ctx, cfg=None, verbose=True):
         ))
     # Explicit schema so a channel that admits nothing still writes a
     # well-formed, readable bank.csv with headers rather than an empty file.
-    BANK_COLUMNS = ['node_id', 'depth', 'n_members', 'sigma_feature',
+    BANK_COLUMNS = ['node_id', 'subfield_id', 'n_subfields',
+                    'n_selected_subfields', 'multifield',
+                    'depth', 'n_members', 'sigma_feature',
                     'area_env_m2', 'radius_env_m', 'semi_major_m', 'semi_minor_m',
                     'elongation', 'orientation_rad', 'centroid_x', 'centroid_y',
                     'dist_to_wall_m', 'scale_band', 'cc_frac', 'n_components',
                     'split_half_iou', 'parent_id', 'is_leaf']
     bank_df = pd.DataFrame(rows, columns=BANK_COLUMNS)
-    kept_mu = (cand_mu[kept] if kept else np.empty((0, D), dtype=np.float32))
+    # A unit is multifield when two or more of its subfields were selected.
+    n_sel = bank_df.groupby('node_id').node_id.transform('size')
+    bank_df['n_selected_subfields'] = n_sel.astype(int) if len(bank_df) else []
+    bank_df['multifield'] = (n_sel >= 2) if len(bank_df) else []
+    kept_mu = (cand_mu[clu[kept]] if kept
+               else np.empty((0, D), dtype=np.float32))
 
     # How tight is a candidate relative to the whole dataset? sigma_ratio
     # near 1 means a node's members are as spread out in feature space as
@@ -1193,7 +1275,11 @@ def admit_fields(ctx, cfg=None, verbose=True):
         r_min=float(r_min), r_max=float(r_max),
         area_min=float(area_min), area_max=float(area_max),
         min_members=int(min_members), max_members=int(max_members),
-        n_candidates=int(n_cand),
+        n_candidates=int(n_cand), n_clusters=int(n_clusters),
+        field_unit=C['FIELD_UNIT'],
+        # Each candidate field's cluster (an index into ctx['cand']) and its
+        # place among that cluster's subfields, largest first.
+        cand_cluster=clu, cand_subfield=sub_id, cand_n_subfields=n_sub,
         # Rule 1 and 2 diagnostics over all candidates that passed on size,
         # so the rejection rates are reported and not merely applied.
         frag_rate=float((cc_frac[pass_size] < C['CC_FRAC_MIN']).mean()) if pass_size.any() else 0.0,

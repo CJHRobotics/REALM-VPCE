@@ -290,6 +290,32 @@ def outlines_draw(banks, figs):
         figs.adopt(f'{tmp}/S2b_field_outlines.png', 'S2b_field_outlines')
 
 
+def size_fits_cache(cache):
+    """Figure 12: the same libraries as Figure 6, with the fits the scale run
+    left in fits.csv."""
+    path = f'{cache}/scale_distribution/fits.csv'
+    if not os.path.exists(path):
+        raise RuntimeError(f'no fits in {path}; run slurm/scale_distribution.sh')
+    print(f'  {path}  (written {_written(path)})', flush=True)
+    return dict(banks=size_dist_cache(cache), fits=pd.read_csv(path))
+
+
+def size_fits_fake(rng):
+    """The fake libraries with no fits: histograms only, for the layout."""
+    return dict(banks=size_dist_fake(rng), fits=pd.DataFrame(
+        columns=['env', 'channel', 'variable', 'form', 'params', 'trunc_lo',
+                 'trunc_hi', 'd_aic', 'extent_pctl', 'act_thresh',
+                 'split_half_iou_min']))
+
+
+def size_fits_draw(data, figs):
+    geom = {e: _env_geom(e) for e in SIZE_ENVS}
+    with tempfile.TemporaryDirectory() as tmp:
+        SD.fig_distributions(data['banks'], data['fits'], SIZE_ENVS,
+                             SD.CHANNELS, geom, tmp)
+        figs.adopt(f'{tmp}/S1_sizes_with_fits.png', 'S1_sizes_with_fits')
+
+
 # ------------------------------------------- elongation (Figs. 7 and 8)
 
 def _written(path):
@@ -409,25 +435,56 @@ def _multifield_panel(env, clusters, xe, ye, geom):
 
 
 def multifield_cache(cache):
-    import glob
+    """Every multifield unit in the environment's libraries, all feature
+    spaces pooled: a unit with two or more selected subfields, each drawn as
+    its fitted ellipse. Read from the scale run's libraries, so it is the
+    model's own selection, not a separate rebuild.
+
+    Overlap between units is judged on the ellipses rasterized to a 5 cm
+    grid, which is all pick_superimposed needs of them."""
+    key = (SD.DEFAULT_PCTL, SD.DEFAULT_T, SD.PRIMARY_IOU)
     panels = []
     for env in MULTIFIELD_ENVS:
-        paths = sorted(glob.glob(f'{cache}/multifield/{env}_*_subfields.npz'))
-        if not paths:
-            raise RuntimeError(f'no subfield cache for {env} in {cache}/multifield; '
-                               f'run slurm/multifield_examples.sh --env {env} '
-                               f'--channel every')
+        geom = _env_geom(env)
+        if geom.get('is_circular'):
+            r = geom['env_R']; x0, x1, y0, y1 = -r, r, -r, r
+        else:
+            x0, x1, y0, y1 = geom['x_min'], geom['x_max'], geom['y_min'], geom['y_max']
+        xe, ye = np.arange(x0, x1 + 0.025, 0.05), np.arange(y0, y1 + 0.025, 0.05)
+        X, Y = np.meshgrid(0.5 * (xe[1:] + xe[:-1]), 0.5 * (ye[1:] + ye[:-1]),
+                           indexing='ij')
         clusters, have = [], []
-        for path in paths:
-            cl, xe, ye, geom = MF.load_subfield_cache(path)
-            fs = path.rsplit('/', 1)[-1][len(env) + 1:-len('_subfields.npz')]
-            have.append(f'{fs} {len(cl)}')
-            clusters += [dict(c, feature_space=fs) for c in cl]
-        print(f'  {env}: multifield clusters by feature space: '
-              + ', '.join(have), flush=True)
+        for c in SD.CHANNELS:
+            p = SD.bank_path(f'{cache}/scale_distribution', env, c, *key,
+                             SD.DEFAULT_TILING)
+            if not os.path.exists(p):
+                continue
+            b = pd.read_csv(p)
+            if 'multifield' not in b:
+                raise RuntimeError(f'{p} has no multifield column: it was built '
+                                   f'before the subfield rule; rerun it')
+            m = b[b.multifield.astype(bool)]
+            have.append(f'{SD.channel_label(c, long=False)} {m.node_id.nunique()}')
+            for nid, g in m.groupby('node_id'):
+                ell = list(zip(g.centroid_x, g.centroid_y, g.semi_major_m,
+                               g.semi_minor_m, g.orientation_rad))
+                masks = []
+                for (x, y, a, bb, th) in ell:
+                    u = (X - x) * np.cos(th) + (Y - y) * np.sin(th)
+                    v = -(X - x) * np.sin(th) + (Y - y) * np.cos(th)
+                    masks.append((u / a) ** 2 + (v / bb) ** 2 <= 1)
+                areas = g.area_env_m2.to_numpy()
+                clusters.append(dict(node_id=int(nid), feature_space=c,
+                                     scale=int(g.scale_band.min()),
+                                     balance=float(np.sort(areas)[-2] / areas.max()),
+                                     areas=areas, scales=g.scale_band.to_numpy(),
+                                     ellipses=ell, masks=np.stack(masks)))
+        if not have:
+            raise RuntimeError(f'no libraries for {env} in {cache}/scale_distribution')
+        print(f'  {env}: multifield units by feature space: ' + ', '.join(have),
+              flush=True)
         if not clusters:
-            raise RuntimeError(f'{env}: no feature space cached so far has a '
-                               f'multifield cluster to draw')
+            raise RuntimeError(f'{env}: no multifield unit in any feature space')
         panels.append(_multifield_panel(env, clusters, xe, ye, geom))
     return panels
 
@@ -501,6 +558,9 @@ FIGURES = {
     'outlines': ('fig:supp-outlines (Fig. 13)',
                  {'S2b_field_outlines': 'scale_S2b_field_outlines'},
                  size_dist_cache, size_dist_fake, outlines_draw),
+    'size-fits': ('fig:supp-size-fits (Fig. 12)',
+                  {'S1_sizes_with_fits': 'scale_S1_sizes_with_fits'},
+                  size_fits_cache, size_fits_fake, size_fits_draw),
     'elong-scale': ('fig:elong-scale (Fig. 7)',
                     {'G1_elongation_by_scale': 'geom_G1_elongation_by_scale'},
                     fields_cache, fields_fake, elong_scale_draw),
@@ -572,9 +632,11 @@ def mail_figures(out, job, status, log, send=None):
     extra = lambda p: ('scale_S2a_' in p and not p.endswith('scale_S2a_circ_lm8_r6.png'))
     pngs.sort(key=lambda p: (extra(p), p))
     too_big = [p for p in pngs if os.path.getsize(p) > budget]
-    # The first message also carries the log, so it starts with less room.
+    # The first message also carries the log and any CSV beside the figures
+    # (the paper's numbers), so it starts with less room.
+    first = sorted(glob.glob(f'{out}/*.csv')) + ([log] if os.path.exists(log) else [])
     batches, cur = [], []
-    room = budget - (os.path.getsize(log) if os.path.exists(log) else 0)
+    room = budget - sum(os.path.getsize(p) for p in first)
     for p in (p for p in pngs if p not in too_big):
         size = os.path.getsize(p)
         if size > room and cur:
@@ -592,7 +654,9 @@ def mail_figures(out, job, status, log, send=None):
         part = f', part {k} of {len(batches)}' if len(batches) > 1 else ''
         body = (f'{len(pngs)} figure(s) drawn, named as in vpce-paper/figures/'
                 f'{part}.\n\nAttached here:\n'
-                + ('\n'.join(f'  {name(p)}' for p in batch) or '  (none)'))
+                + ('\n'.join(f'  {name(p)}' for p in batch
+                             + (first[:-1] if k == 1 and first and first[-1] == log
+                                else first if k == 1 else [])) or '  (none)'))
         if len(batches) > 1:
             body += f'\n\nAll of them:\n{everything}'
         if k == 1 and too_big:
@@ -601,7 +665,7 @@ def mail_figures(out, job, status, log, send=None):
                                   for p in too_big))
         body += f'\n\nPDFs are beside them in {out}.\n'
         send(f'[REALM-VPCE] paper figures, {verdict} (job {job}){part}', body,
-             attachments=batch + ([log] if k == 1 and os.path.exists(log) else []))
+             attachments=batch + (first if k == 1 else []))
     return len(batches)
 
 

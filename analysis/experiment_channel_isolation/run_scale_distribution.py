@@ -300,8 +300,14 @@ def coverage_tag(tiling_frac_min):
     different libraries must never be able to share a name. An old
     `..._roff_bank.csv` matches no key this function can produce, so it is
     inert rather than dangerous.
+
+    The same holds for what a field IS. From 8 October 2026 a field is a
+    subfield (rules.FIELD_UNIT); a library built that way carries `_sub`, and
+    one built the old way, one field per cluster, carries nothing more -- so
+    the old banks keep their names and are never read as the new ones.
     """
-    return f'_cov{float(tiling_frac_min):g}'
+    unit = '_sub' if R.DEFAULT_CFG['FIELD_UNIT'] == 'subfield' else ''
+    return f'_cov{float(tiling_frac_min):g}{unit}'
 
 
 def tiling_suffix(tiling_frac_min):

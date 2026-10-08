@@ -12,19 +12,14 @@
 #   scale-maps   fig:scale-maps (Fig. 5)    scale_S2a_<env>, all eight arenas
 #   size-dist    fig:size-dist (Fig. 6)     scale_S1_sizes_by_arena
 #   outlines     fig:supp-outlines (Fig. 13) scale_S2b_field_outlines
+#   size-fits    fig:supp-size-fits (Fig. 12) scale_S1_sizes_with_fits
 #   elong-scale  fig:elong-scale (Fig. 7)   geom_G1_elongation_by_scale
 #   elong-wall   fig:elong-wall (Fig. 8)    geom_G2_elongation_vs_wall
 #   geom-rho     fig:geom-rho (Fig. 9)      geom_G4_correlation_summary
 #   multifield   fig:multifield (Fig. 10)   multifield_M00_overview
 #
-# `multifield` reads subfield masks that only a full multifield run writes
-# (GPU, the dataset). Build them once per arena, then this job can redraw:
-#
-#   sbatch slurm/multifield_examples.sh --env corr_lm8_l10w2 --channel every
-#   sbatch slurm/multifield_examples.sh --env corr_lm0_l10w10 --channel every
-#
-# Each panel pools the multifield clusters of every feature space cached for
-# that environment, so `every` gives it the most to choose from.
+# `multifield` draws every multifield unit -- two or more selected subfields
+# -- from the scale run's libraries, all feature spaces pooled.
 #
 # `python paper_figures.py --list` prints the current set; figures are added
 # there, and this script needs no change when one is.

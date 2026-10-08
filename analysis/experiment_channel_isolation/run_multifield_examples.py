@@ -348,7 +348,18 @@ def load_subfield_cache(path):
 
 
 def _subfields(ax, xc, yc, c, color):
-    """One cluster: each subfield filled lightly and outlined in its hue."""
+    """One cluster: each subfield filled lightly and outlined in its hue --
+    as its fitted ellipse when the cluster carries them (a selected unit
+    read from a library), otherwise as its mask's outline."""
+    from matplotlib.patches import Ellipse
+    if c.get('ellipses') is not None:
+        for (x, y, a, b, th) in c['ellipses']:
+            for fill, lw, z in ((True, 0, 3), (False, 0.9, 4)):
+                ax.add_patch(Ellipse((x, y), 2 * a, 2 * b, angle=np.degrees(th),
+                                     facecolor=color if fill else 'none',
+                                     edgecolor=color, alpha=0.32 if fill else 1.0,
+                                     lw=lw, zorder=z))
+        return
     for m in c['masks']:
         z = m.T.astype(float)
         ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=0.32,

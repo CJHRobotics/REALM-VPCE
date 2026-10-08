@@ -64,6 +64,7 @@ Usage
 """
 
 import argparse
+import glob
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -210,6 +211,24 @@ def build_library(env_name, cname, blocks, xy, env, base_C, device, verbose=True
     return bank, rep, C
 
 
+def multifield_selected(rep):
+    """Which candidate fields were selected AND belong to a multifield unit,
+    and how many such units there are.
+
+    A unit is multifield when two or more of its subfields were selected, so
+    this is read off the selection, never off the candidates. A report from
+    the old rule (one field per cluster, no `cand_cluster`) has none.
+    """
+    kept = np.asarray(rep['cand_kept_rule12'], dtype=bool)
+    clu = rep.get('cand_cluster')
+    if clu is None:
+        return np.zeros_like(kept), 0
+    clu = np.asarray(clu, dtype=int)
+    n_kept = np.bincount(clu[kept], minlength=int(clu.max()) + 1 if len(clu) else 0)
+    multi = kept & (n_kept[clu] >= 2)
+    return multi, int((n_kept >= 2).sum())
+
+
 def scale_rows(rep, C, tag):
     """One row per scale: how many candidates reached it, and which rule took them.
 
@@ -227,6 +246,10 @@ def scale_rows(rep, C, tag):
     kept12 = np.asarray(rep['cand_kept_rule12'], dtype=bool)
     cc_frac = np.asarray(rep['cand_cc_frac'], dtype=float)
     sigma_ratio = np.asarray(rep['cand_sigma_ratio'], dtype=float)
+    # The cluster-level ratio, carried to each candidate field of a cluster.
+    if rep.get('cand_cluster') is not None and len(sigma_ratio) != len(area):
+        sigma_ratio = sigma_ratio[np.asarray(rep['cand_cluster'], dtype=int)]
+    multi, _ = multifield_selected(rep)
     coverage, thr = rep['coverage'], C['TILING_FRAC_MIN']
     lo, hi = rep['band_lo'], rep['band_hi']
 
@@ -242,7 +265,8 @@ def scale_rows(rep, C, tag):
         n = int(sel.sum())
         rows.append(dict(tag, scale=label, n_candidates=n, n_pass_size=0,
                          n_pass_contiguity=0, n_pass_competition=0,
-                         n_admitted=0, median_radius_m=med(r_eq, sel),
+                         n_admitted=0, n_admitted_multifield=0,
+                         median_radius_m=med(r_eq, sel),
                          median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
                          coverage_reached=np.nan, coverage_needed=thr,
@@ -273,7 +297,9 @@ def scale_rows(rep, C, tag):
                  if np.isfinite(cov) else f'{n_adm} admitted')
         rows.append(dict(tag, scale=str(sc), n_candidates=n, n_pass_size=n,
                          n_pass_contiguity=n_wh, n_pass_competition=n_won,
-                         n_admitted=n_adm, median_radius_m=med(r_eq, sel),
+                         n_admitted=n_adm,
+                         n_admitted_multifield=int((adm & multi).sum()),
+                         median_radius_m=med(r_eq, sel),
                          median_cc_frac=med(cc_frac, sel),
                          median_sigma_ratio=med(sigma_ratio, sel),
                          coverage_reached=cov, coverage_needed=thr,
@@ -299,6 +325,11 @@ def pair_row(rep, C, env, tag, n_admitted):
         pass_contiguity=int(funnel.get('rule_1_contiguity', 0)),
         pass_competition=int(funnel.get('rule_11_competition', 0)),
         n_admitted=int(n_admitted),
+        # Selected fields in multifield units, and the units themselves; the
+        # clusters the candidate fields came from.
+        n_admitted_multifield=int(multifield_selected(rep)[0].sum()),
+        n_multifield_units=int(multifield_selected(rep)[1]),
+        n_clusters=int(rep.get('n_clusters', rep['n_candidates'])),
         coverage_needed=float(C['TILING_FRAC_MIN']),
         frac_below_floor=float(np.mean(~pass_size & (area < rep['area_min']))),
         frac_above_ceiling=float(np.mean(~pass_size & (area > rep['area_max']))),
@@ -387,15 +418,25 @@ def fig_rule_shares(pairs_df, fig_dir):
     # multifield part of it and prints its own share only where it is wide
     # enough to hold one. Each entry: (label, width column, colour, the column
     # whose value is printed).
-    d['admitted_all'] = d.n_admitted + d.cut_contig
+    if 'n_admitted_multifield' in d:
+        # The subfield rule: multifield fields are the selected subfields of
+        # multifield units, part of n_admitted, and contiguity rejects none.
+        d['multi'] = d.n_admitted_multifield
+        d['single'] = d.n_admitted - d.n_admitted_multifield
+        d['admitted_all'] = d.n_admitted
+    else:
+        # An audit from the old rule: the contiguity rejects stand in for
+        # the multifield fields it did not keep.
+        d['multi'], d['single'] = d.cut_contig, d.n_admitted
+        d['admitted_all'] = d.n_admitted + d.cut_contig
     segs = [('rejected: size criterion', 'cut_size', BLUE, 'cut_size'),
             ('rejected: same-scale competition', 'cut_compete', VIOLET,
              'cut_compete')]
     if float(d.cut_coverage.sum()) > 0:
         segs.append(('rejected: coverage', 'cut_coverage', YELLOW,
                      'cut_coverage'))
-    segs += [('selected', 'n_admitted', AQUA, 'admitted_all'),
-             ('selected: multifield', 'cut_contig', ORANGE, 'cut_contig')]
+    segs += [('selected', 'single', AQUA, 'admitted_all'),
+             ('selected: multifield', 'multi', ORANGE, 'multi')]
 
     fig, ax = plt.subplots(figsize=(9.2, 0.52 * len(order) + 1.9))
     fig.patch.set_facecolor(SURFACE)
@@ -666,6 +707,15 @@ def parse_args():
                         'are skipped with a note.')
     p.add_argument('--envs', default='',
                    help='audit every channel of these arenas, comma separated')
+    p.add_argument('--part', default='',
+                   help='write this run\'s rows to parts/<PART>_pairs.csv and '
+                        '_scales.csv instead of the audit\'s own two tables, '
+                        'so one job per arena cannot overwrite another; '
+                        '--merge-parts then joins them')
+    p.add_argument('--merge-parts', action='store_true',
+                   help='join every parts/*_pairs.csv and *_scales.csv into '
+                        'the audit\'s two tables, then draw and report from '
+                        'them as --report-only does')
     p.add_argument('--channels', default=','.join(SD.CHANNELS),
                    help='channels used with --envs')
     p.add_argument('--subsample', type=int, default=0,
@@ -781,8 +831,26 @@ def main():
     base_C = R.resolve_cfg(dict(LAMBDA=0.0, RANDOM_SEED=0,
                                 USE_GPU=not args.no_gpu,
                                 TILING_FRAC_MIN=float(args.tiling_frac_min)))
+    if args.merge_parts:
+        parts = f'{out_dir}/parts'
+        for kind in ('pairs', 'scales'):
+            files = sorted(glob.glob(f'{parts}/*_{kind}.csv'))
+            if not files:
+                print(f'--merge-parts: no {parts}/*_{kind}.csv')
+                return 1
+            pd.concat([pd.read_csv(f) for f in files], ignore_index=True).to_csv(
+                f'{out_dir}/prune_audit_{kind}.csv', index=False)
+            print(f'merged {len(files)} part(s) -> {out_dir}/prune_audit_{kind}.csv')
+        return report_only(out_dir, fig_dir, base_C, args)
     if args.report_only:
         return report_only(out_dir, fig_dir, base_C, args)
+    if args.part:
+        os.makedirs(f'{out_dir}/parts', exist_ok=True)
+        sp = f'{out_dir}/parts/{args.part}_scales.csv'
+        pp = f'{out_dir}/parts/{args.part}_pairs.csv'
+    else:
+        sp = f'{out_dir}/prune_audit_scales.csv'
+        pp = f'{out_dir}/prune_audit_pairs.csv'
     device = R.pick_device(use_gpu=not args.no_gpu)
     rng = np.random.default_rng(0)
 
@@ -834,10 +902,8 @@ def main():
         print(f'  {diagnoses[-1]}', flush=True)
         # Written after every library: 48 of these outlast a 24 h walltime only
         # if a timeout leaves the finished ones on disk.
-        pd.DataFrame(scale_rows_all).to_csv(f'{out_dir}/prune_audit_scales.csv',
-                                            index=False)
-        pd.DataFrame(pair_rows).to_csv(f'{out_dir}/prune_audit_pairs.csv',
-                                       index=False)
+        pd.DataFrame(scale_rows_all).to_csv(sp, index=False)
+        pd.DataFrame(pair_rows).to_csv(pp, index=False)
 
     if not pair_rows:
         print('\nNothing audited. Datasets missing: ' + (', '.join(missing) or 'none'))
@@ -845,8 +911,13 @@ def main():
 
     scales_df = pd.DataFrame(scale_rows_all)
     pairs_df = pd.DataFrame(pair_rows)
-    scales_df.to_csv(f'{out_dir}/prune_audit_scales.csv', index=False)
-    pairs_df.to_csv(f'{out_dir}/prune_audit_pairs.csv', index=False)
+    scales_df.to_csv(sp, index=False)
+    pairs_df.to_csv(pp, index=False)
+    if args.part:
+        # A part is one arena's rows; the figures and the report wait for
+        # --merge-parts, which sees them all.
+        print(f'\npart {args.part}: scales -> {sp}\npairs  -> {pp}')
+        return 0
 
     print('\nfigures:', flush=True)
     fig_paths = (fig_rule_shares(pairs_df, fig_dir)

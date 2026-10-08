@@ -497,6 +497,21 @@ def score(mask, imask, ts, G, C, lim, normal=np.nan):
     """Everything measured about one drawn field, against the true one."""
     sh = R.field_shape(mask, G)
     cc, ncomp = R.largest_component_fraction(mask)
+    # Admission as the model applies it. Under the subfield rule a group is
+    # admitted when any of its subfields passes the size test, and Rule 1
+    # does not apply -- so a two-lobed group is admitted, as two fields. The
+    # old rule tested the whole mask on size and on contiguity.
+    if C['FIELD_UNIT'] == 'subfield':
+        subs = [m for m in R.split_subfields(mask, lim[0] / G['bin_area'])
+                if m.any()]
+        areas = [float(m.sum()) * G['bin_area'] for m in subs]
+        subs = [m for m, a in zip(subs, areas) if a >= lim[0]]
+        passes_size = any(lim[0] <= a <= lim[1] for a in areas)
+        passes_cc = True
+    else:
+        subs = [mask] if mask.any() else []
+        passes_size = bool(lim[0] <= sh['area'] <= lim[1])
+        passes_cc = bool(cc >= C['CC_FRAC_MIN'])
     inter = float((mask & imask).sum())
     n_rec, n_true = float(mask.sum()), float(imask.sum())
     union = n_rec + n_true - inter
@@ -513,8 +528,9 @@ def score(mask, imask, ts, G, C, lim, normal=np.nan):
         orientation_rad=float(sh['theta']),
         angle_to_wall_deg=float(FG.acute_angle_deg(sh['theta'], normal)),
         cc_frac=float(cc), n_components=int(ncomp),
-        pass_size=bool(lim[0] <= sh['area'] <= lim[1]),
-        pass_contiguity=bool(cc >= C['CC_FRAC_MIN']))
+        n_subfields=len(subs),
+        pass_size=passes_size,
+        pass_contiguity=passes_cc)
 
 
 def evaluate(fs, groups, G, occupied, flat, C, lim, q_grid, rng,
@@ -679,7 +695,8 @@ def run_arena(env_name, chans, stages, args, base_C, device, cache_dir, q_grid):
                 not isinstance(v, bool) else v) for k, v in env.items()}
     meta = dict(env=env_name, git=_git_rev(), started=time.strftime('%Y-%m-%d %H:%M'),
                 q_grid=list(map(float, q_grid)), pipeline_q=list(map(float, args.pipeline_q)),
-                q_op=Q_OP, seed=args.seed, subsample=args.subsample,
+                q_op=Q_OP, field_unit=R.DEFAULT_CFG['FIELD_UNIT'],
+                seed=args.seed, subsample=args.subsample,
                 n_positions=int(len(xy)), bin_m=float(G['bin_m']),
                 bin_area=float(G['bin_area']), gx=int(G['gx']), gy=int(G['gy']),
                 r_min=r_min, r_max=r_max, area_min=a_min, area_max=a_max,
