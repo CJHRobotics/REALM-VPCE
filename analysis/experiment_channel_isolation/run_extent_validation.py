@@ -268,13 +268,13 @@ def _q_axis(ax, label=True):
         ax.set_xlabel(Q_AXIS_LABEL)
 
 
-def _mark_op(ax, text=False, ls='-'):
+def _mark_op(ax, text=False, ls='-', sym='q'):
     """The value in use, as a vertical line. Labelled above the plot, like a
     tick, when asked -- inside it, a label collides with whatever the data
     happen to do near q = 65."""
     ax.axvline(Q_OP, color=INK, lw=0.8, ls=ls, zorder=1.6)
     if text:
-        ax.annotate(f'q = {Q_OP:g}', xy=(Q_OP, 1.0),
+        ax.annotate(f'{sym} = {Q_OP:g}', xy=(Q_OP, 1.0),
                     xycoords=('data', 'axes fraction'), xytext=(0, 1.5),
                     textcoords='offset points', ha='center', va='bottom',
                     fontsize=6.5, color=INK)
@@ -1146,6 +1146,11 @@ def _example(data, env, cname):
                 rows=g.sort_values('q'))
 
 
+# The paper writes the extent percentile as kappa (9 October 2026); Figure 3
+# follows it. The code keeps calling it q.
+KAPPA = r'$\kappa$'
+
+
 def fig_mechanism(ex, figs):
     """V1 -- what q does, on one field.
 
@@ -1197,7 +1202,7 @@ def fig_mechanism(ex, figs):
     cb.set_ticks([0, 20, 40, 60, 80, 100])
     cb.outline.set_linewidth(0)
     cb.ax.tick_params(labelsize=6, length=2)
-    cb.set_label('q at which the position joins the field', fontsize=6.5)
+    cb.set_label(f'{KAPPA} at which the position joins the field', fontsize=6.5)
 
     # (b) the field's area as q grows. Cut at the largest q drawn in (c-e):
     # past it the field runs toward the whole floor and would flatten the
@@ -1209,9 +1214,9 @@ def fig_mechanism(ex, figs):
     ax.axhline(footprint, color=INK, lw=0.8, zorder=1.6)
     ax.plot(qs, area, color=BLUE, lw=1.5, zorder=3)
     # Dashed, so it is not read as one arm of a crosshair with the solid one.
-    _mark_op(ax, text=True, ls=(0, (4, 2)))
+    _mark_op(ax, text=True, ls=(0, (4, 2)), sym=KAPPA)
     _q_axis(ax, label=False)
-    ax.set_xlabel('q')
+    ax.set_xlabel(KAPPA)
     ax.set_ylim(0, max(footprint, float(area[qs <= max(EXAMPLE_Q)].max())) * 1.05)
     ax.set_ylabel('field area (m$^2$)')
     _grid_y(ax)
@@ -1230,7 +1235,7 @@ def fig_mechanism(ex, figs):
                    linewidths=0.8, zorder=4)
         ax.contour(xc, yc, imask.T.astype(float), [0.5], colors=INK,
                    linewidths=0.9, zorder=5)
-        ax.set_title(f'q = {q:g}', fontsize=7, pad=3)
+        ax.set_title(f'{KAPPA} = {q:g}', fontsize=7, pad=3)
         if k == 0:
             _scale_bar(ax, ex['geom'])
         _panel_label(ax, 'cde'[k], dx=-6)

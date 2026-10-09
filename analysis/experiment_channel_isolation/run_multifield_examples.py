@@ -255,6 +255,102 @@ CLUSTER_COLORS = ['#2a78d6', '#e34948', '#1baf7a', '#4a3aa7', '#eda100',
                   '#008300']
 
 
+# ------------------------------------------ every unit, a color of its own
+
+def _oklab_to_rgb(L, a, b):
+    """OKLab -> linear sRGB -> gamma sRGB, vectorized; out-of-gamut -> nan."""
+    l_ = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    m_ = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    s_ = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    rgb = np.stack([4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+                    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+                    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_], -1)
+    ok = np.all((rgb >= 0) & (rgb <= 1), -1)
+    g = np.where(rgb <= 0.0031308, 12.92 * rgb,
+                 1.055 * np.clip(rgb, 0, None) ** (1 / 2.4) - 0.055)
+    g[~ok] = np.nan
+    return g
+
+
+def distinct_colors(n, seed=0):
+    """n colors spread as far apart as perception allows, for a figure in
+    which every unit needs its own.
+
+    Greedy farthest-point picks in OKLab from every in-gamut color with
+    lightness 0.45-0.75 and chroma at least 0.08 -- dark enough to read
+    against white, saturated enough to be a hue rather than a gray -- so
+    each new color is the one most unlike all the colors already chosen. At
+    a few colors this matches a designed palette; at a hundred, no palette
+    keeps every pair apart, which is why assign_colors also decides WHICH
+    unit gets which.
+    """
+    L, A, B = np.meshgrid(np.linspace(0.45, 0.75, 7), np.linspace(-0.3, 0.3, 41),
+                          np.linspace(-0.3, 0.3, 41), indexing='ij')
+    lab = np.c_[L.ravel(), A.ravel(), B.ravel()]
+    lab = lab[np.hypot(lab[:, 1], lab[:, 2]) >= 0.08]
+    rgb = _oklab_to_rgb(*lab.T)
+    keep = np.isfinite(rgb).all(1)
+    lab, rgb = lab[keep], rgb[keep]
+    # Lightness counts for less than hue: two colors of one hue at different
+    # lightness read as the same color in a thin outline.
+    w = lab * np.array([0.6, 1.0, 1.0])
+    first = int(np.argmax(np.hypot(lab[:, 1], lab[:, 2])))
+    chosen, d = [first], np.linalg.norm(w - w[first], axis=1)
+    while len(chosen) < n:
+        k = int(np.argmax(d))
+        chosen.append(k)
+        d = np.minimum(d, np.linalg.norm(w - w[k], axis=1))
+    return [tuple(rgb[k]) for k in chosen], w[chosen]
+
+
+def assign_colors(clusters, gap_m=0.5):
+    """A color per unit, the most different ones going to units that sit
+    near each other.
+
+    Two units are neighbors when any of their subfields' centers are within
+    their summed mean radii plus `gap_m` -- close enough to be read against
+    each other. Units are colored most-crowded first, each taking, from the
+    colors still free, the one farthest from every neighbor's color, so a
+    unit is told apart from the units around it even where two distant
+    units have come out alike.
+    """
+    from scipy.spatial import cKDTree
+    n = len(clusters)
+    cols, w = distinct_colors(n)
+    if n <= 1:
+        return cols[:n]
+    # Every subfield as a point with its unit and mean radius; two units are
+    # neighbors when some pair of their subfields is within reach.
+    pts, unit, rad = [], [], []
+    for i, c in enumerate(clusters):
+        if c.get('ellipses') is not None:
+            for e in c['ellipses']:
+                pts.append((e[0], e[1])); unit.append(i); rad.append((e[2] + e[3]) / 2)
+        else:
+            for m in c['masks']:
+                pts.append((float(np.mean(np.nonzero(m)[0])), float(np.mean(np.nonzero(m)[1]))))
+                unit.append(i); rad.append(np.sqrt(m.sum() / np.pi))
+    pts, unit, rad = np.asarray(pts), np.asarray(unit), np.asarray(rad)
+    reach = 2 * rad.max() + gap_m
+    nb = [set() for _ in range(n)]
+    for a, b in cKDTree(pts).query_pairs(reach):
+        if unit[a] != unit[b] and np.hypot(*(pts[a] - pts[b])) < rad[a] + rad[b] + gap_m:
+            nb[unit[a]].add(int(unit[b])); nb[unit[b]].add(int(unit[a]))
+    out, free = [None] * n, np.ones(n, bool)
+    idx = np.arange(n)
+    for i in sorted(range(n), key=lambda i: -len(nb[i])):
+        taken = [out[j] for j in nb[i] if out[j] is not None]
+        cand = idx[free]
+        if taken:
+            d = np.linalg.norm(w[cand][:, None] - w[taken][None], axis=2).min(1)
+            k = int(cand[np.argmax(d)])
+        else:
+            k = int(cand[0])
+        out[i] = k
+        free[k] = False
+    return [cols[k] for k in out]
+
+
 def subfield_scales(areas_m2, r_min, ratio):
     """Each subfield's scale, by the model's own banding of radius.
 
@@ -353,16 +449,18 @@ def _subfields(ax, xc, yc, c, color):
     read from a library), otherwise as its mask's outline."""
     from matplotlib.patches import Ellipse
     if c.get('ellipses') is not None:
+        # With every unit drawn they overlap, so the fill is a light wash and
+        # the outline carries the color.
         for (x, y, a, b, th) in c['ellipses']:
-            for fill, lw, z in ((True, 0, 3), (False, 0.9, 4)):
+            for fill, lw, z in ((True, 0, 3), (False, 0.8, 4)):
                 ax.add_patch(Ellipse((x, y), 2 * a, 2 * b, angle=np.degrees(th),
                                      facecolor=color if fill else 'none',
-                                     edgecolor=color, alpha=0.32 if fill else 1.0,
+                                     edgecolor=color, alpha=0.15 if fill else 1.0,
                                      lw=lw, zorder=z))
         return
     for m in c['masks']:
         z = m.T.astype(float)
-        ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=0.32,
+        ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=0.15,
                     zorder=3)
         ax.contour(xc, yc, z, levels=[0.5], colors=[color], linewidths=0.9,
                    zorder=4)
@@ -399,7 +497,7 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
         _arena(ax, p['geom'])
         xc = 0.5 * (p['x_edges'][:-1] + p['x_edges'][1:])
         yc = 0.5 * (p['y_edges'][:-1] + p['y_edges'][1:])
-        for c, color in zip(p['clusters'], CLUSTER_COLORS):
+        for c, color in zip(p['clusters'], p.get('colors') or CLUSTER_COLORS):
             _subfields(ax, xc, yc, c, color)
         ax.set_title(SD.arena_label(p['env']), fontsize=8, color=INK, pad=4)
         ax.annotate('abcdefgh'[k], xy=(0, 1), xycoords='axes fraction',
@@ -408,15 +506,18 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
     # One legend entry, not one per hue: the hues are identities, not
     # categories, so the key says what a hue is -- one place field -- once,
     # with the swatches it applies to.
+    # Six swatches at most: they say what a color stands for, not which.
     n = max(len(p['clusters']) for p in panels)
     if n:
+        many = max(panels, key=lambda p: len(p['clusters']))
+        pal = (many.get('colors') or CLUSTER_COLORS)[:min(n, 6)]
         swatches = tuple(Patch(facecolor=mcolors.to_rgba(c, 0.32), edgecolor=c,
-                               lw=0.9) for c in CLUSTER_COLORS[:n])
+                               lw=0.9) for c in pal)
         fig.legend([swatches], ['each color: one multifield place cell'],
                    handler_map={tuple: HandlerTuple(ndivide=None, pad=0.3)},
                    loc='lower center', bbox_to_anchor=(0.5, top + 0.22 / fig.get_figheight()),
                    frameon=False,
-                   fontsize=7, handlelength=1.4 * n, handleheight=1.0)
+                   fontsize=7, handlelength=1.4 * len(pal), handleheight=1.0)
     figs.save(fig, name)
 
 

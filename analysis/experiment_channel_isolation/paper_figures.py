@@ -421,17 +421,24 @@ def rho_draw(corr, figs):
 # multifield responses, not which feature space does, so none is named.
 
 MULTIFIELD_ENVS = ['corr_lm8_l10w2', 'corr_lm0_l10w10']
-MULTIFIELD_N = 6          # as many as there are hues that stay apart
+MULTIFIELD_N = None       # None: every multifield unit, each its own color
 
 
 def _multifield_panel(env, clusters, xe, ye, geom):
-    picked = MF.pick_superimposed(clusters, MULTIFIELD_N)
+    if MULTIFIELD_N is None:
+        # Every unit. Largest first, so a small unit is drawn over a large
+        # one rather than hidden under it.
+        picked = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
+        colors = MF.assign_colors(picked)
+    else:
+        picked, colors = MF.pick_superimposed(clusters, MULTIFIELD_N), None
     n_ms = sum(len(set(c['scales'])) > 1 for c in clusters)
     print(f'  {env}: {len(clusters)} multifield clusters, {n_ms} multiscale; '
           f'drawing {len(picked)}: ' + '; '.join(
               f'{c.get("feature_space", "")} {c["node_id"]} scales '
               f'{"/".join(map(str, c["scales"]))}' for c in picked), flush=True)
-    return dict(env=env, geom=geom, x_edges=xe, y_edges=ye, clusters=picked)
+    return dict(env=env, geom=geom, x_edges=xe, y_edges=ye, clusters=picked,
+                colors=colors)
 
 
 def multifield_cache(cache):
