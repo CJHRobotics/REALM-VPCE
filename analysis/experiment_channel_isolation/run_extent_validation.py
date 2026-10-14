@@ -599,6 +599,130 @@ def evaluate(fs, groups, G, occupied, flat, C, lim, q_grid, rng,
     return rows, dict(grids=grids, masks_op=masks_op)
 
 
+
+# ----------------------------------------------- kappa on the model's own clusters
+#
+# The hand-crafted clusters test the extent rule against a footprint fixed in
+# advance. This stage asks the simpler question the paper now puts: on the
+# clusters the hierarchy really produces, how much floor outside a cluster's
+# own members does its field take in as kappa grows? kappa% of the members
+# are inside by construction; the non-members are what the data decide.
+# Output goes to {cache_dir}/members/<env>/, apart from the hand-crafted
+# cache, so neither run can overwrite the other.
+
+MEMBER_SIZE_BINS = 6        # member-count classes, log-spaced
+MEMBER_PER_BIN = 40         # clusters sampled per class, per arena and channel
+
+
+def member_groups(ctx, rng):
+    """Candidate clusters of the real hierarchy, stratified by member count.
+
+    Candidates, not selected fields: which clusters become fields depends on
+    the fields drawn at the kappa in use, so judging kappa on them would be
+    circular. Up to MEMBER_PER_BIN from each of MEMBER_SIZE_BINS log-spaced
+    member-count classes, so the rare large clusters are not swamped by the
+    many small ones.
+    """
+    cand, count = np.asarray(ctx['cand']), np.asarray(ctx['count'])
+    n = count[cand]
+    edges = np.geomspace(n.min(), n.max() + 1, MEMBER_SIZE_BINS + 1)
+    cls = np.clip(np.digitize(n, edges) - 1, 0, MEMBER_SIZE_BINS - 1)
+    groups = []
+    for c in range(MEMBER_SIZE_BINS):
+        idx = np.flatnonzero(cls == c)
+        if not len(idx):
+            continue
+        for k in rng.choice(idx, min(MEMBER_PER_BIN, len(idx)), replace=False):
+            nid = int(cand[k])
+            groups.append(dict(group_id=nid, kind='cluster', size_class=int(c),
+                               n_members=int(count[nid]),
+                               members=R.node_members(nid, ctx['children'], ctx['N'])))
+    return groups
+
+
+def run_members(env_name, chans, args, base_C, device, cache_dir, q_grid):
+    """The real-cluster stage for one arena: every channel, every kappa."""
+    data_path = f'{args.data_dir}/{env_name}.h5'
+    if not os.path.exists(data_path):
+        print(f'\n[{env_name}] no dataset at {data_path} -- skipping', flush=True)
+        return False
+    print(f'\n{"=" * 72}\n{env_name} -- kappa on real clusters\n{"=" * 72}',
+          flush=True)
+    rng = np.random.default_rng(args.seed)
+    blocks, xy = ch.load_channel_blocks(data_path)
+    root = ET.parse(f'{REPO}/simulation/worlds/environments/vpce/'
+                    f'{env_name}.xml').getroot()
+    env = R.build_env(xy, root)
+    C = R.resolve_grid_cfg(base_C, xy, env=env)
+    G = R._grid_setup(env, C)
+    flat = R._bin_indices(xy, G)
+    occupied = np.zeros(G['gx'] * G['gy'], bool)
+    occupied[flat] = True
+    occupied = occupied.reshape(G['gx'], G['gy'])
+    _, r_min, r_max, a_min, a_max = scale_radii(env, C)
+    out = f'{cache_dir}/members/{env_name}'
+    os.makedirs(out, exist_ok=True)
+    geom = {k: (float(v) if isinstance(v, (int, float, np.floating)) and
+                not isinstance(v, bool) else v) for k, v in env.items()}
+    landmarks = [(float(l.get('x')), float(l.get('y')))
+                 for l in root.findall('landmark')]
+    meta = dict(env=env_name, git=_git_rev(), started=time.strftime('%Y-%m-%d %H:%M'),
+                q_grid=list(map(float, q_grid)), q_op=Q_OP,
+                field_unit=R.DEFAULT_CFG['FIELD_UNIT'], seed=args.seed,
+                bin_area=float(G['bin_area']), gx=int(G['gx']), gy=int(G['gy']),
+                geom=dict(geom, landmarks=landmarks), channels_done=[])
+    rows = []
+    for cname in chans:
+        t0 = time.time()
+        X = ch.assemble(blocks, ch.CHANNEL_SETS[cname], normalize=True)
+        D2 = R.feature_sq_distances(X, device=device, verbose=False)
+        feat_med = R._median_offdiag(D2, np.random.default_rng(base_C['RANDOM_SEED']))
+        s = xy[:3000]
+        xy_med = float(np.median(((s[:, None] - s[None]) ** 2).sum(-1)[
+            np.triu_indices(len(s), 1)]))
+        tree = R.build_tree(D2, xy, feat_med, xy_med, cfg=base_C, verbose=False)
+        Cq = R.resolve_cfg(dict(base_C, EXTENT_PCTL=Q_OP))
+        ctx = R.prepare_candidates(X, xy, env, D2, feat_med, xy_med, cfg=Cq,
+                                   device=device, tree=tree,
+                                   tag=f'{env_name}/{cname}', verbose=False)
+        del D2
+        groups = member_groups(ctx, rng)
+        del ctx, tree
+        fs = FeatureSpace(X, device)
+        got, _ = evaluate(fs, groups, G, occupied, flat, C, (a_min, a_max),
+                          q_grid, np.random.default_rng(args.seed + 1))
+        for r in got:
+            r.update(env=env_name, channel=cname)
+        rows += got
+        # Figure 3's example: in the example arena and channel, the
+        # mid-sized cluster whose field-to-members area ratio at the kappa
+        # in use is nearest the median -- representative, not chosen.
+        if env_name == EXAMPLE_ENV and cname == GALLERY_CHANNEL and got:
+            d = pd.DataFrame(got)
+            at = d[np.isclose(d.q, Q_OP) & (d.size_class == MEMBER_SIZE_BINS // 2)]
+            at = at if len(at) else d[np.isclose(d.q, Q_OP)]
+            gid = int(at.iloc[(at.log2_area_ratio - at.log2_area_ratio.median())
+                              .abs().argmin()].group_id)
+            g = next(x for x in groups if x['group_id'] == gid)
+            _, kept = evaluate(fs, [g], G, occupied, flat, C, (a_min, a_max),
+                               q_grid, np.random.default_rng(args.seed + 1),
+                               keep_grid_ids=[gid])
+            k = kept['grids'][gid]
+            np.savez_compressed(f'{out}/example.npz', group_id=gid, channel=cname,
+                                bin_d2=k['bin_d2'], dc2=k['dc2'], mmask=k['imask'],
+                                member_xy=xy[g['members']], x_edges=G['x_edges'],
+                                y_edges=G['y_edges'], in_env=G['in_env'])
+        fs.close()
+        del X
+        meta['channels_done'].append(cname)
+        pd.DataFrame(rows).to_csv(f'{out}/members.csv', index=False)
+        with open(f'{out}/meta.json', 'w') as f:
+            json.dump(meta, f, indent=1, default=float)
+        med = pd.DataFrame(got).query('q == @Q_OP').log2_area_ratio.median() if got else np.nan
+        print(f'  [{cname}] {len(groups)} clusters, median field/members area at '
+              f'{Q_OP:g}: {2 ** med:.2f}  ({time.time() - t0:.0f}s)', flush=True)
+    return True
+
 # ------------------------------------------------------------ the pipeline
 
 def pipeline_libraries(X, xy, env, base_C, device, tag, q_list, verbose=True):
@@ -1240,6 +1364,132 @@ def fig_mechanism(ex, figs):
             _scale_bar(ax, ex['geom'])
         _panel_label(ax, 'cde'[k], dx=-6)
     figs.save(fig, 'V1_what_q_does')
+
+
+
+MEMBER_DOT = dict(marker='.', ls='', ms=1.6, color=INK, alpha=0.55,
+                  mew=0, zorder=7)
+
+
+def fig_member_extent(ex, figs):
+    """V1 -- what kappa does, on one real cluster.
+
+    sigma is set so the field's edge lies at the kappa-th percentile of the
+    members' distances to their centroid, so kappa% of the members fall
+    inside by construction. What is NOT fixed is how much of the floor
+    outside the cluster joins as kappa grows: positions whose observations
+    resemble the members'. The figure shows that: (a) the kappa at which
+    each position joins, with the members as dots; (b) the field's area
+    split into the members' share and the non-members', which takes off at
+    large kappa; (c-e) the field at three values.
+
+    `ex`: bin_d2 (per-bin squared distance to the centroid), dc2 (members'
+    spread, sorted), mmask (bins holding a member), member_xy, in_env,
+    x_edges, y_edges, bin_area, geom.
+    """
+    bin_d2, dc2, mmask, in_env = ex['bin_d2'], ex['dc2'], ex['mmask'], ex['in_env']
+    xe, ye = ex['x_edges'], ex['y_edges']
+    xc, yc = _centres(xe), _centres(ye)
+    ba, mxy = ex['bin_area'], np.asarray(ex['member_xy'])
+    finite = np.isfinite(bin_d2) & in_env
+    d2min = float(bin_d2[finite].min())
+    v = bin_d2 - d2min + dc2[0]
+    qj = 100.0 * np.interp(v, dc2, np.linspace(0, 1, len(dc2)))
+    never = finite & (v > dc2[-1])
+    qj = np.where(finite & ~never, qj, np.nan)
+
+    qs = np.arange(0, 101)
+    bounds = d2min + (np.percentile(dc2, qs) - dc2[0])
+    a_mem = np.array([((bin_d2 <= b) & finite & mmask).sum() for b in bounds]) * ba
+    a_non = np.array([((bin_d2 <= b) & finite & ~mmask).sum() for b in bounds]) * ba
+
+    fig = plt.figure(figsize=(FIG_W, 4.55))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.12, 1.0], hspace=0.42)
+    top = gs[0].subgridspec(1, 4, width_ratios=[1.0, 0.045, 0.55, 1.3], wspace=0.05)
+    bot = gs[1].subgridspec(1, 3, wspace=0.12)
+
+    # (a) the join map, the members on it
+    ax = fig.add_subplot(top[0])
+    _arena_axes(ax, ex['geom'])
+    ax.pcolormesh(xe, ye, np.ma.masked_where(~never, never).T.astype(float),
+                  cmap=mcolors.ListedColormap([NEVER_FILL]), vmin=0, vmax=1,
+                  rasterized=True, zorder=1)
+    pm = ax.pcolormesh(xe, ye, np.ma.masked_invalid(qj).T, cmap=QJOIN_CMAP,
+                       vmin=0, vmax=100, rasterized=True, zorder=2)
+    ax.plot(mxy[:, 0], mxy[:, 1], **MEMBER_DOT)
+    _panel_label(ax, 'a', dx=-6)
+    cax = fig.add_subplot(top[1])
+    cb = fig.colorbar(pm, cax=cax)
+    cb.set_ticks([0, 20, 40, 60, 80, 100])
+    cb.outline.set_linewidth(0)
+    cb.ax.tick_params(labelsize=6, length=2)
+    cb.set_label(f'{KAPPA} at which the position joins the field', fontsize=6.5)
+
+    # (b) what the field is made of as kappa grows: the members' positions
+    # below, the rest of the floor stacked on top. Cut at the largest kappa
+    # drawn in (c-e), as before.
+    ax = fig.add_subplot(top[3])
+    ax.fill_between(qs, 0, a_mem, color=BLUE, alpha=0.55, lw=0, label='members')
+    ax.fill_between(qs, a_mem, a_mem + a_non, color=ORANGE, alpha=0.55, lw=0,
+                    label='non-members')
+    ax.plot(qs, a_mem + a_non, color=INK, lw=1.0)
+    _mark_op(ax, text=True, ls=(0, (4, 2)), sym=KAPPA)
+    _q_axis(ax, label=False)
+    ax.set_xlabel(KAPPA)
+    ax.set_ylim(0, float((a_mem + a_non)[qs <= max(EXAMPLE_Q)].max()) * 1.05)
+    ax.set_ylabel('field area (m$^2$)')
+    ax.legend(loc='upper left', handlelength=1.2)
+    _grid_y(ax)
+    _panel_label(ax, 'b')
+
+    # (c-e) the field itself at three settings, the members on it
+    for k, q in enumerate(EXAMPLE_Q):
+        ax = fig.add_subplot(bot[k])
+        _arena_axes(ax, ex['geom'])
+        b = d2min + (np.percentile(dc2, q) - dc2[0])
+        m = finite & (bin_d2 <= b)
+        ax.pcolormesh(xe, ye, np.ma.masked_where(~m, m).T.astype(float),
+                      cmap=mcolors.ListedColormap([BLUE]), vmin=0, vmax=1,
+                      alpha=0.45, rasterized=True, zorder=2)
+        ax.contour(xc, yc, m.T.astype(float), [0.5], colors=BLUE,
+                   linewidths=0.8, zorder=4)
+        ax.plot(mxy[:, 0], mxy[:, 1], **MEMBER_DOT)
+        ax.set_title(f'{KAPPA} = {q:g}', fontsize=7, pad=3)
+        if k == 0:
+            _scale_bar(ax, ex['geom'])
+        _panel_label(ax, 'cde'[k], dx=-6)
+    figs.save(fig, 'V1_what_kappa_does')
+
+
+def fig_member_pooled(rec, figs):
+    """V2 -- how fast fields grow past their members, over real clusters.
+
+    One row per (cluster, kappa) in `rec`, with log2_area_ratio (field over
+    the members' region) and precision (share of the field that is members).
+    (a) the field's area relative to the members' region; (b) the share of
+    the field that is non-members. Median and interquartile range over
+    clusters; dashed, the kappa in use.
+    """
+    g = rec.groupby('q')
+    q = np.asarray(sorted(rec.q.unique()), float)
+    ratio = 2.0 ** rec.assign(r=rec.log2_area_ratio).groupby('q').r.quantile([.25, .5, .75]).unstack()
+    non = (100.0 * (1 - rec.precision)).groupby(rec.q).quantile([.25, .5, .75]).unstack()
+    fig, axes = plt.subplots(1, 2, figsize=(FIG_W, 2.4))
+    for ax, d, ylab, letter in (
+            (axes[0], ratio, 'field area / members\' region', 'a'),
+            (axes[1], non, 'non-members in the field (%)', 'b')):
+        ax.fill_between(q, d[.25], d[.75], color=BLUE, alpha=0.2, lw=0)
+        ax.plot(q, d[.5], color=BLUE, lw=1.5)
+        _mark_op(ax, text=True, ls=(0, (4, 2)), sym=KAPPA)
+        _q_axis(ax, label=False)
+        ax.set_xlabel(KAPPA)
+        ax.set_ylabel(ylab)
+        ax.set_ylim(bottom=0)
+        _grid_y(ax)
+        _panel_label(ax, letter)
+    axes[0].axhline(1.0, color=INK, lw=0.8, zorder=1.5)
+    fig.tight_layout(w_pad=2.5)
+    figs.save(fig, 'V2_member_extent')
 
 
 def _ci(v, digits=0):
@@ -2241,9 +2491,11 @@ def parse_args():
     p.add_argument('--envs', default=','.join(SD.ALL_ENVS))
     p.add_argument('--channels', default=','.join(SD.CHANNELS))
     p.add_argument('--stages', default='recovery,pipeline',
-                   help='recovery (the q sweep against known fields) and/or '
-                        'pipeline (the real libraries at --pipeline-q). The '
-                        'report needs recovery; pipeline adds V5.')
+                   help='recovery (the q sweep against known fields), '
+                        'pipeline (the real libraries at --pipeline-q) and/or '
+                        'members (the q sweep on the hierarchy\'s own clusters, '
+                        'scored against their members; cached apart, under '
+                        'members/). The report needs recovery; pipeline adds V5.')
     p.add_argument('--q', default=','.join(map(str, Q_GRID)),
                    help=f'the q sweep. {Q_OP:g} and every value V1 shows are '
                         f'always added.')
@@ -2299,8 +2551,20 @@ def main():
         print(f'  pipeline : q = {args.pipeline_q}')
     print('=' * 72, flush=True)
 
-    ran = [e for e in envs if run_arena(e, chans, stages, args, base_C, device,
-                                        args.cache_dir, q_grid)]
+    # The real-cluster stage writes its own cache; the hand-crafted stages
+    # run only when asked, so `--stages members` leaves their cache alone.
+    arena_stages = stages - {'members'}
+    ran = []
+    for e in envs:
+        did = False
+        if arena_stages:
+            did = run_arena(e, chans, arena_stages, args, base_C, device,
+                            args.cache_dir, q_grid)
+        if 'members' in stages:
+            did = run_members(e, chans, args, base_C, device, args.cache_dir,
+                              q_grid) or did
+        if did:
+            ran.append(e)
     if not ran:
         print('\nNo arena had a dataset; nothing was computed.')
         return 1

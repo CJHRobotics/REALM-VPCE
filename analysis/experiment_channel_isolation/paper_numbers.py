@@ -189,6 +189,21 @@ class Data:
             return out
         return self._get('ev', load)
 
+    # kappa on real clusters ----------------------------------------------
+    @property
+    def members(self):
+        def load():
+            parts = []
+            for e in ENVS:
+                p = f'{self.cache}/extent_validation/members/{e}/members.csv'
+                if os.path.exists(p):
+                    parts.append(pd.read_csv(p))
+            if not parts:
+                raise RuntimeError('no real-cluster results (extent_validation/'
+                                   'members/); run --stages members')
+            return pd.concat(parts, ignore_index=True)
+        return self._get('members', load)
+
     def _csv(self, rel):
         p = f'{self.cache}/{rel}'
         if not os.path.exists(p):
@@ -1225,6 +1240,78 @@ def _(d):
 def _(d):
     x = _ev(d)['crit']['discrimination']
     return f'{100 * x["tpr_op"]:.0f}% of hand-crafted clusters, {100 * x["fpr_op"]:.0f}% of non-fields'
+
+
+# ===================================================== kappa on real clusters
+
+W_KAP = 'Figure 3 / Methods, extent and width; appendix (replaces A2)'
+
+
+def _at(d, q):
+    return d.members[np.isclose(d.members.q, q)]
+
+
+@entry('kappa.n_clusters', W_KAP, 'NEW: real clusters analyzed (environments, feature spaces)',
+       '(new analysis)', 'members.csv: distinct (env, channel, cluster)')
+def _(d):
+    m = d.members
+    return (f'{m.groupby(["env", "channel", "group_id"]).ngroups:,} clusters, '
+            f'{m.env.nunique()} environments x {m.channel.nunique()} feature spaces')
+
+
+@entry('kappa.members_inside', W_KAP,
+       'NEW: members inside the field at kappa = 80 (by construction about 80%)',
+       '(new analysis)', 'median recall at 80')
+def _(d):
+    return pct(100.0 * _at(d, 80).recall.median())
+
+
+@entry('kappa.area_ratio', W_KAP,
+       'NEW: field area / members\' region, median, at kappa = 50, 80 (IQR), 90, 95, 100',
+       '(new analysis)', '2 ** median log2_area_ratio')
+def _(d):
+    r = {q: 2 ** _at(d, q).log2_area_ratio for q in (50, 80, 90, 95, 100)}
+    return (f'50: {r[50].median():.2f}; 80: {r[80].median():.2f} '
+            f'({r[80].quantile(.25):.2f}–{r[80].quantile(.75):.2f}); '
+            f'90: {r[90].median():.2f}; 95: {r[95].median():.2f}; 100: {r[100].median():.2f}')
+
+
+@entry('kappa.growth_80_95', W_KAP,
+       'NEW: how much the median field grows from kappa = 80 to 95, and to 100',
+       '(new analysis)', 'ratio of median field areas (relative to members)')
+def _(d):
+    a80 = (2 ** _at(d, 80).log2_area_ratio).median()
+    return (f'x{(2 ** _at(d, 95).log2_area_ratio).median() / a80:.2f} to 95, '
+            f'x{(2 ** _at(d, 100).log2_area_ratio).median() / a80:.2f} to 100')
+
+
+@entry('kappa.nonmember_share', W_KAP,
+       'NEW: % of the field that is non-members, median, at kappa = 50, 80, 90, 95, 100',
+       '(new analysis)', '1 - precision')
+def _(d):
+    return '; '.join(f'{q}: {100 * (1 - _at(d, q).precision.median()):.0f}%'
+                     for q in (50, 80, 90, 95, 100))
+
+
+@entry('kappa.ratio_crosses_1', W_KAP,
+       'NEW: kappa at which the median field equals its members\' region in area',
+       '(new analysis)', 'linear crossing of the median area ratio through 1')
+def _(d):
+    g = d.members.groupby('q').log2_area_ratio.median()
+    q, y = g.index.to_numpy(float), g.to_numpy()
+    for i in range(len(y) - 1):
+        if y[i] < 0 <= y[i + 1]:
+            return f'{q[i] + (0 - y[i]) * (q[i + 1] - q[i]) / (y[i + 1] - y[i]):.0f}'
+    return 'never crosses'
+
+
+@entry('kappa.best_overlap', W_KAP,
+       'NEW: kappa of best overlap between field and members, per cluster: median (IQR)',
+       '(new analysis)', 'argmax over kappa of iou, per cluster')
+def _(d):
+    m = d.members
+    b = m.loc[m.groupby(['env', 'channel', 'group_id']).iou.idxmax()].q
+    return f'{b.median():.0f} ({b.quantile(.25):.0f}–{b.quantile(.75):.0f})'
 
 
 # ------------------------------------------------------------------- main

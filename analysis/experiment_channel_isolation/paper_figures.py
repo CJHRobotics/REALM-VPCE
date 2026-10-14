@@ -28,6 +28,7 @@ figures/ folder, in figures/paper/ (cache) or figures/preview/ (--fake). Copy
 the PNGs into vpce-paper/figures/ to update the manuscript.
 """
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -544,6 +545,86 @@ def multifield_fake(rng):
     return panels
 
 
+# ------------------------------------------- kappa on real clusters (Fig. 3)
+
+def _members_meta(cache, env):
+    d = f'{cache}/extent_validation/members/{env}'
+    if not os.path.exists(f'{d}/meta.json'):
+        raise RuntimeError(f'no real-cluster results in {d}; run '
+                           f'slurm/extent_validation.sh --envs {env} --stages members')
+    meta = json.load(open(f'{d}/meta.json'))
+    if not np.isclose(float(meta.get('q_op', np.nan)), EV.Q_OP):
+        raise RuntimeError(f'{d} was built at kappa = {meta.get("q_op")}, not '
+                           f'{EV.Q_OP:g}; rerun it')
+    return d, meta
+
+
+def member_extent_cache(cache):
+    """Figure 3's example: the cluster the real-cluster stage kept."""
+    d, meta = _members_meta(cache, EV.EXAMPLE_ENV)
+    if not os.path.exists(f'{d}/example.npz'):
+        raise RuntimeError(f'{d} has no example.npz; the stage did not reach '
+                           f'channel {EV.GALLERY_CHANNEL}')
+    f = np.load(f'{d}/example.npz')
+    gx, gy = int(meta['gx']), int(meta['gy'])
+    print(f'  example: {EV.EXAMPLE_ENV} / {str(f["channel"])}, cluster '
+          f'{int(f["group_id"])}, {len(f["member_xy"])} members '
+          f'(git {meta.get("git", "?")}, {meta.get("started", "?")})', flush=True)
+    return dict(bin_d2=f['bin_d2'].astype(float).reshape(gx, gy),
+                dc2=np.sort(f['dc2']), mmask=f['mmask'].reshape(gx, gy),
+                member_xy=f['member_xy'], in_env=f['in_env'],
+                x_edges=f['x_edges'], y_edges=f['y_edges'],
+                bin_area=float(meta['bin_area']), geom=meta['geom'])
+
+
+def member_extent_fake(rng):
+    """One made-up cluster in the 6 m disc: members scattered over a patch on
+    the left, with views that resemble theirs spreading to the right."""
+    ex = valid_q_fake(rng)
+    X, Y = np.meshgrid(EV._centres(ex['x_edges']), EV._centres(ex['y_edges']),
+                       indexing='ij')
+    core = ex['imask']
+    # Members: most of the patch, thinned, plus a few strays near it.
+    mm = core & (rng.random(core.shape) < 0.85)
+    stray = (np.hypot(X + 2.2, Y) < 1.0) & ~core & (rng.random(core.shape) < 0.04)
+    mm = (mm | stray) & ex['in_env']
+    d2 = ex['bin_d2']
+    dc2 = np.sort(d2[mm] * rng.uniform(0.9, 1.3, mm.sum()))
+    return dict(ex, mmask=mm, dc2=dc2, member_xy=np.c_[X[mm], Y[mm]])
+
+
+def member_pooled_cache(cache):
+    """Every arena's real-cluster rows, pooled."""
+    parts = []
+    for e in SIZE_ENVS:
+        try:
+            d, _ = _members_meta(cache, e)
+        except RuntimeError as ex:
+            print(f'  !! {ex}', flush=True)
+            continue
+        parts.append(pd.read_csv(f'{d}/members.csv'))
+    if not parts:
+        raise RuntimeError('no real-cluster results for any environment')
+    rec = pd.concat(parts, ignore_index=True)
+    print(f'  {rec.groupby(["env", "channel", "group_id"]).ngroups:,} clusters from '
+          f'{len(parts)} environment(s)', flush=True)
+    return rec
+
+
+def member_pooled_fake(rng):
+    """Made-up curves for 2000 clusters: the field matches the members'
+    region near kappa 80 and grows quickly past it."""
+    rows = []
+    for gid in range(2000):
+        k0, steep = rng.normal(82, 5), rng.uniform(0.05, 0.09)
+        for q in np.arange(5, 101, 5.0):
+            ratio = (q / 100) * (1 + np.exp(steep * (q - k0)) * 0.25)
+            prec = min(1.0, (q / 100) / ratio)
+            rows.append(dict(group_id=gid, q=q, log2_area_ratio=np.log2(ratio),
+                             precision=prec))
+    return pd.DataFrame(rows)
+
+
 # ------------------------------------------------------------------ registry
 #
 # name: (paper label, {experiment's figure name: paper file name},
@@ -551,8 +632,12 @@ def multifield_fake(rng):
 
 FIGURES = {
     'valid-q': ('fig:valid-q (Fig. 3)',
-                {'V1_what_q_does': 'valid_V1_what_q_does'},
-                valid_q_cache, valid_q_fake, EV.fig_mechanism),
+                {'V1_what_kappa_does': 'valid_V1_what_q_does'},
+                member_extent_cache, member_extent_fake, EV.fig_member_extent),
+    'member-pooled': ('kappa over real clusters (appendix)',
+                      {'V2_member_extent': 'valid_V2_member_extent'},
+                      member_pooled_cache, member_pooled_fake,
+                      EV.fig_member_pooled),
     'funnel': ('fig:funnel (Fig. 4)',
                {'P1_rule_shares': 'prune_P1_rule_shares'},
                funnel_cache, funnel_fake, funnel_draw),
