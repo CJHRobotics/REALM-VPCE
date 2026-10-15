@@ -9,6 +9,10 @@
 #
 #   bash slurm/paper_rerun.sh            # submit the whole chain
 #   bash slurm/paper_rerun.sh --dry-run  # print what would be submitted
+#   bash slurm/paper_rerun.sh --no-validation
+#                                        # all but the extent validation: its
+#                                        # cache (hand-crafted and real-cluster
+#                                        # kappa) is kept and reported as is
 #
 # What changed (rules.FIELD_UNIT = 'subfield', 8 October 2026): a cluster's
 # field is split into its subfields, and each subfield is a field of its own
@@ -16,6 +20,10 @@
 # scale -- with no contiguity rule. A unit with two or more selected
 # subfields is multifield. Every library is rebuilt; libraries built the old
 # way are named differently (no `_sub`) and are never read.
+#
+# And from 15 October 2026 same-scale competition is off
+# (rules.SAME_SCALE_COMPETITION = False): every field that passes the size
+# rule is selected. Those libraries carry `_nocomp` in their names.
 #
 # The chain (every analysis job fans out one arena per job, as their own
 # headers recommend):
@@ -35,7 +43,14 @@
 set -euo pipefail
 
 DRY=0
-[[ "${1:-}" == "--dry-run" ]] && DRY=1
+VALID=1
+for a in "$@"; do
+    case "$a" in
+        --dry-run)       DRY=1 ;;
+        --no-validation) VALID=0 ;;
+        *) echo "paper_rerun: unknown option $a" >&2; exit 2 ;;
+    esac
+done
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
@@ -63,12 +78,14 @@ SD=() PA=() EV=()
 for e in "${ENVS[@]}"; do
     SD+=("$(sub slurm/scale_distribution.sh --envs "$e" --no-email)")
     PA+=("$(sub slurm/prune_audit.sh --envs "$e" --part "$e" --no-email)")
-    EV+=("$(sub slurm/extent_validation.sh --envs "$e" --no-report --no-email)")
+    if [[ $VALID -eq 1 ]]; then
+        EV+=("$(sub slurm/extent_validation.sh --envs "$e" --no-report --no-email)")
+    fi
 done
 SDC=$(sub --dependency="afterok:$(join "${SD[@]}")" \
           slurm/scale_distribution.sh --use-cache --no-email)
 FG=$(sub --dependency="afterok:$SDC" slurm/field_geometry.sh --no-email)
-FIN=$(sub --dependency="afterany:$(join "$SDC" "$FG" "${PA[@]}" "${EV[@]}")" \
+FIN=$(sub --dependency="afterany:$(join "$SDC" "$FG" "${PA[@]}" ${EV[@]+"${EV[@]}"})" \
           slurm/paper_finish.sh)
 
 cat <<EOF
@@ -77,7 +94,7 @@ Submitted:
   scale distribution  ${SD[*]}
                       combining pass $SDC
   prune audit         ${PA[*]}
-  extent validation   ${EV[*]}
+  extent validation   ${EV[*]:-(skipped: --no-validation)}
   field geometry      $FG
   paper_finish        $FIN   <- mails the numbers CSV and the figures
 

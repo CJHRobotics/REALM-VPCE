@@ -429,9 +429,12 @@ def fig_rule_shares(pairs_df, fig_dir):
         # the multifield fields it did not keep.
         d['multi'], d['single'] = d.cut_contig, d.n_admitted
         d['admitted_all'] = d.n_admitted + d.cut_contig
-    segs = [('rejected: size criterion', 'cut_size', BLUE, 'cut_size'),
-            ('rejected: same-scale competition', 'cut_compete', VIOLET,
-             'cut_compete')]
+    segs = [('rejected: size criterion', 'cut_size', BLUE, 'cut_size')]
+    # Competition is off by default now; its segment is drawn only when it
+    # removed something, rather than as an empty legend entry.
+    if float(d.cut_compete.sum()) > 0:
+        segs.append(('rejected: same-scale competition', 'cut_compete', VIOLET,
+                     'cut_compete'))
     if float(d.cut_coverage.sum()) > 0:
         segs.append(('rejected: coverage', 'cut_coverage', YELLOW,
                      'cut_coverage'))

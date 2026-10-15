@@ -307,7 +307,10 @@ def coverage_tag(tiling_frac_min):
     the old banks keep their names and are never read as the new ones.
     """
     unit = '_sub' if R.DEFAULT_CFG['FIELD_UNIT'] == 'subfield' else ''
-    return f'_cov{float(tiling_frac_min):g}{unit}'
+    # And whether same-scale competition pruned the library (rules
+    # SAME_SCALE_COMPETITION, off from 15 October 2026).
+    comp = '' if R.DEFAULT_CFG['SAME_SCALE_COMPETITION'] else '_nocomp'
+    return f'_cov{float(tiling_frac_min):g}{unit}{comp}'
 
 
 def tiling_suffix(tiling_frac_min):

@@ -263,6 +263,14 @@ DEFAULT_CFG = dict(
     # it is not, however, a biological measurement, and should be reported
     # as a data-driven choice.
     SAME_SCALE_SEPARATION = 0.35,
+    # Whether Rule 11 is applied at all. Off from 15 October 2026: every field
+    # that passes the size rule is selected, and same-scale overlap is left
+    # in place and reported (redundancy) rather than pruned. The stage is
+    # kept in the funnel, passing everything, so every reader of it sees the
+    # same stages. Libraries built with it on carry no `_nocomp` in their
+    # names (run_scale_distribution.coverage_tag), so neither is read as
+    # the other.
+    SAME_SCALE_COMPETITION = False,
     # Band edges are geometric with this ratio. Used ONLY to group fields
     # for Rule 11 and for reporting coverage — never to admit or reject one,
     # so the ladder spacing is measured rather than imposed (Rule 10 is not
@@ -1203,8 +1211,11 @@ def admit_fields(ctx, cfg=None, verbose=True):
 
     # Rule 11 — larger and more reliable fields claim their territory first.
     order = surviving[np.lexsort((-sh_iou[surviving], -r_eq[surviving]))]
-    kept11 = rule11_competition(order, cx, cy, r_mean, band,
-                                C['SAME_SCALE_SEPARATION'], unit=clu)
+    if C['SAME_SCALE_COMPETITION']:
+        kept11 = rule11_competition(order, cx, cy, r_mean, band,
+                                    C['SAME_SCALE_SEPARATION'], unit=clu)
+    else:
+        kept11 = list(order)
     funnel.append(('rule_11_competition', len(kept11)))
 
     kept, coverage, band_range = rule12_tiling(kept11, band, masks, G, C)  # Rule 12
