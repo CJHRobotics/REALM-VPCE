@@ -190,8 +190,33 @@ def funnel_draw(pairs, figs):
             figs.adopt(p, 'P1_rule_shares')
 
 
+def selected_counts_cache(cache):
+    """Figure 5's counts, read off the scale run's libraries -- the field sets
+    Figures 7-13 and the multifield text are drawn from -- rather than the
+    prune audit. The audit rebuilds every hierarchy itself, and on 19 Oct 2026
+    its counts differed from the libraries' in three arenas (circ_lm0_r6,
+    corr_lm8_l10w10, corr_lm0_l10w10; up to 21 fields a library), so Figure 5
+    disagreed with Figures 7-8 and with the text."""
+    rows = []
+    for (e, c, *_), b in size_dist_cache(cache).items():
+        if 'multifield' not in b:
+            raise RuntimeError(f'the {e} {c} library has no multifield column: '
+                               f'it was built before the subfield rule; rerun it')
+        m = b.multifield.astype(bool)
+        rows.append(dict(env=e, channel=c, n_admitted=len(b),
+                         n_admitted_multifield=int(m.sum()),
+                         n_multifield_units=int(b[m].node_id.nunique())))
+    d = pd.DataFrame(rows)
+    print(f'  {int(d.n_admitted.sum()):,} selected fields, '
+          f'{int(d.n_admitted_multifield.sum()):,} of them multifield, in '
+          f'{int(d.n_multifield_units.sum()):,} units; '
+          f'{int((d.n_multifield_units == 0).sum())} of {len(d)} libraries '
+          f'have none', flush=True)
+    return d
+
+
 def selected_counts_draw(pairs, figs):
-    """P1b, the per-library counts, from the same audit table as P1."""
+    """P1b, the per-library counts."""
     with tempfile.TemporaryDirectory() as tmp:
         for p in PA.fig_selected_counts(pairs, tmp):
             figs.adopt(p, 'P1b_selected_counts')
@@ -686,7 +711,7 @@ FIGURES = {
                       EV.fig_member_pooled),
     'funnel': ('fig:funnel (Fig. 5)',
                {'P1b_selected_counts': 'prune_P1b_selected_counts'},
-               funnel_cache, funnel_fake, selected_counts_draw),
+               selected_counts_cache, funnel_fake, selected_counts_draw),
     'rule-shares': ('candidate outcomes, Fig. 5 until 19 Oct 2026 (not in main.tex)',
                     {'P1_rule_shares': 'prune_P1_rule_shares'},
                     funnel_cache, funnel_fake, funnel_draw),
