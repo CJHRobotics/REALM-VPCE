@@ -153,7 +153,10 @@ def funnel_cache(cache):
 
 def funnel_fake(rng):
     """Every library's counts, made up around the shares the last run gave:
-    about 62% too small or large, 1-2% multifield, 13% competition."""
+    about 62% too small or large, and nothing cut by contiguity or
+    competition, which the current rules do not apply. Multifield fields
+    come from the visual channels only, most in the corridor with landmarks,
+    a few in the square without, a sprinkling in the discs."""
     area = {'circ_lm8_r3': 28.27, 'circ_lm0_r3': 28.27, 'circ_lm8_r6': 113.1,
             'circ_lm0_r6': 113.1, 'corr_lm8_l10w10': 100.0,
             'corr_lm0_l10w10': 100.0, 'corr_lm8_l10w2': 20.0,
@@ -165,13 +168,18 @@ def funnel_fake(rng):
             n = int(rng.integers(2200, 2800))
             size = int(n * rng.uniform(0.66, 0.70) if corridor
                        else n * rng.uniform(0.60, 0.63))
-            contig = int(n * (rng.uniform(0.015, 0.03) if corridor
-                              else rng.uniform(0.002, 0.01)))
-            compete = int(n * rng.uniform(0.09, 0.16))
+            kept = n - size
+            share = ({'hog': 0.30, 'color': 0.04, 'spatial': 0.28,
+                      'visual': 0.12, 'all': 0.03}.get(c, 0.0)
+                     if e == 'corr_lm8_l10w2' else
+                     {'color': 0.20}.get(c, 0.0) if e == 'corr_lm0_l10w10' else
+                     {'hog': 0.02, 'color': 0.03, 'visual': 0.01}.get(c, 0.0)
+                     if e != 'circ_lm0_r3' else 0.0)
+            multi = int(kept * share * rng.uniform(0.7, 1.3))
             rows.append(dict(env=e, channel=c, env_area_m2=a, n_candidates=n,
-                             pass_size=n - size, pass_contiguity=n - size - contig,
-                             pass_competition=n - size - contig - compete,
-                             n_admitted=n - size - contig - compete))
+                             pass_size=kept, pass_contiguity=kept,
+                             pass_competition=kept, n_admitted=kept,
+                             n_admitted_multifield=multi))
     return pd.DataFrame(rows)
 
 
@@ -180,6 +188,13 @@ def funnel_draw(pairs, figs):
     with tempfile.TemporaryDirectory() as tmp:
         for p in PA.fig_rule_shares(pairs, tmp):
             figs.adopt(p, 'P1_rule_shares')
+
+
+def selected_counts_draw(pairs, figs):
+    """P1b, the per-library counts, from the same audit table as P1."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for p in PA.fig_selected_counts(pairs, tmp):
+            figs.adopt(p, 'P1b_selected_counts')
 
 
 # ----------------------------------------------------- size-dist (Fig. 10)
@@ -421,34 +436,43 @@ def rho_draw(corr, figs):
 
 # ------------------------------------------------------- multifield (Fig. 13)
 #
-# One panel per environment, top to bottom. Each panel pools the multifield
-# clusters run_multifield_examples.py found in EVERY feature space it has
-# cached for that environment: the figure shows that the model produces
+# The corridor with landmarks, which has the most multifield units, pooled
+# over every feature space: the figure shows that the model produces
 # multifield responses, not which feature space does, so none is named.
+# Panel a draws every multifield unit; panel b only those whose subfields lie
+# at two or more scales, each in the color it wears in a.
 
-MULTIFIELD_ENVS = ['corr_lm8_l10w2', 'corr_lm0_l10w10']
-# Six example units per environment, spread across it (pick_spread). Every
-# unit at once -- None -- was hundreds of outlines and too much to read.
-MULTIFIELD_N = 6
+MULTIFIELD_ENVS = ['corr_lm8_l10w2']
+# None: every unit, as above. A number instead draws that many example units
+# per environment, spread across it (pick_spread), in one panel each.
+MULTIFIELD_N = None
 
 
-def _multifield_panel(env, clusters, xe, ye, geom):
-    if MULTIFIELD_N is None:
-        # Every unit. Largest first, so a small unit is drawn over a large
-        # one rather than hidden under it.
-        picked = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
-        colors = MF.assign_colors(picked)
-    else:
+def _multiscale(c):
+    return len(set(np.asarray(c['scales']).tolist())) > 1
+
+
+def _multifield_panels(env, clusters, xe, ye, geom):
+    n_ms = sum(_multiscale(c) for c in clusters)
+    print(f'  {env}: {len(clusters)} multifield clusters, {n_ms} with '
+          f'subfields at two or more scales', flush=True)
+    base = dict(env=env, geom=geom, x_edges=xe, y_edges=ye)
+    if MULTIFIELD_N is not None:
         picked = MF.pick_spread(clusters, MULTIFIELD_N, EV._centres(xe),
                                 EV._centres(ye))
-        colors = None
-    n_ms = sum(len(set(c['scales'])) > 1 for c in clusters)
-    print(f'  {env}: {len(clusters)} multifield clusters, {n_ms} multiscale; '
-          f'drawing {len(picked)}: ' + '; '.join(
-              f'{c.get("feature_space", "")} {c["node_id"]} scales '
-              f'{"/".join(map(str, c["scales"]))}' for c in picked), flush=True)
-    return dict(env=env, geom=geom, x_edges=xe, y_edges=ye, clusters=picked,
-                colors=colors)
+        return [dict(base, clusters=picked, colors=None)]
+    # Largest first, so a small unit is drawn over a large one rather than
+    # hidden under it. Colors are assigned once, over every unit, so a unit
+    # in panel b is the color it is in panel a.
+    every = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
+    colors = MF.assign_colors(every)
+    ms = [k for k, c in enumerate(every) if _multiscale(c)]
+    return [dict(base, clusters=every, colors=colors,
+                 title=f'All multifield place cells (n = {len(every)})'),
+            dict(base, clusters=[every[k] for k in ms],
+                 colors=[colors[k] for k in ms],
+                 title='Multifield place cells with fields at two or more '
+                       f'scales (n = {len(ms)})')]
 
 
 def multifield_cache(cache):
@@ -502,7 +526,7 @@ def multifield_cache(cache):
               flush=True)
         if not clusters:
             raise RuntimeError(f'{env}: no multifield unit in any feature space')
-        panels.append(_multifield_panel(env, clusters, xe, ye, geom))
+        panels += _multifield_panels(env, clusters, xe, ye, geom)
     return panels
 
 
@@ -516,12 +540,14 @@ def multifield_fake(rng):
         wide = (geom['x_max'] - geom['x_min']) / (geom['y_max'] - geom['y_min']) >= 2.5
         r_min = 0.09 if wide else 0.21
         clusters = []
-        for _ in range(40):
+        for _ in range(360 if wide else 100):
             n_sub = int(rng.choice([2, 2, 3]))
-            s0 = int(rng.integers(0, 4))
+            # Mostly the finest scales, as the corridor's real subfields are;
+            # about a third reach one scale up.
+            s0 = int(rng.choice([0, 0, 1, 1, 2]))
             ss = [s0] * n_sub
             if rng.random() < 0.35:
-                ss[-1] = min(s0 + int(rng.integers(1, 3)), 5)
+                ss[-1] = s0 + 1
             if wide:
                 step = 10.0 / 4
                 x0 = rng.uniform(-5 + 0.6, 5 - 0.6 - step * (n_sub - 1))
@@ -533,13 +559,14 @@ def multifield_fake(rng):
                 # ones in an arena without landmarks tend to be.
                 x, y = rng.uniform(-4.2, 4.2, 2)
                 centres = [(x, y), (-x, y), (x, -y)][:n_sub]
-            masks, areas = [], []
+            masks, areas, ells = [], [], []
             for (cx, cy), sc in zip(centres, ss):
                 r = r_min * 1.6 ** (sc + rng.uniform(0.2, 0.8))
                 e = rng.uniform(1.0, 1.5)
                 m = (((X - cx) / (r * e)) ** 2 + ((Y - cy) * e / r) ** 2 <= 1) & in_env
                 masks.append(m)
                 areas.append(m.sum() * ba)
+                ells.append((cx, cy, r * e, r / e, 0.0))
             # Subfields are separate patches by definition: a fake cluster
             # whose own subfields touch is not one, so it is dropped.
             if min(areas) <= 0 or np.sum(masks, axis=0).max() > 1:
@@ -549,8 +576,8 @@ def multifield_fake(rng):
                                  balance=float(np.sort(areas)[-2] / areas.max()),
                                  areas=areas,
                                  scales=MF.subfield_scales(areas, r_min, 1.6),
-                                 masks=np.stack(masks)))
-        panels.append(_multifield_panel(env, clusters, xe, ye, geom))
+                                 ellipses=ells, masks=np.stack(masks)))
+        panels += _multifield_panels(env, clusters, xe, ye, geom)
     return panels
 
 
@@ -648,8 +675,11 @@ FIGURES = {
                       member_pooled_cache, member_pooled_fake,
                       EV.fig_member_pooled),
     'funnel': ('fig:funnel (Fig. 5)',
-               {'P1_rule_shares': 'prune_P1_rule_shares'},
-               funnel_cache, funnel_fake, funnel_draw),
+               {'P1b_selected_counts': 'prune_P1b_selected_counts'},
+               funnel_cache, funnel_fake, selected_counts_draw),
+    'rule-shares': ('candidate outcomes, Fig. 5 until 19 Oct 2026 (not in main.tex)',
+                    {'P1_rule_shares': 'prune_P1_rule_shares'},
+                    funnel_cache, funnel_fake, funnel_draw),
     'size-dist': ('fig:size-dist (Fig. 10)',
                   {'S1_sizes_by_arena': 'scale_S1_sizes_by_arena'},
                   size_dist_cache, size_dist_fake, size_dist_draw),

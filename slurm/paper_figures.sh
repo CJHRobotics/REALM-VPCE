@@ -8,7 +8,8 @@
 # Nothing is recomputed: no dataset, no GPU, minutes.
 #
 #   valid-q      fig:valid-q (appendix)     valid_V1_what_q_does
-#   funnel       fig:funnel (Fig. 5)        prune_P1_rule_shares
+#   funnel       fig:funnel (Fig. 5)        prune_P1b_selected_counts
+#   rule-shares  (not in main.tex)          prune_P1_rule_shares
 #   scale-maps   fig:scale-maps (Fig. 6)    scale_S2a_<env>, all eight arenas
 #   outlines     Figs. 7-9                  scale_S2b_field_outlines_circular,
 #                                           _square, _corridor
@@ -19,9 +20,9 @@
 #   geom-rho     fig:geom-rho               geom_G4_correlation_summary
 #   multifield   fig:multifield (Fig. 13)   multifield_M00_overview
 #
-# `multifield` draws six example units per environment -- each with two or
-# more selected subfields -- from the scale run's libraries, all feature spaces
-# pooled, chosen to lie far apart across the environment.
+# `multifield` draws every multifield unit of corr_lm8_l10w2 -- two or more
+# selected subfields -- from the scale run's libraries, all feature spaces
+# pooled (a), and those whose subfields lie at two or more scales (b).
 #
 # `python paper_figures.py --list` prints the current set; figures are added
 # there, and this script needs no change when one is.

@@ -481,6 +481,81 @@ def fig_rule_shares(pairs_df, fig_dir):
     return [path]
 
 
+def fig_selected_counts(pairs_df, fig_dir):
+    """P1b: how many fields each library selected, and how many of those are
+    multifield -- one bar per channel, one panel per arena.
+
+    Counts, not shares: P1 says what each rule cut as a share of the
+    candidates, pooled over channels; this says what each library is left
+    with. The panels are the size-distribution figure's table -- an arena
+    with landmarks above its copy without -- and share one count axis, so
+    libraries compare across the page.
+
+    Multifield fields are a subset of the selected ones, so the orange bar is
+    drawn over the aqua one from zero rather than stacked after it: the aqua
+    bar's end is the total. Both counts are printed at the bar's end, the
+    multifield one in orange, because in most libraries it is a sliver too
+    thin to read off the axis.
+    """
+    import run_field_geometry as FG
+    if not len(pairs_df):
+        return []
+    d = pairs_df.copy()
+    multi = (d.n_admitted_multifield if 'n_admitted_multifield' in d
+             else pd.Series(0, index=d.index))
+    d['multi'] = multi.fillna(0).astype(int)
+    chans = [c for c in SD.CHANNELS if c in set(d.channel)]
+    y = np.arange(len(chans))[::-1]
+    top = float(d.n_admitted.max())
+    with plt.rc_context(SD.PAPER_RC):
+        fig, cells, H, above = FG._table(list(d.env.unique()), legend_rows=2)
+        # Channel names down the left are wider than the numbers _table
+        # leaves room for; the row labels stay at the figure's edge.
+        fig.subplots_adjust(left=0.135)
+        for i, j, e, ax in cells:
+            ax.grid(False)
+            ax.grid(axis='x', color='#ebeae5', lw=0.5)
+            g = d[d.env == e].set_index('channel').reindex(chans)
+            tot = g.n_admitted.fillna(0).to_numpy(dtype=float)
+            mul = g.multi.fillna(0).to_numpy(dtype=float)
+            ax.barh(y, tot, height=0.72, color=AQUA, label='selected')
+            ax.barh(y, mul, height=0.72, color=ORANGE,
+                    label='selected: multifield')
+            for yi, t, m in zip(y, tot, mul):
+                lab = ax.annotate(f'{t:,.0f}', xy=(t, yi), xytext=(2, 0),
+                                  textcoords='offset points', va='center',
+                                  fontsize=5.5, color=INK_2)
+                if m > 0:
+                    ax.annotate(f'{m:,.0f}', xy=(1, 0.5), xycoords=lab,
+                                xytext=(2.5, 0), textcoords='offset points',
+                                va='center', fontsize=5.5, color=ORANGE,
+                                fontweight='bold')
+            # One count axis for every panel, with room past the longest bar
+            # for its two numbers.
+            ax.set_xlim(0, 1.55 * top)
+            ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(3))
+            ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
+                lambda v, _: f'{v:,.0f}'))
+            ax.set_ylim(-0.6, len(chans) - 0.4)
+            ax.set_yticks(y)
+            ax.set_yticklabels([SD.channel_label(c, long=False) for c in chans]
+                               if j == 0 else [])
+            ax.tick_params(axis='y', length=0)
+        FG._label_table(fig, cells, H,
+                        'Selected and multifield fields by feature space',
+                        'selected fields', '')
+        ax0 = cells[0][3]
+        fig.legend(*ax0.get_legend_handles_labels(), loc='upper center', ncol=2,
+                   frameon=False, bbox_to_anchor=(0.5, 1 - 0.34 / H),
+                   handlelength=1.2, handleheight=0.8)
+        path = os.path.join(fig_dir, 'P1b_selected_counts.png')
+        fig.savefig(path, dpi=200, bbox_inches='tight')
+        fig.savefig(path.replace('.png', '.pdf'), bbox_inches='tight')
+        plt.close(fig)
+    print(f'  {path}', flush=True)
+    return [path]
+
+
 def fig_funnels(scales_df, pairs_df, fig_dir):
     """One figure per arena, one panel per channel: what each rule lets through.
 

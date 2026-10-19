@@ -542,13 +542,15 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
         _arena(ax, p['geom'])
         xc = 0.5 * (p['x_edges'][:-1] + p['x_edges'][1:])
         yc = 0.5 * (p['y_edges'][:-1] + p['y_edges'][1:])
-        # Every unit at once (a color each, from assign_colors) overlaps, so
-        # the fill drops to a light wash and the outline carries the color.
+        # Every unit at once (a color each, from assign_colors) overlaps
+        # several deep, so the fill drops to a faint wash that does not build
+        # up into a solid block, and a thin outline carries the color.
         many = p.get('colors') is not None
         for c, color in zip(p['clusters'], p.get('colors') or CLUSTER_COLORS):
-            _subfields(ax, xc, yc, c, color, alpha=0.15 if many else 0.3,
-                       lw=0.8 if many else 1.0)
-        ax.set_title(SD.arena_label(p['env']), fontsize=8, color=INK, pad=4)
+            _subfields(ax, xc, yc, c, color, alpha=0.07 if many else 0.3,
+                       lw=0.6 if many else 1.0)
+        ax.set_title(p.get('title') or SD.arena_label(p['env']), fontsize=8,
+                     color=INK, pad=4)
         ax.annotate('abcdefgh'[k], xy=(0, 1), xycoords='axes fraction',
                     xytext=(-4, 2), textcoords='offset points', fontsize=9,
                     fontweight='bold', ha='right', va='bottom')
