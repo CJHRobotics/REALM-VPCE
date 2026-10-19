@@ -440,12 +440,17 @@ def rho_draw(corr, figs):
 # over every feature space: the figure shows that the model produces
 # multifield responses, not which feature space does, so none is named.
 # Panel a draws every multifield unit; panel b only those whose subfields lie
-# at two or more scales, each in the color it wears in a.
+# at two or more scales, each in the color it wears in a; panel c a few
+# examples, spread across the environment (pick_spread), legible on their own.
 
 MULTIFIELD_ENVS = ['corr_lm8_l10w2']
 # None: every unit, as above. A number instead draws that many example units
 # per environment, spread across it (pick_spread), in one panel each.
 MULTIFIELD_N = None
+# Panel c's examples. They are drawn in the six-color palette rather than in
+# their colors from a: picked far apart, two of them could otherwise come out
+# in near-identical hues, and panel c is the one meant to be read unit by unit.
+MULTIFIELD_EXAMPLES = 6
 
 
 def _multiscale(c):
@@ -467,12 +472,16 @@ def _multifield_panels(env, clusters, xe, ye, geom):
     every = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
     colors = MF.assign_colors(every)
     ms = [k for k, c in enumerate(every) if _multiscale(c)]
+    examples = MF.pick_spread(every, MULTIFIELD_EXAMPLES, EV._centres(xe),
+                              EV._centres(ye))
     return [dict(base, clusters=every, colors=colors,
                  title=f'All multifield place cells (n = {len(every)})'),
             dict(base, clusters=[every[k] for k in ms],
                  colors=[colors[k] for k in ms],
                  title='Multifield place cells with fields at two or more '
-                       f'scales (n = {len(ms)})')]
+                       f'scales (n = {len(ms)})'),
+            dict(base, clusters=examples, colors=None,
+                 title=f'Example multifield place cells (n = {len(examples)})')]
 
 
 def multifield_cache(cache):
