@@ -86,7 +86,7 @@ class PaperFigures:
         print(f'  {dest}', flush=True)
 
 
-# ------------------------------------------------------------ valid-q (Fig. 3)
+# ---------------------------------------------------------- valid-q (appendix)
 
 def valid_q_cache(cache):
     """The example V1 was built for: the cluster the validation run picked at
@@ -138,7 +138,7 @@ def valid_q_fake(rng):
                 x_edges=xe, y_edges=ye, bin_area=ba, geom=geom)
 
 
-# ----------------------------------------------------------- funnel (Fig. 4)
+# ----------------------------------------------------------- funnel (Fig. 5)
 
 def funnel_cache(cache):
     """The prune audit's per-library counts. Its CSV records no q, so the date
@@ -182,7 +182,7 @@ def funnel_draw(pairs, figs):
             figs.adopt(p, 'P1_rule_shares')
 
 
-# ------------------------------------------------------ size-dist (Fig. 6)
+# ----------------------------------------------------- size-dist (Fig. 10)
 
 SIZE_ENVS = ['circ_lm8_r3', 'circ_lm0_r3', 'circ_lm8_r6', 'circ_lm0_r6',
              'corr_lm8_l10w10', 'corr_lm0_l10w10', 'corr_lm8_l10w2',
@@ -283,16 +283,21 @@ def scale_maps_draw(banks, figs):
 
 
 def outlines_draw(banks, figs):
-    """S2b, every library on one sheet, its rows in the order the other
-    figures use: each arena directly followed by its copy without landmarks."""
+    """S2b, three sheets -- the circular enclosures, the square ones, the
+    corridors -- each arena directly followed by its copy without landmarks,
+    in the order the other figures use."""
     geom = {e: _env_geom(e) for e in SIZE_ENVS}
     with tempfile.TemporaryDirectory() as tmp:
         SD.fig_field_outlines(banks, SIZE_ENVS, SD.CHANNELS, geom, tmp)
-        figs.adopt(f'{tmp}/S2b_field_outlines.png', 'S2b_field_outlines')
+        for shape, _ in SD.OUTLINE_SHAPES:
+            p = f'{tmp}/S2b_field_outlines_{shape}.png'
+            if os.path.exists(p):
+                figs.adopt(p, f'S2b_field_outlines_{shape}')
 
 
 def size_fits_cache(cache):
-    """Figure 12: the same libraries as Figure 6, with the fits the scale run
+    """The appendix's fits: the same libraries as the size distributions,
+    with the fits the scale run
     left in fits.csv."""
     path = f'{cache}/scale_distribution/fits.csv'
     if not os.path.exists(path):
@@ -382,7 +387,7 @@ def elong_wall_draw(fields, figs):
                        'elongation', hline=1.0))
 
 
-# ---------------------------------------------- correlation grid (Fig. 9)
+# ------------------------------------- correlation grid (not in main.tex)
 
 def rho_cache(cache):
     path = f'{cache}/field_geometry/correlations.csv'
@@ -414,7 +419,7 @@ def rho_draw(corr, figs):
     _geometry_draw(corr, figs, 'G4_correlation_summary', FG.fig_rho_summary)
 
 
-# ------------------------------------------------------- multifield (Fig. 10)
+# ------------------------------------------------------- multifield (Fig. 13)
 #
 # One panel per environment, top to bottom. Each panel pools the multifield
 # clusters run_multifield_examples.py found in EVERY feature space it has
@@ -422,7 +427,9 @@ def rho_draw(corr, figs):
 # multifield responses, not which feature space does, so none is named.
 
 MULTIFIELD_ENVS = ['corr_lm8_l10w2', 'corr_lm0_l10w10']
-MULTIFIELD_N = None       # None: every multifield unit, each its own color
+# Six example units per environment, spread across it (pick_spread). Every
+# unit at once -- None -- was hundreds of outlines and too much to read.
+MULTIFIELD_N = 6
 
 
 def _multifield_panel(env, clusters, xe, ye, geom):
@@ -432,7 +439,9 @@ def _multifield_panel(env, clusters, xe, ye, geom):
         picked = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
         colors = MF.assign_colors(picked)
     else:
-        picked, colors = MF.pick_superimposed(clusters, MULTIFIELD_N), None
+        picked = MF.pick_spread(clusters, MULTIFIELD_N, EV._centres(xe),
+                                EV._centres(ye))
+        colors = None
     n_ms = sum(len(set(c['scales'])) > 1 for c in clusters)
     print(f'  {env}: {len(clusters)} multifield clusters, {n_ms} multiscale; '
           f'drawing {len(picked)}: ' + '; '.join(
@@ -449,7 +458,7 @@ def multifield_cache(cache):
     model's own selection, not a separate rebuild.
 
     Overlap between units is judged on the ellipses rasterized to a 5 cm
-    grid, which is all pick_superimposed needs of them."""
+    grid, which is all pick_spread needs of them."""
     key = (SD.DEFAULT_PCTL, SD.DEFAULT_T, SD.PRIMARY_IOU)
     panels = []
     for env in MULTIFIELD_ENVS:
@@ -545,7 +554,7 @@ def multifield_fake(rng):
     return panels
 
 
-# ------------------------------------------- kappa on real clusters (Fig. 3)
+# ---------------------------------------- kappa on real clusters (appendix)
 
 def _members_meta(cache, env):
     d = f'{cache}/extent_validation/members/{env}'
@@ -631,38 +640,39 @@ def member_pooled_fake(rng):
 #        cache loader, fake builder, drawing function(data, figs))
 
 FIGURES = {
-    'valid-q': ('fig:valid-q (Fig. 3)',
+    'valid-q': ('fig:valid-q (appendix)',
                 {'V1_what_kappa_does': 'valid_V1_what_q_does'},
                 member_extent_cache, member_extent_fake, EV.fig_member_extent),
     'member-pooled': ('kappa over real clusters (appendix)',
                       {'V2_member_extent': 'valid_V2_member_extent'},
                       member_pooled_cache, member_pooled_fake,
                       EV.fig_member_pooled),
-    'funnel': ('fig:funnel (Fig. 4)',
+    'funnel': ('fig:funnel (Fig. 5)',
                {'P1_rule_shares': 'prune_P1_rule_shares'},
                funnel_cache, funnel_fake, funnel_draw),
-    'size-dist': ('fig:size-dist (Fig. 6)',
+    'size-dist': ('fig:size-dist (Fig. 10)',
                   {'S1_sizes_by_arena': 'scale_S1_sizes_by_arena'},
                   size_dist_cache, size_dist_fake, size_dist_draw),
-    'scale-maps': ('fig:scale-maps (Fig. 5)',
+    'scale-maps': ('fig:scale-maps (Fig. 6)',
                    {f'S2a_scales_{e}': f'scale_S2a_{e}' for e in SIZE_ENVS},
                    size_dist_cache, size_dist_fake, scale_maps_draw),
-    'outlines': ('fig:supp-outlines (Fig. 13)',
-                 {'S2b_field_outlines': 'scale_S2b_field_outlines'},
+    'outlines': ('fig:outlines-circular, -square, -corridor (Figs. 7-9)',
+                 {f'S2b_field_outlines_{s}': f'scale_S2b_field_outlines_{s}'
+                  for s, _ in SD.OUTLINE_SHAPES},
                  size_dist_cache, size_dist_fake, outlines_draw),
-    'size-fits': ('fig:supp-size-fits (Fig. 12)',
+    'size-fits': ('fig:supp-size-fits (appendix)',
                   {'S1_sizes_with_fits': 'scale_S1_sizes_with_fits'},
                   size_fits_cache, size_fits_fake, size_fits_draw),
-    'elong-scale': ('fig:elong-scale (Fig. 7)',
+    'elong-scale': ('fig:elong-scale (Fig. 11)',
                     {'G1_elongation_by_scale': 'geom_G1_elongation_by_scale'},
                     fields_cache, fields_fake, elong_scale_draw),
-    'elong-wall': ('fig:elong-wall (Fig. 8)',
+    'elong-wall': ('fig:elong-wall (Fig. 12)',
                    {'G2_elongation_vs_wall': 'geom_G2_elongation_vs_wall'},
                    fields_cache, fields_fake, elong_wall_draw),
-    'geom-rho': ('fig:geom-rho (Fig. 9)',
+    'geom-rho': ('fig:geom-rho (not in main.tex)',
                  {'G4_correlation_summary': 'geom_G4_correlation_summary'},
                  rho_cache, rho_fake, rho_draw),
-    'multifield': ('fig:multifield (Fig. 10)',
+    'multifield': ('fig:multifield (Fig. 13)',
                    {'M00_multifield_map': 'multifield_M00_overview'},
                    multifield_cache, multifield_fake, MF.fig_multifield_map),
 }

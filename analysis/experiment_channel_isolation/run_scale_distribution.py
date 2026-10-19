@@ -1469,7 +1469,7 @@ def _half_extents(geom):
 MAP_MARGIN = 0.18
 
 
-def _map_frame(geom):
+def _map_frame(geom, margin=MAP_MARGIN):
     """A map panel's half width, half height, and height/width ratio.
 
     Taken from the arena's own shape, so a 10 x 2 m corridor gets a short wide
@@ -1477,16 +1477,16 @@ def _map_frame(geom):
     """
     hx, hy = _half_extents(geom)
     lim_x, lim_y = 1.04 * hx, 1.04 * hy
-    return lim_x, lim_y, (2 * lim_y + MAP_MARGIN * lim_x) / (2 * lim_x)
+    return lim_x, lim_y, (2 * lim_y + margin * lim_x) / (2 * lim_x)
 
 
-def _draw_arena(ax, geom, lim_x, lim_y):
+def _draw_arena(ax, geom, lim_x, lim_y, margin=MAP_MARGIN):
     """Blank map panel: equal aspect, no ticks, the wall and the landmarks."""
     ax.set_facecolor(SURFACE)
     ax.set_aspect('equal')
     ax.set_xticks([]); ax.set_yticks([])
     ax.set_xlim(-lim_x, lim_x)
-    ax.set_ylim(-lim_y - MAP_MARGIN * lim_x, lim_y)
+    ax.set_ylim(-lim_y - margin * lim_x, lim_y)
     for sp in ax.spines.values():
         sp.set_visible(False)
     if geom.get('is_circular'):
@@ -1502,10 +1502,10 @@ def _draw_arena(ax, geom, lim_x, lim_y):
         ax.plot(lx, ly, 's', ms=2.4, color=INK, zorder=11)
 
 
-def _scale_bar(ax, lim_x, lim_y, fontsize=6):
+def _scale_bar(ax, lim_x, lim_y, fontsize=6, margin=MAP_MARGIN):
     """A round-length bar about a fifth of the panel wide, in the bottom margin."""
     length = max(v for v in (0.1, 0.2, 0.5, 1, 2, 5, 10) if v <= 0.4 * lim_x)
-    x0, y0 = -0.96 * lim_x, -lim_y - 0.55 * MAP_MARGIN * lim_x
+    x0, y0 = -0.96 * lim_x, -lim_y - 0.55 * margin * lim_x
     ax.plot([x0, x0 + length], [y0, y0], color=INK, lw=1.6,
             solid_capstyle='butt', zorder=12)
     ax.text(x0 + length + 0.05 * lim_x, y0, f'{length:g} m', fontsize=fontsize,
@@ -1589,13 +1589,54 @@ def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
         _save(fig, fig_dir, f'S2a_scales_{e}.png', dpi=110)
 
 
-def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
-    """S2b: every admitted field drawn on the arena, coloured by its scale.
+# S2b is three sheets, one per shape of floor, each titled with the paper's
+# name for that kind of environment: (shape, name in the title).
+OUTLINE_SHAPES = (('circular', 'circular enclosures'),
+                  ('square', 'square enclosures'),
+                  ('corridor', 'corridors'))
+# Every S2b sheet is drawn this wide and shrunk to the page width, the same for
+# all three, so their text prints at one size.
+OUTLINE_SHEET_W = 15.0
 
-    Arena on the row, channel on the column. Each arena fills its own panel so
-    the finest fields of the small arenas stay visible; the bar on each row
-    gives that row's size. Row heights follow each arena's shape, so the
-    corridor is a short wide row rather than a strip in a square of blank.
+
+def env_shape(geom):
+    """'circular', 'square' or 'corridor', from the floor's own outline."""
+    if geom.get('is_circular'):
+        return 'circular'
+    hx, hy = _half_extents(geom)
+    return 'square' if max(hx, hy) < 1.5 * min(hx, hy) else 'corridor'
+
+
+def _row_label(c, width=16):
+    """A feature space's long name for a row header, broken before a '+'
+    wherever a line would run past `width` characters."""
+    head, _, rest = channel_label(c).partition(' (')
+    if not rest:
+        return head
+    parts = ('(' + rest).split(' + ')
+    lines, line = [head], parts[0]
+    for p in parts[1:]:
+        if len(line) + 3 + len(p) <= width:
+            line += ' + ' + p
+        else:
+            lines.append(line)
+            line = '+ ' + p
+    return '\n'.join(lines + [line])
+
+
+def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
+    """S2b: every admitted field drawn on the arena, coloured by its scale,
+    one sheet per shape of arena (OUTLINE_SHAPES).
+
+    The eight arenas on one sheet had to fit the page's height, and the
+    corridor rows came out a strip a few millimetres tall. Split by shape,
+    each sheet takes the full page width, and the corridor sheet turns its
+    grid round -- a column per arena, a row per channel -- so a corridor is
+    drawn at half the page width rather than a sixth of it.
+
+    In the other two, arena on the row, channel on the column. Each arena
+    fills its own panel so the finest fields of the small arenas stay
+    visible; the bar on each row gives that row's size.
 
     Each field is a near-transparent fill under a strong outline, both in its
     scale's colour -- the six colours S2a uses, so a scale looks the same in
@@ -1614,24 +1655,50 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
     """
     key = lambda e, c: (e, c, DEFAULT_PCTL, DEFAULT_T, PRIMARY_IOU)
     envs = [e for e in envs if any(key(e, c) in banks_all for c in chans)]
-    if not envs:
-        return
-    frames = [_map_frame(env_geom.get(e, {})) for e in envs]
-    # Row heights follow each arena's shape, but never fall below what a row's
-    # own label needs: a 10 x 2 m corridor row is a third the height of a disc
-    # row, and at that height its rotated label runs into its neighbour's.
-    ratios = [max(f[2], 0.75) for f in frames]
-    fig, axes = plt.subplots(len(envs), len(chans), squeeze=False,
-                             figsize=(2.5 * len(chans),
-                                      sum(2.5 * r + 0.35 for r in ratios) + 1.2),
+    for shape, title in OUTLINE_SHAPES:
+        mine = [e for e in envs if env_shape(env_geom.get(e, {})) == shape]
+        if mine:
+            _outline_sheet(banks_all, mine, chans, env_geom, fig_dir, key,
+                           f'Place fields by feature space in the {title}',
+                           f'S2b_field_outlines_{shape}.png')
+
+
+def _outline_sheet(banks_all, envs, chans, env_geom, fig_dir, key, title, name):
+    """One S2b sheet: the arenas in `envs`, every channel of each."""
+    frames = {e: _map_frame(env_geom.get(e, {})) for e in envs}
+    # A wide panel (a corridor) puts the arenas on the columns, so there are
+    # two columns rather than six; its rows are then channels, labelled
+    # across, which leaves the panels this much less of the width. The strip
+    # under the arena is a fraction of the panel's WIDTH, and at half the page
+    # wide the usual one is deeper than the text in it needs, so it is halved.
+    wide = max(f[2] for f in frames.values()) < 0.5
+    margin = MAP_MARGIN / 2 if wide else MAP_MARGIN
+    frames = {e: _map_frame(env_geom.get(e, {}), margin) for e in envs}
+    label_w = 2.0 if wide else 0.0
+    if wide:
+        rows, cols = chans, envs
+        cell = lambda i, j: (envs[j], chans[i])
+        pw = (OUTLINE_SHEET_W - label_w) / len(envs)
+        ratios = [frames[envs[0]][2]] * len(chans)
+    else:
+        rows, cols = envs, chans
+        cell = lambda i, j: (envs[i], chans[j])
+        pw = OUTLINE_SHEET_W / len(chans)
+        # Row heights follow each arena's shape, but never fall below what a
+        # row's own label needs, on its side.
+        ratios = [max(frames[e][2], 0.75) for e in envs]
+    fig, axes = plt.subplots(len(rows), len(cols), squeeze=False,
+                             figsize=(OUTLINE_SHEET_W,
+                                      sum(pw * r + 0.35 for r in ratios) + 1.2),
                              gridspec_kw=dict(height_ratios=ratios))
     fig.patch.set_facecolor(SURFACE)
-    for i, e in enumerate(envs):
-        geom = env_geom.get(e, {})
-        lim_x, lim_y, _ = frames[i]
-        for j, c in enumerate(chans):
+    for i in range(len(rows)):
+        for j in range(len(cols)):
+            e, c = cell(i, j)
+            geom = env_geom.get(e, {})
+            lim_x, lim_y, _ = frames[e]
             ax = axes[i][j]
-            _draw_arena(ax, geom, lim_x, lim_y)
+            _draw_arena(ax, geom, lim_x, lim_y, margin)
             # The panel keeps the row's full height and the arena sits in the
             # middle of it, rather than the panel shrinking to the arena: the
             # row's label is centred on the panel, and a corridor-thin panel
@@ -1650,9 +1717,21 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
                     facecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.05)],
                     edgecolors=[mcolors.to_rgba(SCALE_COLORS[s], 0.95)],
                     linewidths=SCALE_LINEWIDTHS[s], zorder=2 + s))
-            # Drawn ~2.2x the page width and shrunk to fit, so every size
-            # here prints at under half: 14 pt prints near 6.5.
+            # Drawn ~2.4x the page width and shrunk to fit, so every size
+            # here prints at under half: 14 pt prints near 6.
             _count_label(ax, n, fontsize=14)
+            if wide:
+                # Arena names head the columns, channel names the rows; every
+                # panel is the same arena size, so one bar serves them all.
+                if i == 0:
+                    ax.set_title(e, fontsize=15, color=INK)
+                if j == 0:
+                    ax.set_ylabel(_row_label(c), fontsize=15, color=INK,
+                                  rotation=0, ha='right', va='center',
+                                  labelpad=10)
+                if i == 0 and j == 0:
+                    _scale_bar(ax, lim_x, lim_y, fontsize=12, margin=margin)
+                continue
             if i == 0:
                 ax.set_title(channel_label(c, sep='\n'), fontsize=15, color=INK)
             if j == 0:
@@ -1674,16 +1753,16 @@ def fig_field_outlines(banks_all, envs, chans, env_geom, fig_dir):
                       lw=max(0.8, 1.8 * SCALE_LINEWIDTHS[s]))
                 for s in SCALES]
                + [Line2D([], [], color=INK, marker='s', ms=6, ls='')])
-    # Text set for a sheet drawn ~2.2x the page width: 17 pt prints near 7.5.
+    # Text set for a sheet drawn ~2.4x the page width: 17 pt prints near 7.
     height = fig.get_figheight()
     fig.legend(handles, labels, loc='upper center', ncol=len(labels),
                frameon=False, fontsize=17, handlelength=1.6, handleheight=1.1,
                bbox_to_anchor=(0.5, 1 - 0.55 / height))
-    fig.suptitle('Fields by feature space', fontsize=19, color=INK,
-                 y=1 - 0.08 / height)
+    fig.suptitle(title, fontsize=19, color=INK, y=1 - 0.08 / height)
     fig.tight_layout(rect=(0, 0, 1, 1 - 1.0 / height))
-    # 130 dpi: at 150 this one figure was 11 MB of antialiased outlines.
-    _save(fig, fig_dir, 'S2b_field_outlines.png', dpi=130)
+    # 130 dpi: at 150 the single eight-arena sheet was 11 MB of antialiased
+    # outlines.
+    _save(fig, fig_dir, name, dpi=130)
 
 
 def _scale_panel(ax, s, col, ylabel, pct=False):

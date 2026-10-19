@@ -53,8 +53,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.legend_handler import HandlerTuple
-from matplotlib.patches import Circle, Patch
+from matplotlib.patches import Circle
 from scipy import ndimage
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -385,6 +384,54 @@ def pick_superimposed(clusters, n, max_overlap=0.05):
     return [clusters[i] for i in taken]
 
 
+def _centers(c, xc, yc):
+    """Each subfield's center in meters: its ellipse's when the cluster
+    carries them, otherwise the mean of its mask on the grid (xc, yc)."""
+    if c.get('ellipses') is not None:
+        return np.array([(e[0], e[1]) for e in c['ellipses']], dtype=float)
+    return np.array([(xc[np.nonzero(m)[0]].mean(), yc[np.nonzero(m)[1]].mean())
+                     for m in c['masks']])
+
+
+def pick_spread(clusters, n, xc, yc, max_overlap=0.05, pool_frac=0.25):
+    """A few clusters that, between them, reach across the arena.
+
+    Each one drawn should show its subfields well apart, so the first
+    candidates are the clusters whose two most distant subfields are farthest
+    apart: the top `pool_frac` of them, and at least 4n. The widest goes
+    first; each next one is the candidate whose subfields lie farthest from
+    every subfield already drawn, so the examples fill the arena rather than
+    crowd one end of it. As in pick_superimposed, a cluster that covers more
+    than `max_overlap` of its own area with what is already drawn is passed
+    over, so no two hues cross. Only if the first candidates run out does the
+    rest come in, widest first.
+    """
+    n = min(n, len(CLUSTER_COLORS))
+    cen = [_centers(c, xc, yc) for c in clusters]
+    span = np.array([np.max(np.linalg.norm(p[:, None] - p[None], axis=2))
+                     if len(p) > 1 else 0.0 for p in cen])
+    order = [int(i) for i in np.argsort(-span, kind='stable')]
+    k = max(4 * n, int(np.ceil(pool_frac * len(clusters))))
+    taken, drawn, pts = [], None, np.zeros((0, 2))
+    for pool in (order[:k], order[k:]):
+        pool = list(pool)
+        while len(taken) < n and pool:
+            if not len(pts):
+                i = pool[0]
+            else:
+                d = [np.linalg.norm(cen[j][:, None] - pts[None], axis=2).min()
+                     for j in pool]
+                i = pool[int(np.argmax(d))]
+            pool.remove(i)
+            mine = np.any(clusters[i]['masks'], axis=0)
+            if drawn is not None and (mine & drawn).sum() > max_overlap * mine.sum():
+                continue
+            taken.append(i)
+            drawn = mine if drawn is None else drawn | mine
+            pts = np.vstack([pts, cen[i]])
+    return [clusters[i] for i in taken]
+
+
 def multifield_clusters(ctx, rep, C, table):
     """Every reject with two or more subfields, with each subfield's mask.
 
@@ -443,26 +490,24 @@ def load_subfield_cache(path):
     return clusters, f['x_edges'], f['y_edges'], json.loads(str(f['geom']))
 
 
-def _subfields(ax, xc, yc, c, color):
+def _subfields(ax, xc, yc, c, color, alpha=0.3, lw=1.0):
     """One cluster: each subfield filled lightly and outlined in its hue --
     as its fitted ellipse when the cluster carries them (a selected unit
     read from a library), otherwise as its mask's outline."""
     from matplotlib.patches import Ellipse
     if c.get('ellipses') is not None:
-        # With every unit drawn they overlap, so the fill is a light wash and
-        # the outline carries the color.
         for (x, y, a, b, th) in c['ellipses']:
-            for fill, lw, z in ((True, 0, 3), (False, 0.8, 4)):
+            for fill, w, z in ((True, 0, 3), (False, lw, 4)):
                 ax.add_patch(Ellipse((x, y), 2 * a, 2 * b, angle=np.degrees(th),
                                      facecolor=color if fill else 'none',
-                                     edgecolor=color, alpha=0.15 if fill else 1.0,
-                                     lw=lw, zorder=z))
+                                     edgecolor=color, alpha=alpha if fill else 1.0,
+                                     lw=w, zorder=z))
         return
     for m in c['masks']:
         z = m.T.astype(float)
-        ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=0.15,
+        ax.contourf(xc, yc, z, levels=[0.5, 1.5], colors=[color], alpha=alpha,
                     zorder=3)
-        ax.contour(xc, yc, z, levels=[0.5], colors=[color], linewidths=0.9,
+        ax.contour(xc, yc, z, levels=[0.5], colors=[color], linewidths=lw,
                    zorder=4)
 
 
@@ -473,7 +518,7 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
     `panels` is a list of dicts, one per arena, drawn top to bottom:
         geom      the arena (outline, landmarks)
         x_edges, y_edges   the floor grid
-        clusters  as pick_superimposed returns them: each with `masks`, one
+        clusters  as pick_spread returns them: each with `masks`, one
                   boolean grid per subfield, and `scales`, one per subfield
 
     A wide arena takes the full width; a square one is drawn at the width of
@@ -484,7 +529,7 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
     heights = [DOUBLE_W / _aspect(p['geom']) if _aspect(p['geom']) >= 2.5
                else SINGLE_W for p in panels]
     fig = plt.figure(figsize=(DOUBLE_W, sum(heights) + 0.35 * len(panels)))
-    # The top margin is fixed rather than left to matplotlib, so the legend
+    # The top margin is fixed rather than left to matplotlib, so the title
     # can sit just above the first panel's title instead of floating free.
     top = 1 - 0.45 / fig.get_figheight()
     gs = fig.add_gridspec(len(panels), 1, height_ratios=heights, hspace=0.18,
@@ -497,27 +542,20 @@ def fig_multifield_map(panels, figs, name='M00_multifield_map'):
         _arena(ax, p['geom'])
         xc = 0.5 * (p['x_edges'][:-1] + p['x_edges'][1:])
         yc = 0.5 * (p['y_edges'][:-1] + p['y_edges'][1:])
+        # Every unit at once (a color each, from assign_colors) overlaps, so
+        # the fill drops to a light wash and the outline carries the color.
+        many = p.get('colors') is not None
         for c, color in zip(p['clusters'], p.get('colors') or CLUSTER_COLORS):
-            _subfields(ax, xc, yc, c, color)
+            _subfields(ax, xc, yc, c, color, alpha=0.15 if many else 0.3,
+                       lw=0.8 if many else 1.0)
         ax.set_title(SD.arena_label(p['env']), fontsize=8, color=INK, pad=4)
         ax.annotate('abcdefgh'[k], xy=(0, 1), xycoords='axes fraction',
                     xytext=(-4, 2), textcoords='offset points', fontsize=9,
                     fontweight='bold', ha='right', va='bottom')
-    # One legend entry, not one per hue: the hues are identities, not
-    # categories, so the key says what a hue is -- one place field -- once,
-    # with the swatches it applies to.
-    # Six swatches at most: they say what a color stands for, not which.
-    n = max(len(p['clusters']) for p in panels)
-    if n:
-        many = max(panels, key=lambda p: len(p['clusters']))
-        pal = (many.get('colors') or CLUSTER_COLORS)[:min(n, 6)]
-        swatches = tuple(Patch(facecolor=mcolors.to_rgba(c, 0.32), edgecolor=c,
-                               lw=0.9) for c in pal)
-        fig.legend([swatches], ['each color: one multifield place cell'],
-                   handler_map={tuple: HandlerTuple(ndivide=None, pad=0.3)},
-                   loc='lower center', bbox_to_anchor=(0.5, top + 0.22 / fig.get_figheight()),
-                   frameon=False,
-                   fontsize=7, handlelength=1.4 * len(pal), handleheight=1.0)
+    # The title says what a hue is -- one place cell, all of its fields --
+    # once, in place of a key: the hues are identities, not categories.
+    fig.suptitle('Each color represents a different place cell', fontsize=9,
+                 color=INK, y=1 - 0.06 / fig.get_figheight(), va='top')
     figs.save(fig, name)
 
 
