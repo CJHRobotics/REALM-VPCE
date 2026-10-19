@@ -1592,8 +1592,8 @@ def fig_scale_maps(banks_all, envs, chans, env_geom, fig_dir, C):
 # S2b is three sheets, one per shape of floor, each titled with the paper's
 # name for that kind of environment: (shape, name in the title).
 OUTLINE_SHAPES = (('circular', 'circular enclosures'),
-                  ('square', 'square enclosures'),
-                  ('corridor', 'corridors'))
+                  ('square', 'wide rectangular environments'),
+                  ('corridor', 'narrow rectangular environments'))
 # Every S2b sheet is drawn this wide and shrunk to the page width, the same for
 # all three, so their text prints at one size.
 OUTLINE_SHEET_W = 15.0
