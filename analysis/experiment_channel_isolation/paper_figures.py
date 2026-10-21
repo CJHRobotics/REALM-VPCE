@@ -248,65 +248,80 @@ def selected_counts_draw(pairs, figs):
 
 # ------------------------------------------------- multifield table (Table 3)
 #
-# Figure 5's three kinds of field, counted by scale, by environment and by
-# feature space, all libraries pooled within each row. Written as the
-# tabular the paper inputs (.tex), as a CSV, and as a PNG to look at.
+# For each environment and feature space, the multifield fields at each
+# scale, split as Figure 5 splits them: subfields of cells whose subfields all
+# lie at one scale (S) and of cells whose subfields span two or more (M).
+# Sets with no multifield field are left out of the tabular and listed in a
+# comment under it, for the caption. Written as the tabular the paper inputs
+# (.tex), as a long CSV that also carries the single-field counts, and as a
+# PNG to read in the mail.
 
 def multifield_table(banks):
-    """One row per scale, environment and feature space, and a total: the
-    selected fields and how many are of each kind (PA.FIELD_CATEGORIES)."""
-    parts = []
-    for (e, c, *_), b in banks.items():
-        parts.append(pd.DataFrame(dict(env=e, channel=c, scale=b.scale_band.astype(int),
-                                       cat=field_categories(b))))
-    f = pd.concat(parts, ignore_index=True)
+    """One row per environment, feature space and scale: the selected fields
+    and how many are of each kind (PA.FIELD_CATEGORIES)."""
     cols = [k for k, *_ in PA.FIELD_CATEGORIES]
-
-    def row(block, label, g):
-        n = g.cat.value_counts()
-        return dict(block=block, label=label, n_selected=len(g),
-                    **{k: int(n.get(k, 0)) for k in cols})
-    rows = [row('Scale', s, f[f.scale == s]) for s in SD.SCALES]
-    rows += [row('Environment', e, f[f.env == e]) for e in SD.ARENA_LABEL
-             if e in set(f.env)]
-    rows += [row('Feature space', c, f[f.channel == c]) for c in SD.CHANNELS
-             if c in set(f.channel)]
-    rows.append(row('All', 'all', f))
+    rows = []
+    for e in SD.ARENA_LABEL:
+        for c in SD.CHANNELS:
+            b = next((b for (e2, c2, *_), b in banks.items()
+                      if e2 == e and c2 == c), None)
+            if b is None:
+                continue
+            cat, scale = field_categories(b), b.scale_band.astype(int)
+            for s in SD.SCALES:
+                n = cat[scale == s].value_counts()
+                rows.append(dict(env=e, channel=c, scale=s,
+                                 n_selected=int((scale == s).sum()),
+                                 **{k: int(n.get(k, 0)) for k in cols}))
     return pd.DataFrame(rows)
 
 
-def _table_label(block, label, tex=True):
-    if block == 'Scale':
-        s = int(label)
-        return f'{s}' + (' (finest)' if s == SD.SCALES[0] else
-                         ' (coarsest)' if s == SD.SCALES[-1] else '')
-    if block == 'Environment':
-        return r'\texttt{%s}' % label.replace('_', r'\_') if tex else label
-    if block == 'Feature space':
-        name = SD.channel_label(label, long=False)
-        return r'\texttt{%s}' % name if tex else name
-    return 'All'
-
-
 def _table_tex(t):
-    """The tabular for the paper: counts, and each multifield kind's share of
-    the row's selected fields."""
-    pct = lambda n, of: f'{100 * n / of:.1f}\\%' if of else '--'
-    head = [r'\begin{tabular}{@{}lrrrr@{}}', r'  \toprule',
-            r'  & Selected & Single field, & Multifield, & Multifield, \\',
-            r'  & fields & multiscale & single scale & multiscale \\']
-    body, block = [], None
-    for r in t.itertuples():
-        if r.block != block:
-            body.append(r'  \midrule')
-            if r.block != 'All':
-                body.append(r'  \multicolumn{5}{@{}l}{\textit{%s}} \\' % r.block)
-            block = r.block
-        body.append(f'  {_table_label(r.block, r.label)} & \\num{{{r.n_selected}}} & '
-                    f'\\num{{{r.n_single}}} & '
-                    f'\\num{{{r.n_mf_ss}}} ({pct(r.n_mf_ss, r.n_selected)}) & '
-                    f'\\num{{{r.n_mf_ms}}} ({pct(r.n_mf_ms, r.n_selected)}) \\\\')
-    return '\n'.join(head + body + [r'  \bottomrule', r'\end{tabular}', ''])
+    """The tabular: a row per set with any multifield field, two columns per
+    scale; zeros print as a dash. Then every set summed, and the selected
+    fields at each scale, which the text cites the table for."""
+    dash = lambda n: f'{n}' if n else '--'
+    n_sc = len(SD.SCALES)
+    head = [r'\begin{tabular}{@{}ll*{%d}{r}@{}}' % (2 * n_sc), r'  \toprule',
+            r'  & & \multicolumn{%d}{c}{Scale} \\' % (2 * n_sc),
+            r'  \cmidrule(l){3-%d}' % (2 + 2 * n_sc),
+            '  & & ' + ' & '.join(r'\multicolumn{2}{c}{%d}' % s for s in SD.SCALES)
+            + r' \\',
+            '  ' + ''.join(r'\cmidrule(lr){%d-%d}' % (3 + 2 * k, 4 + 2 * k)
+                           for k in range(n_sc)),
+            '  Environment & Feature space & '
+            + ' & '.join(['S & M'] * n_sc) + r' \\', r'  \midrule']
+    body, empty = [], []
+    for e in SD.ARENA_LABEL:
+        first = True
+        for c in SD.CHANNELS:
+            g = t[(t.env == e) & (t.channel == c)].set_index('scale')
+            if not len(g):
+                continue
+            if not (g.n_mf_ss.sum() + g.n_mf_ms.sum()):
+                empty.append(f'{e} {c}')
+                continue
+            if first and body:
+                body.append(r'  \addlinespace')
+            name = r'\texttt{%s}' % e.replace('_', r'\_') if first else ''
+            cells = ' & '.join(f'{dash(int(g.n_mf_ss.get(s, 0)))} & '
+                               f'{dash(int(g.n_mf_ms.get(s, 0)))}'
+                               for s in SD.SCALES)
+            body.append(f'  {name} & \\texttt{{{SD.channel_label(c, long=False)}}}'
+                        f' & {cells} \\\\')
+            first = False
+    tot = t.groupby('scale')[['n_selected', 'n_mf_ss', 'n_mf_ms']].sum()
+    body += [r'  \midrule',
+             '  All sets & & ' + ' & '.join(
+                 f'{dash(int(tot.n_mf_ss.get(s, 0)))} & '
+                 f'{dash(int(tot.n_mf_ms.get(s, 0)))}' for s in SD.SCALES)
+             + r' \\',
+             '  \\multicolumn{2}{@{}l}{Selected fields, all sets} & ' + ' & '.join(
+                 r'\multicolumn{2}{c}{\num{%d}}' % int(tot.n_selected.get(s, 0))
+                 for s in SD.SCALES) + r' \\']
+    note = ['% Sets with no multifield field, left out above '
+            f'({len(empty)}):'] + [f'%   {x}' for x in empty]
+    return '\n'.join(head + body + [r'  \bottomrule', r'\end{tabular}'] + note + [''])
 
 
 def multifield_table_draw(banks, figs):
@@ -316,34 +331,41 @@ def multifield_table_draw(banks, figs):
     with open(f'{base}.tex', 'w') as fh:
         fh.write(_table_tex(t))
     print(f'  {base}.csv\n  {base}.tex', flush=True)
-    # A picture of the same numbers, to read in the mail.
-    lines = [f'{"":22s}{"selected":>10s}{"single":>10s}{"mf 1 scale":>16s}'
-             f'{"mf 2+ scales":>16s}']
-    block = None
-    for r in t.itertuples():
-        if r.block != block:
-            lines += ['', r.block.upper() if r.block != 'All' else '']
-            block = r.block
-        p = lambda n: f'{n:,} ({100 * n / r.n_selected:.1f}%)' if r.n_selected else '--'
-        lines.append(f'{_table_label(r.block, r.label, tex=False):22s}'
-                     f'{r.n_selected:>10,}{r.n_single:>10,}{p(r.n_mf_ss):>16s}'
-                     f'{p(r.n_mf_ms):>16s}')
-    fig = plt.figure(figsize=(7.4, 0.17 * len(lines) + 0.4))
+    # A picture of the same numbers, to read in the mail: S/M per scale.
+    lines = [f'{"":17s}{"":12s}' + ''.join(f'{"scale " + str(s):>11s}'
+                                           for s in SD.SCALES),
+             f'{"":17s}{"":12s}' + ''.join(f'{"S":>6s}{"M":>5s}' for _ in SD.SCALES)]
+    for e in SD.ARENA_LABEL:
+        for c in SD.CHANNELS:
+            g = t[(t.env == e) & (t.channel == c)].set_index('scale')
+            if not len(g) or not (g.n_mf_ss.sum() + g.n_mf_ms.sum()):
+                continue
+            lines.append(f'{e:17s}{SD.channel_label(c, long=False):12s}' + ''.join(
+                f'{int(g.n_mf_ss.get(s, 0)):>6d}{int(g.n_mf_ms.get(s, 0)):>5d}'
+                for s in SD.SCALES))
+    fig = plt.figure(figsize=(7.6, 0.17 * len(lines) + 0.4))
     fig.text(0.01, 0.99, '\n'.join(lines), family='DejaVu Sans Mono',
-             fontsize=8, va='top')
+             fontsize=7.5, va='top')
     figs.save(fig, 'T3_multifield_table')
 
 
 def multifield_table_fake(rng):
-    """The fake libraries, with made-up multifield cells: pairs and triples
-    of fields joined under one node_id, a few per library, most in the
-    narrow rectangular environment with landmarks."""
+    """The fake libraries, with made-up multifield cells: pairs of fields
+    joined under one node_id, in the sets the real libraries have them in
+    (the 19 of Figure 5, job 543634), most in the narrow rectangular
+    environment with landmarks."""
+    share = {'circ_lm8_r3': dict(hog=.01, color=.01, spatial=.01),
+             'circ_lm8_r6': dict(hog=.01, color=.12, spatial=.01, visual=.01),
+             'corr_lm8_l10w10': dict(hog=.03, color=.06, spatial=.05, visual=.01),
+             'corr_lm8_l10w2': dict(hog=.3, color=.05, spatial=.3, visual=.13,
+                                    all=.04),
+             'circ_lm0_r6': dict(color=.1), 'corr_lm0_l10w10': dict(color=.17),
+             'corr_lm0_l10w2': dict(color=.09)}
     banks = size_dist_fake(rng)
     for (e, c, *_), b in banks.items():
         node = np.arange(len(b))
         multi = np.zeros(len(b), bool)
-        k = (int(len(b) * 0.12) if e == 'corr_lm8_l10w2' and c != 'lidar'
-             else int(len(b) * 0.02) if c != 'lidar' else 0)
+        k = int(len(b) * share.get(e, {}).get(c, 0) / 2)
         idx = rng.permutation(len(b))[:2 * k]
         for j in range(0, len(idx) - 1, 2):
             node[idx[j + 1]] = node[idx[j]]
