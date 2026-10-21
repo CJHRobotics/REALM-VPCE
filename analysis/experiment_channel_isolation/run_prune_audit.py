@@ -481,9 +481,21 @@ def fig_rule_shares(pairs_df, fig_dir):
     return [path]
 
 
-def fig_selected_counts(pairs_df, fig_dir):
-    """P1b: how many fields each library selected, and how many of those are
-    multifield -- one bar per channel, one panel per arena.
+# The three kinds of selected field Figure 5 and Table 3 count, in bar order:
+# (count column, label, color). A field of a single-field place cell; a
+# subfield of a multifield cell whose subfields all lie at one scale; and a
+# subfield of a multifield cell whose subfields span two or more. Green,
+# orange, violet pass the palette validator on every pair (worst colour-blind
+# dE 9.2, green-orange; worst normal-vision 27.6).
+FIELD_CATEGORIES = (('n_single', 'single field – multiscale', AQUA),
+                    ('n_mf_ss', 'multifield – single scale', ORANGE),
+                    ('n_mf_ms', 'multifield – multiscale', VIOLET))
+
+
+def fig_selected_counts(counts_df, fig_dir):
+    """P1b: each library's selected fields by kind -- single-field, multifield
+    at one scale, multifield across scales (FIELD_CATEGORIES) -- one stacked
+    bar per channel, one panel per arena.
 
     Counts, not shares: P1 says what each rule cut as a share of the
     candidates, pooled over channels; this says what each library is left
@@ -491,19 +503,15 @@ def fig_selected_counts(pairs_df, fig_dir):
     with landmarks above its copy without -- and share one count axis, so
     libraries compare across the page.
 
-    Multifield fields are a subset of the selected ones, so the orange bar is
-    drawn over the aqua one from zero rather than stacked after it: the aqua
-    bar's end is the total. Both counts are printed at the bar's end, the
-    multifield one in orange, because in most libraries it is a sliver too
-    thin to read off the axis.
+    The bar's end is the library's total, printed after it; then the two
+    multifield counts, each after a square of its color, because in most
+    libraries they are slivers too thin to read off the axis. The numbers
+    are in ink, the squares say which is which.
     """
     import run_field_geometry as FG
-    if not len(pairs_df):
+    if not len(counts_df):
         return []
-    d = pairs_df.copy()
-    multi = (d.n_admitted_multifield if 'n_admitted_multifield' in d
-             else pd.Series(0, index=d.index))
-    d['multi'] = multi.fillna(0).astype(int)
+    d = counts_df.copy()
     chans = [c for c in SD.CHANNELS if c in set(d.channel)]
     y = np.arange(len(chans))[::-1]
     top = float(d.n_admitted.max())
@@ -515,25 +523,33 @@ def fig_selected_counts(pairs_df, fig_dir):
         for i, j, e, ax in cells:
             ax.grid(False)
             ax.grid(axis='x', color='#ebeae5', lw=0.5)
-            g = d[d.env == e].set_index('channel').reindex(chans)
-            tot = g.n_admitted.fillna(0).to_numpy(dtype=float)
-            mul = g.multi.fillna(0).to_numpy(dtype=float)
-            ax.barh(y, tot, height=0.72, color=AQUA, label='selected')
-            ax.barh(y, mul, height=0.72, color=ORANGE,
-                    label='selected: multifield')
-            for yi, t, m in zip(y, tot, mul):
-                lab = ax.annotate(f'{t:,.0f}', xy=(t, yi), xytext=(2, 0),
-                                  textcoords='offset points', va='center',
-                                  fontsize=5.5, color=INK_2)
-                if m > 0:
-                    ax.annotate(f'{m:,.0f}', xy=(1, 0.5), xycoords=lab,
-                                xytext=(2.5, 0), textcoords='offset points',
-                                va='center', fontsize=5.5, color=ORANGE,
-                                fontweight='bold')
+            g = d[d.env == e].set_index('channel').reindex(chans).fillna(0)
+            left = np.zeros(len(chans))
+            for col, label, color in FIELD_CATEGORIES:
+                v = g[col].to_numpy(dtype=float)
+                # A thin white edge keeps the segments apart where they meet.
+                ax.barh(y, v, left=left, height=0.72, color=color, label=label,
+                        edgecolor='white', linewidth=0.4)
+                left += v
+            for k, yi in enumerate(y):
+                prev = ax.annotate(f'{left[k]:,.0f}', xy=(left[k], yi),
+                                   xytext=(2, 0), textcoords='offset points',
+                                   va='center', fontsize=5.5, color=INK_2)
+                for col, _, color in FIELD_CATEGORIES[1:]:
+                    n = float(g[col].iloc[k])
+                    if n <= 0:
+                        continue
+                    sq = ax.annotate('■', xy=(1, 0.5), xycoords=prev,
+                                     xytext=(3, 0), textcoords='offset points',
+                                     va='center', fontsize=5, color=color)
+                    prev = ax.annotate(f'{n:,.0f}', xy=(1, 0.5), xycoords=sq,
+                                       xytext=(0.8, 0), textcoords='offset points',
+                                       va='center', fontsize=5.5, color=INK_2)
             # One count axis for every panel, with room past the longest bar
-            # for its two numbers.
-            ax.set_xlim(0, 1.55 * top)
-            ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(3))
+            # for its three numbers.
+            ax.set_xlim(0, 2.0 * top)
+            ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(
+                [v for v in (0, 500, 1000, 1500, 2000) if v <= 1.2 * top]))
             ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
                 lambda v, _: f'{v:,.0f}'))
             ax.set_ylim(-0.6, len(chans) - 0.4)
@@ -542,10 +558,10 @@ def fig_selected_counts(pairs_df, fig_dir):
                                if j == 0 else [])
             ax.tick_params(axis='y', length=0)
         FG._label_table(fig, cells, H,
-                        'Selected and multifield fields by feature space',
+                        'Selected fields by category and feature space',
                         'selected fields', '')
         ax0 = cells[0][3]
-        fig.legend(*ax0.get_legend_handles_labels(), loc='upper center', ncol=2,
+        fig.legend(*ax0.get_legend_handles_labels(), loc='upper center', ncol=3,
                    frameon=False, bbox_to_anchor=(0.5, 1 - 0.34 / H),
                    handlelength=1.2, handleheight=0.8)
         path = os.path.join(fig_dir, 'P1b_selected_counts.png')

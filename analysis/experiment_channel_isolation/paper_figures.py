@@ -176,10 +176,14 @@ def funnel_fake(rng):
                      {'hog': 0.02, 'color': 0.03, 'visual': 0.01}.get(c, 0.0)
                      if e != 'circ_lm0_r3' else 0.0)
             multi = int(kept * share * rng.uniform(0.7, 1.3))
+            # About two fifths of multifield fields belong to cells whose
+            # subfields span two or more scales.
+            ms = int(multi * rng.uniform(0.3, 0.5))
             rows.append(dict(env=e, channel=c, env_area_m2=a, n_candidates=n,
                              pass_size=kept, pass_contiguity=kept,
                              pass_competition=kept, n_admitted=kept,
-                             n_admitted_multifield=multi))
+                             n_admitted_multifield=multi, n_single=kept - multi,
+                             n_mf_ss=multi - ms, n_mf_ms=ms))
     return pd.DataFrame(rows)
 
 
@@ -190,6 +194,23 @@ def funnel_draw(pairs, figs):
             figs.adopt(p, 'P1_rule_shares')
 
 
+def field_categories(b):
+    """Each selected field's kind, by PA.FIELD_CATEGORIES: 'n_single' for a
+    field of a single-field place cell, 'n_mf_ss' for a subfield of a
+    multifield cell whose selected subfields all lie at one scale, 'n_mf_ms'
+    for one whose subfields span two or more scales. A cell is a node_id
+    within one library."""
+    if 'multifield' not in b:
+        raise RuntimeError('a library has no multifield column: it was built '
+                           'before the subfield rule; rerun it')
+    m = b.multifield.astype(bool).to_numpy()
+    cat = np.full(len(b), 'n_single', dtype=object)
+    if m.any():
+        spread = b[m].groupby('node_id').scale_band.transform('nunique')
+        cat[m] = np.where(spread.to_numpy() > 1, 'n_mf_ms', 'n_mf_ss')
+    return pd.Series(cat, index=b.index)
+
+
 def selected_counts_cache(cache):
     """Figure 5's counts, read off the scale run's libraries -- the field sets
     Figures 7-13 and the multifield text are drawn from -- rather than the
@@ -197,13 +218,16 @@ def selected_counts_cache(cache):
     its counts differed from the libraries' in three arenas (circ_lm0_r6,
     corr_lm8_l10w10, corr_lm0_l10w10; up to 21 fields a library), so Figure 5
     disagreed with Figures 7-8 and with the text."""
+    return _selected_counts(size_dist_cache(cache))
+
+
+def _selected_counts(banks):
     rows = []
-    for (e, c, *_), b in size_dist_cache(cache).items():
-        if 'multifield' not in b:
-            raise RuntimeError(f'the {e} {c} library has no multifield column: '
-                               f'it was built before the subfield rule; rerun it')
+    for (e, c, *_), b in banks.items():
+        cat = field_categories(b).value_counts()
         m = b.multifield.astype(bool)
         rows.append(dict(env=e, channel=c, n_admitted=len(b),
+                         **{k: int(cat.get(k, 0)) for k, *_ in PA.FIELD_CATEGORIES},
                          n_admitted_multifield=int(m.sum()),
                          n_multifield_units=int(b[m].node_id.nunique())))
     d = pd.DataFrame(rows)
@@ -220,6 +244,112 @@ def selected_counts_draw(pairs, figs):
     with tempfile.TemporaryDirectory() as tmp:
         for p in PA.fig_selected_counts(pairs, tmp):
             figs.adopt(p, 'P1b_selected_counts')
+
+
+# ------------------------------------------------- multifield table (Table 3)
+#
+# Figure 5's three kinds of field, counted by scale, by environment and by
+# feature space, all libraries pooled within each row. Written as the
+# tabular the paper inputs (.tex), as a CSV, and as a PNG to look at.
+
+def multifield_table(banks):
+    """One row per scale, environment and feature space, and a total: the
+    selected fields and how many are of each kind (PA.FIELD_CATEGORIES)."""
+    parts = []
+    for (e, c, *_), b in banks.items():
+        parts.append(pd.DataFrame(dict(env=e, channel=c, scale=b.scale_band.astype(int),
+                                       cat=field_categories(b))))
+    f = pd.concat(parts, ignore_index=True)
+    cols = [k for k, *_ in PA.FIELD_CATEGORIES]
+
+    def row(block, label, g):
+        n = g.cat.value_counts()
+        return dict(block=block, label=label, n_selected=len(g),
+                    **{k: int(n.get(k, 0)) for k in cols})
+    rows = [row('Scale', s, f[f.scale == s]) for s in SD.SCALES]
+    rows += [row('Environment', e, f[f.env == e]) for e in SD.ARENA_LABEL
+             if e in set(f.env)]
+    rows += [row('Feature space', c, f[f.channel == c]) for c in SD.CHANNELS
+             if c in set(f.channel)]
+    rows.append(row('All', 'all', f))
+    return pd.DataFrame(rows)
+
+
+def _table_label(block, label, tex=True):
+    if block == 'Scale':
+        s = int(label)
+        return f'{s}' + (' (finest)' if s == SD.SCALES[0] else
+                         ' (coarsest)' if s == SD.SCALES[-1] else '')
+    if block == 'Environment':
+        return r'\texttt{%s}' % label.replace('_', r'\_') if tex else label
+    if block == 'Feature space':
+        name = SD.channel_label(label, long=False)
+        return r'\texttt{%s}' % name if tex else name
+    return 'All'
+
+
+def _table_tex(t):
+    """The tabular for the paper: counts, and each multifield kind's share of
+    the row's selected fields."""
+    pct = lambda n, of: f'{100 * n / of:.1f}\\%' if of else '--'
+    head = [r'\begin{tabular}{@{}lrrrr@{}}', r'  \toprule',
+            r'  & Selected & Single field, & Multifield, & Multifield, \\',
+            r'  & fields & multiscale & single scale & multiscale \\']
+    body, block = [], None
+    for r in t.itertuples():
+        if r.block != block:
+            body.append(r'  \midrule')
+            if r.block != 'All':
+                body.append(r'  \multicolumn{5}{@{}l}{\textit{%s}} \\' % r.block)
+            block = r.block
+        body.append(f'  {_table_label(r.block, r.label)} & \\num{{{r.n_selected}}} & '
+                    f'\\num{{{r.n_single}}} & '
+                    f'\\num{{{r.n_mf_ss}}} ({pct(r.n_mf_ss, r.n_selected)}) & '
+                    f'\\num{{{r.n_mf_ms}}} ({pct(r.n_mf_ms, r.n_selected)}) \\\\')
+    return '\n'.join(head + body + [r'  \bottomrule', r'\end{tabular}', ''])
+
+
+def multifield_table_draw(banks, figs):
+    t = multifield_table(banks)
+    base = f'{figs.dir}/{figs.names["T3_multifield_table"]}'
+    t.to_csv(f'{base}.csv', index=False)
+    with open(f'{base}.tex', 'w') as fh:
+        fh.write(_table_tex(t))
+    print(f'  {base}.csv\n  {base}.tex', flush=True)
+    # A picture of the same numbers, to read in the mail.
+    lines = [f'{"":22s}{"selected":>10s}{"single":>10s}{"mf 1 scale":>16s}'
+             f'{"mf 2+ scales":>16s}']
+    block = None
+    for r in t.itertuples():
+        if r.block != block:
+            lines += ['', r.block.upper() if r.block != 'All' else '']
+            block = r.block
+        p = lambda n: f'{n:,} ({100 * n / r.n_selected:.1f}%)' if r.n_selected else '--'
+        lines.append(f'{_table_label(r.block, r.label, tex=False):22s}'
+                     f'{r.n_selected:>10,}{r.n_single:>10,}{p(r.n_mf_ss):>16s}'
+                     f'{p(r.n_mf_ms):>16s}')
+    fig = plt.figure(figsize=(7.4, 0.17 * len(lines) + 0.4))
+    fig.text(0.01, 0.99, '\n'.join(lines), family='DejaVu Sans Mono',
+             fontsize=8, va='top')
+    figs.save(fig, 'T3_multifield_table')
+
+
+def multifield_table_fake(rng):
+    """The fake libraries, with made-up multifield cells: pairs and triples
+    of fields joined under one node_id, a few per library, most in the
+    narrow rectangular environment with landmarks."""
+    banks = size_dist_fake(rng)
+    for (e, c, *_), b in banks.items():
+        node = np.arange(len(b))
+        multi = np.zeros(len(b), bool)
+        k = (int(len(b) * 0.12) if e == 'corr_lm8_l10w2' and c != 'lidar'
+             else int(len(b) * 0.02) if c != 'lidar' else 0)
+        idx = rng.permutation(len(b))[:2 * k]
+        for j in range(0, len(idx) - 1, 2):
+            node[idx[j + 1]] = node[idx[j]]
+            multi[idx[j]] = multi[idx[j + 1]] = True
+        b['node_id'], b['multifield'] = node, multi
+    return banks
 
 
 # ----------------------------------------------------- size-dist (Fig. 10)
@@ -464,18 +594,13 @@ def rho_draw(corr, figs):
 # The corridor with landmarks, which has the most multifield units, pooled
 # over every feature space: the figure shows that the model produces
 # multifield responses, not which feature space does, so none is named.
-# Panel a draws every multifield unit; panel b only those whose subfields lie
-# at two or more scales, each in the color it wears in a; panel c a few of
-# b's units, spread across the environment (pick_spread), legible on their own.
+# Panel a draws the multifield units whose subfields all lie at one scale,
+# panel b those whose subfields span two or more: Figure 5's orange and violet.
 
 MULTIFIELD_ENVS = ['corr_lm8_l10w2']
 # None: every unit, as above. A number instead draws that many example units
 # per environment, spread across it (pick_spread), in one panel each.
 MULTIFIELD_N = None
-# Panel c's examples. They are drawn in the six-color palette rather than in
-# their colors from a: picked far apart, two of them could otherwise come out
-# in near-identical hues, and panel c is the one meant to be read unit by unit.
-MULTIFIELD_EXAMPLES = 6
 
 
 def _multiscale(c):
@@ -492,22 +617,17 @@ def _multifield_panels(env, clusters, xe, ye, geom):
                                 EV._centres(ye))
         return [dict(base, clusters=picked, colors=None)]
     # Largest first, so a small unit is drawn over a large one rather than
-    # hidden under it. Colors are assigned once, over every unit, so a unit
-    # in panel b is the color it is in panel a.
+    # hidden under it. The two panels share no unit, so each is colored on
+    # its own, the most different colors going to neighbors.
     every = sorted(clusters, key=lambda c: -float(np.max(c['areas'])))
-    colors = MF.assign_colors(every)
-    ms = [k for k, c in enumerate(every) if _multiscale(c)]
-    examples = MF.pick_spread([every[k] for k in ms], MULTIFIELD_EXAMPLES,
-                              EV._centres(xe), EV._centres(ye))
-    return [dict(base, clusters=every, colors=colors,
-                 title=f'All multifield place cells (n = {len(every)})'),
-            dict(base, clusters=[every[k] for k in ms],
-                 colors=[colors[k] for k in ms],
-                 title='Multifield place cells with fields at two or more '
-                       f'scales (n = {len(ms)})'),
-            dict(base, clusters=examples, colors=None,
-                 title='Examples of multifield place cells with fields at two '
-                       f'or more scales (n = {len(examples)})')]
+    panels = []
+    for multiscale, label in ((False, PA.FIELD_CATEGORIES[1][1]),
+                              (True, PA.FIELD_CATEGORIES[2][1])):
+        mine = [c for c in every if _multiscale(c) == multiscale]
+        panels.append(dict(base, clusters=mine, colors=MF.assign_colors(mine),
+                           title=f'{label[0].upper()}{label[1:]} '
+                                 f'(n = {len(mine)})'))
+    return panels
 
 
 def multifield_cache(cache):
@@ -712,6 +832,10 @@ FIGURES = {
     'funnel': ('fig:funnel (Fig. 5)',
                {'P1b_selected_counts': 'prune_P1b_selected_counts'},
                selected_counts_cache, funnel_fake, selected_counts_draw),
+    'multifield-table': ('tab:funnel-scale (Table 3)',
+                         {'T3_multifield_table': 'table3_multifield_categories'},
+                         size_dist_cache, multifield_table_fake,
+                         multifield_table_draw),
     'rule-shares': ('candidate outcomes, Fig. 5 until 19 Oct 2026 (not in main.tex)',
                     {'P1_rule_shares': 'prune_P1_rule_shares'},
                     funnel_cache, funnel_fake, funnel_draw),
@@ -801,7 +925,8 @@ def mail_figures(out, job, status, log, send=None):
     too_big = [p for p in pngs if os.path.getsize(p) > budget]
     # The first message also carries the log and any CSV beside the figures
     # (the paper's numbers), so it starts with less room.
-    first = sorted(glob.glob(f'{out}/*.csv')) + ([log] if os.path.exists(log) else [])
+    first = (sorted(glob.glob(f'{out}/*.csv')) + sorted(glob.glob(f'{out}/*.tex'))
+             + ([log] if os.path.exists(log) else []))
     batches, cur = [], []
     room = budget - sum(os.path.getsize(p) for p in first)
     for p in (p for p in pngs if p not in too_big):
