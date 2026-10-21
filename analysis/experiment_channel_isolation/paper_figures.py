@@ -248,13 +248,12 @@ def selected_counts_draw(pairs, figs):
 
 # ------------------------------------------------- multifield table (Table 3)
 #
-# For each environment and feature space, the multifield fields at each
-# scale, split as Figure 5 splits them: subfields of cells whose subfields all
-# lie at one scale (S) and of cells whose subfields span two or more (M).
-# Sets with no multifield field are left out of the tabular and listed in a
-# comment under it, for the caption. Written as the tabular the paper inputs
-# (.tex), as a long CSV that also carries the single-field counts, and as a
-# PNG to read in the mail.
+# For each environment and feature space, the selected fields split as
+# Figure 5 splits them: single-field, multifield at one scale, multifield
+# across scales. Sets with no multifield field are left out of the tabular
+# and listed in a comment under it, for the caption. Written as the tabular
+# the paper inputs (.tex), as a long CSV that keeps the scale of every count,
+# and as a PNG to read in the mail.
 
 def multifield_table(banks):
     """One row per environment, feature space and scale: the selected fields
@@ -277,48 +276,36 @@ def multifield_table(banks):
 
 
 def _table_tex(t):
-    """The tabular: a row per set with any multifield field, two columns per
-    scale; zeros print as a dash. Then every set summed, and the selected
-    fields at each scale, which the text cites the table for."""
-    dash = lambda n: f'{n}' if n else '--'
-    n_sc = len(SD.SCALES)
-    head = [r'\begin{tabular}{@{}ll*{%d}{r}@{}}' % (2 * n_sc), r'  \toprule',
-            r'  & & \multicolumn{%d}{c}{Scale} \\' % (2 * n_sc),
-            r'  \cmidrule(l){3-%d}' % (2 + 2 * n_sc),
-            '  & & ' + ' & '.join(r'\multicolumn{2}{c}{%d}' % s for s in SD.SCALES)
-            + r' \\',
-            '  ' + ''.join(r'\cmidrule(lr){%d-%d}' % (3 + 2 * k, 4 + 2 * k)
-                           for k in range(n_sc)),
-            '  Environment & Feature space & '
-            + ' & '.join(['S & M'] * n_sc) + r' \\', r'  \midrule']
+    """The tabular: a row per set with any multifield field -- its selected
+    fields and how many are of each kind, the numbers behind Figure 5's bars
+    -- then every set summed. Zeros print as a dash. The scale is left out of
+    the tabular (a column pair per scale read badly) but kept in the CSV."""
+    cols = ['n_selected'] + [k for k, *_ in PA.FIELD_CATEGORIES]
+    g = t.groupby(['env', 'channel'])[cols].sum()
+    num = lambda n: (r'\num{%d}' % n if n >= 1000 else f'{n}') if n else '--'
+    head = [r'\begin{tabular}{@{}llrrrr@{}}', r'  \toprule',
+            r'  & & Selected & Single field, & Multifield, & Multifield, \\',
+            r'  Environment & Feature space & fields & multiscale & single scale'
+            r' & multiscale \\', r'  \midrule']
     body, empty = [], []
     for e in SD.ARENA_LABEL:
         first = True
         for c in SD.CHANNELS:
-            g = t[(t.env == e) & (t.channel == c)].set_index('scale')
-            if not len(g):
+            if (e, c) not in g.index:
                 continue
-            if not (g.n_mf_ss.sum() + g.n_mf_ms.sum()):
+            r = g.loc[(e, c)]
+            if not (r.n_mf_ss + r.n_mf_ms):
                 empty.append(f'{e} {c}')
                 continue
             if first and body:
                 body.append(r'  \addlinespace')
             name = r'\texttt{%s}' % e.replace('_', r'\_') if first else ''
-            cells = ' & '.join(f'{dash(int(g.n_mf_ss.get(s, 0)))} & '
-                               f'{dash(int(g.n_mf_ms.get(s, 0)))}'
-                               for s in SD.SCALES)
-            body.append(f'  {name} & \\texttt{{{SD.channel_label(c, long=False)}}}'
-                        f' & {cells} \\\\')
+            body.append(f'  {name} & \\texttt{{{SD.channel_label(c, long=False)}}} & '
+                        + ' & '.join(num(int(r[k])) for k in cols) + r' \\')
             first = False
-    tot = t.groupby('scale')[['n_selected', 'n_mf_ss', 'n_mf_ms']].sum()
-    body += [r'  \midrule',
-             '  All sets & & ' + ' & '.join(
-                 f'{dash(int(tot.n_mf_ss.get(s, 0)))} & '
-                 f'{dash(int(tot.n_mf_ms.get(s, 0)))}' for s in SD.SCALES)
-             + r' \\',
-             '  \\multicolumn{2}{@{}l}{Selected fields, all sets} & ' + ' & '.join(
-                 r'\multicolumn{2}{c}{\num{%d}}' % int(tot.n_selected.get(s, 0))
-                 for s in SD.SCALES) + r' \\']
+    tot = g.sum()
+    body += [r'  \midrule', '  All sets & & '
+             + ' & '.join(num(int(tot[k])) for k in cols) + r' \\']
     note = ['% Sets with no multifield field, left out above '
             f'({len(empty)}):'] + [f'%   {x}' for x in empty]
     return '\n'.join(head + body + [r'  \bottomrule', r'\end{tabular}'] + note + [''])
@@ -331,21 +318,23 @@ def multifield_table_draw(banks, figs):
     with open(f'{base}.tex', 'w') as fh:
         fh.write(_table_tex(t))
     print(f'  {base}.csv\n  {base}.tex', flush=True)
-    # A picture of the same numbers, to read in the mail: S/M per scale.
-    lines = [f'{"":17s}{"":12s}' + ''.join(f'{"scale " + str(s):>11s}'
-                                           for s in SD.SCALES),
-             f'{"":17s}{"":12s}' + ''.join(f'{"S":>6s}{"M":>5s}' for _ in SD.SCALES)]
+    # A picture of the same numbers, to read in the mail.
+    cols = ['n_selected'] + [k for k, *_ in PA.FIELD_CATEGORIES]
+    g = t.groupby(['env', 'channel'])[cols].sum()
+    lines = [f'{"":17s}{"":12s}{"selected":>10s}{"single":>9s}{"mf 1 sc":>9s}'
+             f'{"mf 2+ sc":>9s}']
     for e in SD.ARENA_LABEL:
         for c in SD.CHANNELS:
-            g = t[(t.env == e) & (t.channel == c)].set_index('scale')
-            if not len(g) or not (g.n_mf_ss.sum() + g.n_mf_ms.sum()):
+            if (e, c) not in g.index:
                 continue
-            lines.append(f'{e:17s}{SD.channel_label(c, long=False):12s}' + ''.join(
-                f'{int(g.n_mf_ss.get(s, 0)):>6d}{int(g.n_mf_ms.get(s, 0)):>5d}'
-                for s in SD.SCALES))
-    fig = plt.figure(figsize=(7.6, 0.17 * len(lines) + 0.4))
+            r = g.loc[(e, c)]
+            if r.n_mf_ss + r.n_mf_ms:
+                lines.append(f'{e:17s}{SD.channel_label(c, long=False):12s}'
+                             + ''.join(f'{int(r[k]):>{10 if k == "n_selected" else 9},}'
+                                       for k in cols))
+    fig = plt.figure(figsize=(7.0, 0.17 * len(lines) + 0.4))
     fig.text(0.01, 0.99, '\n'.join(lines), family='DejaVu Sans Mono',
-             fontsize=7.5, va='top')
+             fontsize=8, va='top')
     figs.save(fig, 'T3_multifield_table')
 
 
